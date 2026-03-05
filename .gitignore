@@ -1,0 +1,37 @@
+# Build artifacts
+amorph
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files and temporary artifacts
+test_*.go
+*_test_temp*
+temp.txt
+problematic_inputs.txt
+
+# Development and debugging files
+lexer_memory_monitor.go
+safe_lexer_wrapper.go
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# AmorphDB data directories (users should create their own)
+.amorph/
+data/
+*.db
