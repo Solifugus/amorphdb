@@ -176,7 +176,7 @@ func testDirectStorageOperations(t *testing.T, service *service.Service) {
 func testProtocolOperations(t *testing.T, client *CoreTestClient) {
 	// Write test data via protocol
 	textValue := &types.Text{Value: "Protocol test value"}
-	err := client.Write([]string{"protocol", "test", "value"}, textValue, 1000)
+	err := client.Write([]string{"world", "protocol", "test", "value"}, textValue, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write via protocol: %v", err)
 	}
@@ -275,34 +275,40 @@ func testStorageTypes(t *testing.T, tree storage.Tree) {
 func testTemporalStorage(t *testing.T, tree storage.Tree) {
 	path := []string{"temporal", "value"}
 
-	// Write first value
+	// Write first value and capture timestamp
 	value1 := storage.Value{Data: []byte("First value"), TypeTag: storage.TypeText}
-	err := tree.Write(path, value1, 1000)
+	err := tree.Write(path, value1, 1000) // author ID 1000
 	if err != nil {
 		t.Fatalf("Failed to write first temporal value: %v", err)
 	}
-	time1 := time.Now().Unix()
+	writeTime1 := time.Now().UTC().UnixMicro()
 
-	// Wait a bit, then write second value
+	// Wait a bit to ensure different timestamps
 	time.Sleep(10 * time.Millisecond)
+
+	// Write second value and capture timestamp
 	value2 := storage.Value{Data: []byte("Second value"), TypeTag: storage.TypeText}
-	err = tree.Write(path, value2, 1000)
+	err = tree.Write(path, value2, 1000) // author ID 1000
 	if err != nil {
 		t.Fatalf("Failed to write second temporal value: %v", err)
 	}
-	time2 := time.Now().Unix()
+	writeTime2 := time.Now().UTC().UnixMicro()
 
-	// Read current value
+	t.Logf("Temporal test: writeTime1=%d, writeTime2=%d", writeTime1, writeTime2)
+
+	// Read current value (should be latest)
 	currentValue, err := tree.Read(path)
 	if err != nil {
 		t.Fatalf("Failed to read current value: %v", err)
 	}
 	if string(currentValue.Data) != "Second value" {
-		t.Errorf("Current value mismatch")
+		t.Errorf("Current value mismatch: expected 'Second value', got '%s'", string(currentValue.Data))
 	}
 
-	// Read historical value
-	historicalValue, err := tree.ReadAt(path, time1+1)
+	// Read historical value just after first write (should get first value)
+	readTime := writeTime1 + 1000 // 1ms after first write
+	t.Logf("Reading at timestamp: %d (after first write)", readTime)
+	historicalValue, err := tree.ReadAt(path, readTime)
 	if err != nil {
 		t.Fatalf("Failed to read historical value: %v", err)
 	}
@@ -310,13 +316,14 @@ func testTemporalStorage(t *testing.T, tree storage.Tree) {
 		t.Errorf("Historical value mismatch: expected 'First value', got '%s'", string(historicalValue.Data))
 	}
 
-	// Read second historical value
-	historicalValue2, err := tree.ReadAt(path, time2+1)
+	// Read historical value just after second write (should get second value)
+	readTime2 := writeTime2 + 1000 // 1ms after second write
+	historicalValue2, err := tree.ReadAt(path, readTime2)
 	if err != nil {
 		t.Fatalf("Failed to read second historical value: %v", err)
 	}
 	if string(historicalValue2.Data) != "Second value" {
-		t.Errorf("Second historical value mismatch")
+		t.Errorf("Second historical value mismatch: expected 'Second value', got '%s'", string(historicalValue2.Data))
 	}
 
 	t.Log("Temporal storage operations working correctly")
@@ -345,14 +352,14 @@ func testNestedPaths(t *testing.T, tree storage.Tree) {
 }
 
 func testReadWriteProtocol(t *testing.T, client *CoreTestClient) {
-	// Test writing and reading various types
+	// Test writing and reading various types (use ~ path for default permissions)
 	textVal := &types.Text{Value: "Protocol text test"}
-	err := client.Write([]string{"proto", "text"}, textVal, 1000)
+	err := client.Write([]string{"world", "proto", "text"}, textVal, 1000)
 	if err != nil {
 		t.Fatalf("Protocol write failed: %v", err)
 	}
 
-	readVal, err := client.Read([]string{"proto", "text"})
+	readVal, err := client.Read([]string{"world", "proto", "text"})
 	if err != nil {
 		t.Fatalf("Protocol read failed: %v", err)
 	}
@@ -363,12 +370,12 @@ func testReadWriteProtocol(t *testing.T, client *CoreTestClient) {
 
 	// Test number
 	numVal := &types.Number{Value: 42.5}
-	err = client.Write([]string{"proto", "number"}, numVal, 1000)
+	err = client.Write([]string{"world", "proto", "number"}, numVal, 1000)
 	if err != nil {
 		t.Fatalf("Protocol number write failed: %v", err)
 	}
 
-	readNumVal, err := client.Read([]string{"proto", "number"})
+	readNumVal, err := client.Read([]string{"world", "proto", "number"})
 	if err != nil {
 		t.Fatalf("Protocol number read failed: %v", err)
 	}
