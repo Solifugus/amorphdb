@@ -567,11 +567,18 @@ func (l *Lexer) isStandaloneModifier() bool {
 		return false
 	}
 
-	// Check if the content between parentheses is a valid modifier
+	// Check if the content between parentheses looks like a modifier
 	word := l.input[wordStart:tempPos]
-	_, isValidModifier := modifiers[word]
-	if !isValidModifier {
+	// Allow any word-like content - LookupModifier will classify known vs unknown modifiers
+	if len(word) == 0 {
 		return false
+	}
+	// Simple check: must contain only letters, numbers, and underscores (identifier-like)
+	for _, ch := range word {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+			 (ch >= '0' && ch <= '9') || ch == '_') {
+			return false
+		}
 	}
 
 	// Check if content is a simple word (no spaces, commas, or complex syntax)

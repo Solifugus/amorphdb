@@ -44,15 +44,7 @@ func TestSecurityIntegration_CompleteWorkflow(t *testing.T) {
 		},
 	}
 
-	admin := &Agent{
-		Identity: "admin",
-		AgentID:  adminID,
-		Tree:     tree,
-		Stamp: map[string]interface{}{
-			"role":      types.Text{Value: "admin"},
-			"clearance": types.Text{Value: "admin"},
-		},
-	}
+	// Note: adminID is used for setting up permissions, but admin Agent object not needed for this test
 
 	// === SETUP STAMPS ===
 
