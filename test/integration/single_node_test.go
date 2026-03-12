@@ -85,7 +85,7 @@ func TestBasicProtocolOperations(t *testing.T) {
 		t.Fatalf("Failed to read text value: %v", err)
 	}
 
-	readText, ok := readValue.(*types.Text)
+	readText, ok := readValue.(types.Text)
 	if !ok {
 		t.Fatalf("Expected text value, got %T", readValue)
 	}
@@ -107,7 +107,7 @@ func TestBasicProtocolOperations(t *testing.T) {
 		t.Fatalf("Failed to read number value: %v", err)
 	}
 
-	readNumber, ok := readNumberValue.(*types.Number)
+	readNumber, ok := readNumberValue.(types.Number)
 	if !ok {
 		t.Fatalf("Expected number value, got %T", readNumberValue)
 	}
@@ -256,7 +256,7 @@ func testBasicDataOperations(t *testing.T, client *TestProtocolClient) {
 		t.Fatalf("Failed to read test data: %v", err)
 	}
 
-	resultText, ok := result.(*types.Text)
+	resultText, ok := result.(types.Text)
 	if !ok {
 		t.Fatalf("Expected text result, got %T", result)
 	}
@@ -284,8 +284,8 @@ func testBasicDataOperations(t *testing.T, client *TestProtocolClient) {
 		t.Fatalf("Failed to read person name: %v", err)
 	}
 
-	if nameResult.(*types.Text).Value != "Alice" {
-		t.Errorf("Expected 'Alice', got '%s'", nameResult.(*types.Text).Value)
+	if nameResult.(types.Text).Value != "Alice" {
+		t.Errorf("Expected 'Alice', got '%s'", nameResult.(types.Text).Value)
 	}
 
 	ageResult, err := client.Read([]string{"~", "my", "test", "person", "age"})
@@ -293,8 +293,8 @@ func testBasicDataOperations(t *testing.T, client *TestProtocolClient) {
 		t.Fatalf("Failed to read person age: %v", err)
 	}
 
-	if ageResult.(*types.Number).Value != 30.0 {
-		t.Errorf("Expected 30, got %f", ageResult.(*types.Number).Value)
+	if ageResult.(types.Number).Value != 30.0 {
+		t.Errorf("Expected 30, got %f", ageResult.(types.Number).Value)
 	}
 }
 
@@ -320,7 +320,7 @@ func testDataSurvivedRestart(t *testing.T, client *TestProtocolClient) {
 		t.Fatalf("Failed to read persistent data after restart: %v", err)
 	}
 
-	if result.(*types.Text).Value != "This should survive restart" {
+	if result.(types.Text).Value != "This should survive restart" {
 		t.Errorf("Persistent data not preserved across restart")
 	}
 
@@ -329,8 +329,8 @@ func testDataSurvivedRestart(t *testing.T, client *TestProtocolClient) {
 		t.Fatalf("Failed to read persistent number after restart: %v", err)
 	}
 
-	if numberResult.(*types.Number).Value != 42.0 {
-		t.Errorf("Expected persistent number 42, got %f", numberResult.(*types.Number).Value)
+	if numberResult.(types.Number).Value != 42.0 {
+		t.Errorf("Expected persistent number 42, got %f", numberResult.(types.Number).Value)
 	}
 
 	// Also check that basic test data is still there
@@ -339,7 +339,7 @@ func testDataSurvivedRestart(t *testing.T, client *TestProtocolClient) {
 		t.Fatalf("Failed to read test data after restart: %v", err)
 	}
 
-	if nameResult.(*types.Text).Value != "Alice" {
+	if nameResult.(types.Text).Value != "Alice" {
 		t.Errorf("Test data not preserved across restart")
 	}
 }
