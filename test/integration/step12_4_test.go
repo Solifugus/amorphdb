@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -171,11 +172,21 @@ func testHighWriteVolumeStress(t *testing.T) {
 
 		authorityIndex := authorityMap[assignment.Authority]
 
-		// Parse path back from string (simplified for testing)
-		path := []string{"stress", "volume"} // Simplified path parsing
-		if len(pathStr) > 20 {
-			// Extract writer and item IDs from path string for validation
-			path = append(path, "test_item")
+		// Parse path back from string to match original write path
+		// pathStr format: "[stress volume writer_X item_Y]"
+		// We need to reconstruct the exact path used in the write
+		var path []string
+		if len(pathStr) > 30 { // Contains the full path
+			// Extract from "[stress volume writer_X item_Y]" format
+			pathStr = pathStr[1 : len(pathStr)-1] // Remove brackets
+			parts := strings.Fields(pathStr)      // Split by spaces
+			if len(parts) >= 4 {
+				path = parts // Use the exact reconstructed path
+			} else {
+				path = []string{"stress", "volume", "test_item"} // Fallback
+			}
+		} else {
+			path = []string{"stress", "volume", "test_item"} // Fallback
 		}
 
 		actualValue, err := storageTrees[authorityIndex].Read(path)
