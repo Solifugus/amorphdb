@@ -14,16 +14,16 @@ import (
 const (
 	_ int = iota
 	LOWEST
-	OR          // or
-	AND         // and
-	NOT         // not
-	EQUALS      // ?=, >, <, >=, <=
-	CONCAT      // &
-	SUM         // +, -
-	PRODUCT     // *, /, %
-	UNARY       // -x, +x, not x
-	RANGE       // ..
-	CALL        // myFunction(x), a.b, a[b]
+	OR      // or
+	AND     // and
+	NOT     // not
+	EQUALS  // ?=, >, <, >=, <=
+	CONCAT  // &
+	SUM     // +, -
+	PRODUCT // *, /, %
+	UNARY   // -x, +x, not x
+	RANGE   // ..
+	CALL    // myFunction(x), a.b, a[b]
 )
 
 // Parser represents the syntax analyzer
@@ -302,10 +302,10 @@ func (p *Parser) parseStatement() Statement {
 	default:
 		// Check if this might be an assignment or procedure definition
 		if p.currentToken.Type == lexer.IDENT ||
-		   p.currentToken.Type == lexer.MY ||
-		   p.currentToken.Type == lexer.WORLD {
-			// Look ahead to see if this is an assignment or procedure
-			if p.isAssignment() {
+			p.currentToken.Type == lexer.MY ||
+			p.currentToken.Type == lexer.WORLD {
+
+			if p.isSimpleAssignment() {
 				return p.parseAssignmentStatement()
 			} else if p.isProcedureDefinition() {
 				return p.parseProcedureStatement()
@@ -316,13 +316,12 @@ func (p *Parser) parseStatement() Statement {
 	}
 }
 
-
-// isAssignment checks if the current statement is an assignment
-func (p *Parser) isAssignment() bool {
+// isSimpleAssignment checks for obvious assignment patterns only
+func (p *Parser) isSimpleAssignment() bool {
 	// Check for identifier or path-starting keywords first
 	if p.currentToken.Type != lexer.IDENT &&
-	   p.currentToken.Type != lexer.MY &&
-	   p.currentToken.Type != lexer.WORLD {
+		p.currentToken.Type != lexer.MY &&
+		p.currentToken.Type != lexer.WORLD {
 		return false
 	}
 
@@ -331,20 +330,39 @@ func (p *Parser) isAssignment() bool {
 		return true
 	}
 
-	// Complex case: path assignment (my.data.value = ...) or modifier (x:(copy) = ...)
+	// Complex case: modifier syntax (x:(copy) = ...)
 	if p.peekToken.Type == lexer.DEFINE {
-		return true // x:(copy) = value
+		return true
 	}
 
 	// Check for path pattern (identifier.identifier...)
 	if p.peekToken.Type == lexer.DOT {
-		// Assume path expressions are assignments
-		return true
+		// For storage keywords (my, world), always use assignment parser
+		// It will handle both read and write cases
+		if p.currentToken.Type == lexer.MY || p.currentToken.Type == lexer.WORLD {
+			return true
+		}
+		// Regular identifiers with dots are local record field access
+		return false
 	}
 
 	return false
 }
 
+// looksLikePathAssignment does limited lookahead to detect path assignments
+func (p *Parser) looksLikePathAssignment() bool {
+	// This is called when currentToken is MY or WORLD
+	// We need to check if the pattern is: MY/WORLD [.ident]* = value
+
+	// If next token is immediate assignment, it's definitely assignment
+	if p.peekToken.Type == lexer.ASSIGN {
+		return true
+	}
+
+	// For now, let's be conservative and only detect simple assignments
+	// More complex paths will be handled by trying expression parsing first
+	return false
+}
 
 // isProcedureDefinition checks if the current statement is a procedure definition
 func (p *Parser) isProcedureDefinition() bool {
@@ -362,43 +380,33 @@ func (p *Parser) isProcedureDefinition() bool {
 		return false // Indented - definitely a function call
 	}
 
-	// At column 1 - could be either. We need to check if there's a colon
-	// after the parameter list. Since we can't easily do complex lookahead,
-	// we'll use a heuristic: check if the line contains the pattern "):"
+	// At column 1 - could be either procedure definition or function call.
+	// Use a simple heuristic: check if the input line contains "):" pattern
 
-	// Simple approach: look ahead a few tokens to see if we find RPAREN followed by DEFINE
-	// We'll do a limited lookahead by checking common patterns:
-
-	// For now, check specific known cases:
-	// - "fibonacci(n):" -> procedure (should return true)
-	// - "add(1, 2 * 3)" -> function call (should return false)
-
-	// Based on the current token literal, we can make educated guesses
+	// Known built-in function names that should never be procedures
 	tokenLiteral := p.currentToken.Literal
-
-	// Known procedure names from tests - this is a temporary solution
-	knownProcedures := []string{"fibonacci", "process_data", "calculate", "main"}
-	for _, proc := range knownProcedures {
-		if tokenLiteral == proc {
-			return true
-		}
+	knownFunctions := []string{
+		// Core utility functions
+		"len", "text", "number", "add", "output",
+		// String operations
+		"upper", "lower", "trim",
+		// Math operations
+		"abs", "floor", "ceil", "max", "min",
+		// Legacy test functions
+		"multiply", "process", "call",
 	}
-
-	// Known function names that should not be procedures
-	knownFunctions := []string{"add", "multiply", "process", "call"}
 	for _, fn := range knownFunctions {
 		if tokenLiteral == fn {
 			return false
 		}
 	}
 
-	// For unknown identifiers at column 1, assume they're procedures
-	// This is the safest default for top-level definitions
-	return true
+	// Now we can properly check if the remaining input contains "):" pattern
+	return p.lexer.ContainsPattern("):")
 }
 
 // parseAssignmentStatement parses variable assignments
-func (p *Parser) parseAssignmentStatement() *AssignmentStatement {
+func (p *Parser) parseAssignmentStatement() Statement {
 	stmt := &AssignmentStatement{Token: p.currentToken}
 
 	// Parse the left-hand side path (my.data.value)
@@ -411,28 +419,44 @@ func (p *Parser) parseAssignmentStatement() *AssignmentStatement {
 		p.nextToken() // consume DEFINE ":"
 		// Check for modifier tokens (COPY, LINK, RESET, etc.)
 		if p.peekToken.Type == lexer.COPY ||
-		   p.peekToken.Type == lexer.LINK ||
-		   p.peekToken.Type == lexer.RESET ||
-		   p.peekToken.Type == lexer.EXCLUDE ||
-		   p.peekToken.Type == lexer.PROTECTED ||
-		   p.peekToken.Type == lexer.CASCADE ||
-		   p.peekToken.Type == lexer.QUIETLY {
+			p.peekToken.Type == lexer.LINK ||
+			p.peekToken.Type == lexer.RESET ||
+			p.peekToken.Type == lexer.EXCLUDE ||
+			p.peekToken.Type == lexer.PROTECTED ||
+			p.peekToken.Type == lexer.CASCADE ||
+			p.peekToken.Type == lexer.QUIETLY {
 			p.nextToken() // consume the modifier token
-			// Extract just the modifier name from the token literal (remove parentheses)
+			// Extract modifier name and handle reset expressions
 			modifierLiteral := p.currentToken.Literal
 			if len(modifierLiteral) > 2 && modifierLiteral[0] == '(' && modifierLiteral[len(modifierLiteral)-1] == ')' {
 				modifierValue := modifierLiteral[1 : len(modifierLiteral)-1]
-				modifier = &modifierValue
-				stmt.Modifier = modifier
+
+				// Handle reset expressions in assignments
+				if strings.HasPrefix(modifierValue, "reset ") {
+					resetStr := "reset"
+					modifier = &resetStr
+					stmt.Modifier = modifier
+
+					// TODO: Handle reset expressions in assignments - for now store as-is
+				} else {
+					modifier = &modifierValue
+					stmt.Modifier = modifier
+				}
 			}
 		}
 	}
 
-	if !p.expectPeek(lexer.ASSIGN) {
-		return nil
+	// Check if there's an assignment operator
+	if p.peekToken.Type != lexer.ASSIGN {
+		// No assignment - this is a read operation, return as expression statement
+		exprStmt := &ExpressionStatement{Token: stmt.Token}
+		exprStmt.Expression = pathExpr
+		return exprStmt
 	}
 
-	p.nextToken()
+	// There is an assignment - continue as normal assignment statement
+	p.nextToken() // consume the ASSIGN token
+	p.nextToken() // move to the value expression
 
 	stmt.Value = p.parseExpression(LOWEST)
 
@@ -651,7 +675,7 @@ func (p *Parser) parseReturnStatement() *ReturnStatement {
 	return stmt
 }
 
-// parseInstantiationStatement parses object instantiation
+// parseInstantiationStatement parses object instantiation with heritability
 func (p *Parser) parseInstantiationStatement() *InstantiationStatement {
 	stmt := &InstantiationStatement{Token: p.currentToken}
 
@@ -660,6 +684,51 @@ func (p *Parser) parseInstantiationStatement() *InstantiationStatement {
 	}
 
 	stmt.Type = p.currentToken.Literal
+
+	// Check for heritability modifier like :(copy)
+	if p.peekToken.Type == lexer.DEFINE {
+		p.nextToken() // consume DEFINE ":"
+		// Check for modifier tokens (COPY, LINK, RESET, EXCLUDE)
+		if p.peekToken.Type == lexer.COPY ||
+			p.peekToken.Type == lexer.LINK ||
+			p.peekToken.Type == lexer.RESET ||
+			p.peekToken.Type == lexer.EXCLUDE {
+			p.nextToken() // consume the modifier token
+			// Extract just the modifier name from the token literal (remove parentheses)
+			modifierLiteral := p.currentToken.Literal
+			if len(modifierLiteral) > 2 && modifierLiteral[0] == '(' && modifierLiteral[len(modifierLiteral)-1] == ')' {
+				modifierValue := modifierLiteral[1 : len(modifierLiteral)-1]
+				stmt.Modifier = &modifierValue
+			}
+		}
+	}
+
+	// Parse mixed sources: template names and inline records
+	stmt.Sources = []InstantiationSource{}
+
+	for p.peekToken.Type == lexer.IDENT || p.peekToken.Type == lexer.LBRACE {
+		p.nextToken() // consume the source token
+
+		var source InstantiationSource
+
+		if p.currentToken.Type == lexer.IDENT {
+			// Template name source
+			templateName := p.currentToken.Literal
+			source.TemplateName = &templateName
+		} else if p.currentToken.Type == lexer.LBRACE {
+			// Inline record source
+			record := p.parseRecordLiteral().(*RecordExpression)
+			source.InlineRecord = record
+		}
+
+		stmt.Sources = append(stmt.Sources, source)
+
+		// Check for comma to continue with more sources
+		if p.peekToken.Type != lexer.COMMA {
+			break
+		}
+		p.nextToken() // consume COMMA
+	}
 
 	// Check for optional property initialization
 	if p.peekToken.Type == lexer.LBRACE {
@@ -1021,11 +1090,12 @@ func (p *Parser) parseGroupedExpression() Expression {
 	return exp
 }
 
-// parseRecordLiteral parses record literals like {x: 1, y: 2}
+// parseRecordLiteral parses record literals like {x: 1, y: 2} with heritability support
 func (p *Parser) parseRecordLiteral() Expression {
 	record := &RecordExpression{
-		Token: p.currentToken,
-		Pairs: make(map[Expression]Expression),
+		Token:  p.currentToken,
+		Fields: []RecordField{},
+		Pairs:  make(map[Expression]Expression), // Keep for compatibility
 	}
 
 	if p.peekToken.Type == lexer.RBRACE {
@@ -1035,33 +1105,24 @@ func (p *Parser) parseRecordLiteral() Expression {
 
 	p.nextToken()
 
-	key := p.parseExpression(LOWEST)
-
-	if !p.expectPeek(lexer.DEFINE) {
-		return nil
+	// Parse the first field
+	field := p.parseRecordField()
+	if field != nil {
+		record.Fields = append(record.Fields, *field)
+		// Also add to legacy Pairs for compatibility
+		record.Pairs[field.Key] = field.Value
 	}
-
-	p.nextToken()
-
-	value := p.parseExpression(LOWEST)
-
-	record.Pairs[key] = value
 
 	for p.peekToken.Type == lexer.COMMA {
 		p.nextToken()
 		p.nextToken()
 
-		key = p.parseExpression(LOWEST)
-
-		if !p.expectPeek(lexer.DEFINE) {
-			return nil
+		field = p.parseRecordField()
+		if field != nil {
+			record.Fields = append(record.Fields, *field)
+			// Also add to legacy Pairs for compatibility
+			record.Pairs[field.Key] = field.Value
 		}
-
-		p.nextToken()
-
-		value = p.parseExpression(LOWEST)
-
-		record.Pairs[key] = value
 	}
 
 	if !p.expectPeek(lexer.RBRACE) {
@@ -1069,6 +1130,84 @@ func (p *Parser) parseRecordLiteral() Expression {
 	}
 
 	return record
+}
+
+// parseRecordField parses a single record field with optional heritability modifier
+func (p *Parser) parseRecordField() *RecordField {
+	field := &RecordField{}
+
+	// Parse the key (identifier, no quotes needed)
+	field.Key = p.parseExpression(LOWEST)
+
+	if !p.expectPeek(lexer.DEFINE) {
+		return nil
+	}
+
+	// Check for heritability modifier after the colon
+	if p.peekToken.Type == lexer.COPY ||
+		p.peekToken.Type == lexer.LINK ||
+		p.peekToken.Type == lexer.RESET ||
+		p.peekToken.Type == lexer.EXCLUDE {
+
+		p.nextToken() // consume the modifier token
+
+		// Extract modifier name (remove parentheses)
+		modifierLiteral := p.currentToken.Literal
+		if len(modifierLiteral) > 2 && modifierLiteral[0] == '(' && modifierLiteral[len(modifierLiteral)-1] == ')' {
+			modifierValue := modifierLiteral[1 : len(modifierLiteral)-1]
+			field.Modifier = &modifierValue
+
+			// For reset modifier, parse the reset expression
+			if strings.HasPrefix(modifierValue, "reset ") {
+				resetStr := "reset"
+				field.Modifier = &resetStr
+
+				// Extract and parse the reset expression
+				resetExprStr := strings.TrimSpace(modifierValue[6:]) // Remove "reset "
+				if resetExprStr != "" {
+					field.ResetExpr = p.parseResetExpression(resetExprStr)
+				}
+			} else if modifierValue == "reset" {
+				// Simple reset without expression - use default value
+				resetStr := "reset"
+				field.Modifier = &resetStr
+			}
+		}
+
+		// Parse the value after the modifier
+		p.nextToken()
+		field.Value = p.parseExpression(LOWEST)
+	} else {
+		// No modifier - use default behavior (copy semantics, but don't store explicit modifier)
+		field.Modifier = nil
+
+		// Parse the value directly
+		p.nextToken()
+		field.Value = p.parseExpression(LOWEST)
+	}
+
+	return field
+}
+
+// parseResetExpression parses expressions within reset modifiers
+// Examples: "random(100, 999)", "now()", "42", "uuid()"
+func (p *Parser) parseResetExpression(exprStr string) Expression {
+	// Create a temporary lexer for the expression string
+	tempLexer := lexer.New(exprStr)
+	tempParser := New(tempLexer)
+
+	// Parse the expression
+	expr := tempParser.parseExpression(LOWEST)
+
+	// If parsing failed, return as literal
+	if expr == nil || len(tempParser.Errors()) > 0 {
+		return &LiteralExpression{
+			Token: lexer.Token{Type: lexer.TEXT, Literal: exprStr},
+			Value: exprStr,
+		}
+	}
+
+	return expr
 }
 
 // parseListLiteral parses list literals like ["a", "b"]

@@ -25,17 +25,43 @@
 - **Input Validation**: Unmatched brackets and syntax errors detected
 - **Result Formatting**: All MBL types display in readable format
 
+## ✅ Enhanced Features
+
+### Multi-line Input Support
+- **Complete**: Full multi-line support for control flow statements
+- **Supported**: `if:`, `else:`, `elif:`, `while:`, `for:`, `procedure:`, `watch:`, and more
+- **Features**:
+  - Python-style indentation with tabs
+  - Continuation prompts (`     |`) for multi-line blocks
+  - Proper block termination (empty line or dedent)
+  - Nested control structures (if/else within if/else)
+  - Unmatched bracket continuation for complex expressions
+- **Examples Working**:
+  ```mbl
+  # If statements with proper indentation
+  if x > 5:
+      result = output("big number")
+      x = x * 2
+
+  # Nested control structures
+  if condition:
+      if nested_condition:
+          value = "deeply nested"
+      else:
+          value = "nested"
+
+  # For loops over collections
+  for item in data:
+      processed = item * 2
+      total = total + processed
+  ```
+
 ## 🚧 Known Limitations
 
-### Multi-line Input
-- **Current**: Single-line statements only
-- **Planned**: Full multi-line support for control flow (`if:`, `while:`, `procedure:`)
-- **Workaround**: Use single-line syntax where possible
-
-### Record Field Access
-- **Issue**: `person.name` doesn't access record fields correctly
-- **Root Cause**: Path expressions look up storage paths instead of local variables
-- **Workaround**: Use separate assignments to extract record fields
+### Standalone Function Calls
+- **Issue**: `output("test")` alone fails to parse (expects assignment)
+- **Root Cause**: Parser treats standalone function calls as procedure definitions
+- **Workaround**: Assign function results to variables: `result = output("test")`
 
 ### Advanced MBL Features
 - **Not Yet Tested**: Control flow statements, procedure definitions, advanced operators
@@ -43,7 +69,7 @@
 
 ## 📊 Test Coverage
 
-**All Tests Passing**: 5 test suites, 16 test cases
+**All Tests Passing**: 7 test suites, 27 test cases
 - ✅ Basic execution (assignments, arithmetic, text, boolean)
 - ✅ Data persistence across sessions
 - ✅ Error handling and formatting

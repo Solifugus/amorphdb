@@ -1,0 +1,79 @@
+# Phase 3 Test T1.1: Multi-level Inheritance Chains
+# Testing complex inheritance with correct MBL syntax
+
+output("=== T1.1: Testing Multi-level Inheritance ===")
+
+# Level 1: Base vehicle template
+test.vehicles.base = {
+    name: "Vehicle Base",
+    manufacturer: "Generic",
+    year: 2020,
+    engine: {
+        type: "combustion",
+        power: 100
+    },
+    features: {
+        safety: true,
+        comfort: false
+    }
+}
+
+output("Created base vehicle template")
+
+# Level 2: Motor vehicle inherits from base
+test.vehicles.motor = new(test.vehicles.base)
+test.vehicles.motor.name = "Motor Vehicle"
+test.vehicles.motor.wheels = 4
+test.vehicles.motor.engine.power = 150
+
+output("Created motor vehicle template")
+
+# Level 3: Car inherits from motor vehicle
+test.vehicles.car = new(test.vehicles.motor)
+test.vehicles.car.name = "Car Template"
+test.vehicles.car.body_type = "sedan"
+test.vehicles.car.doors = 4
+test.vehicles.car.features.comfort = true
+test.vehicles.car.engine.power = 200
+
+output("Created car template")
+
+# Level 4: Luxury car inherits from car
+test.vehicles.luxury = new(test.vehicles.car)
+test.vehicles.luxury.name = "Luxury Car"
+test.vehicles.luxury.features.entertainment = true
+test.vehicles.luxury.interior = {
+    material: "leather",
+    heated_seats: true
+}
+test.vehicles.luxury.engine.power = 300
+
+output("Created luxury car template")
+
+# Level 5: Electric luxury inherits from luxury
+test.vehicles.electric = new(test.vehicles.luxury)
+test.vehicles.electric.name = "Electric Luxury Car"
+test.vehicles.electric.engine.type = "electric"
+test.vehicles.electric.engine.power = 400
+test.vehicles.electric.battery = {
+    capacity: 100,
+    fast_charge: true
+}
+
+output("Created electric luxury template")
+
+# Test inheritance chain by reading properties
+output("=== Testing Inheritance Chain ===")
+test.vehicles.base.name
+test.vehicles.motor.name
+test.vehicles.car.name
+test.vehicles.luxury.name
+test.vehicles.electric.name
+
+output("=== Testing Property Inheritance ===")
+test.vehicles.electric.manufacturer
+test.vehicles.electric.wheels
+test.vehicles.electric.safety
+test.vehicles.electric.engine.power
+
+output("T1.1 inheritance chain test completed")

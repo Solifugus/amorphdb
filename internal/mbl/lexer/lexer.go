@@ -127,8 +127,8 @@ func (l *Lexer) NextToken() Token {
 		tok.Literal = l.readMoneyLiteral()
 
 	case '(':
-		// Check for modifiers
-		if l.isModifier() {
+		// Check if this looks like a standalone modifier (not a function call)
+		if l.isStandaloneModifier() {
 			return l.readModifier()
 		}
 		tok.Type = LPAREN
@@ -442,8 +442,8 @@ func (l *Lexer) readString() string {
 			}
 
 			if closeQuotes >= openQuotes {
-				// Found enough closing quotes - consume exactly what we need
-				for i := 0; i < openQuotes; i++ {
+				// Found enough closing quotes - consume all available quotes
+				for i := 0; i < closeQuotes; i++ {
 					l.readChar()
 				}
 				return l.input[startPos:l.position]
@@ -549,6 +549,39 @@ func (l *Lexer) readComment() Token {
 	}
 }
 
+// isStandaloneModifier checks if this looks like a standalone modifier (word) not a function call
+func (l *Lexer) isStandaloneModifier() bool {
+	if l.ch != '(' {
+		return false
+	}
+
+	// Look ahead to find the content and closing paren
+	tempPos := l.readPosition
+	for tempPos < len(l.input) && l.input[tempPos] != ')' && l.input[tempPos] != '\n' {
+		tempPos++
+	}
+
+	// Must have closing parenthesis
+	if tempPos >= len(l.input) || l.input[tempPos] != ')' {
+		return false
+	}
+
+	// Check if content is a simple word (no spaces, commas, or complex syntax)
+	content := l.input[l.readPosition:tempPos]
+	if len(content) == 0 {
+		return false
+	}
+
+	// Simple heuristic: if it contains comma, quotes, or multiple words, it's likely a function call
+	for _, ch := range content {
+		if ch == ',' || ch == '"' || ch == ' ' {
+			return false
+		}
+	}
+
+	return true
+}
+
 // isModifier checks if the current position starts a modifier like (copy)
 func (l *Lexer) isModifier() bool {
 	if l.ch != '(' {
@@ -596,6 +629,21 @@ func (l *Lexer) readModifier() Token {
 		Column:   l.column,
 		Position: position,
 	}
+}
+
+// ContainsPattern checks if the remaining input contains a specific pattern
+func (l *Lexer) ContainsPattern(pattern string) bool {
+	remaining := l.input[l.position:]
+	for i := 0; i <= len(remaining)-len(pattern); i++ {
+		if remaining[i:i+len(pattern)] == pattern {
+			return true
+		}
+		// Stop at newline (end of current statement)
+		if remaining[i] == '\n' {
+			break
+		}
+	}
+	return false
 }
 
 // isLetter checks if a character is a letter

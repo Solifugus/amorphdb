@@ -1,0 +1,5 @@
+output("Concurrent operation on lu-ma-te")
+node_data = "Data from lu-ma-te at concurrent time"
+counter = 3 * 10
+output("Node lu-ma-te counter:", counter)
+output("Concurrent operation completed on lu-ma-te")

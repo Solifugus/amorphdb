@@ -1,0 +1,4 @@
+output("Writing data to distributed storage")
+test_data = "Distributed data from node ra-do-ki"
+output("Data written:", test_data)
+output("Write operation completed")

@@ -1,0 +1,73 @@
+# Complete Design Document Compliance Test
+# Testing all aspects of the heritability specification
+
+# 1. Template with ALL modifier types (design document example)
+person_template = {
+    id:(reset random(100, 999)) 342,      # reset with expression
+    name: "Joe",                           # default copy behavior
+    secret:(exclude) "classified",         # omitted from children
+    status:(link) "Good",                  # linked to parent
+    explicit:(copy) "explicit copy"        # explicit copy
+}
+
+# 2. Employee template for multi-source testing
+employee_template = {
+    department: "unassigned",
+    role: "staff",
+    manager:(link) "CEO"
+}
+
+# 3. Test single source instantiation
+alice = new person person_template
+# Expected: { id: <random>, name: "Joe", status: <linked>, explicit: "explicit copy" }
+# Note: secret should be excluded
+
+# 4. Test multi-source instantiation (design document example)
+bob = new person person_template employee_template { name: "Bob", department: "IT" }
+# Expected: person + employee merged, then inline record overlays
+
+# 5. Test inline record with modifiers (design document example)
+linked = new person person_template { status:(link) "Active" } employee_template
+# Expected: inline record modifiers should work
+
+# 6. Test assignment statement modifiers (design document specification)
+test_id:(reset random(1000, 9999)) 5000
+test_link:(link) person_template.status
+test_copy:(copy) "standalone assignment"
+
+# 7. Test recursive instantiation (design document specification)
+# Records created with 'new' should serve as sources for further instantiation
+charlie = new person person_template { name: "Charlie" }
+charlie_clone = new person charlie { name: "Charlie Jr." }
+
+# 8. Test default behavior without modifiers
+simple_record = {
+    field1: "value1",                     # should behave as copy
+    field2: 42,                           # should behave as copy
+    field3:(exclude) "excluded"           # explicit exclude
+}
+
+# 9. Test parent-controlled inheritance
+# Child cannot override parent's inheritance rules
+parent_with_rules = {
+    protected_field:(link) "shared_value",
+    normal_field: "normal_value"
+}
+
+child_attempt = new parent parent_with_rules {
+    protected_field: "try_to_override",    # should still be linked per parent rules
+    normal_field: "child_value"           # should override normally
+}
+
+# Output all test results
+alice
+bob
+linked
+test_id
+test_link
+test_copy
+charlie
+charlie_clone
+simple_record
+parent_with_rules
+child_attempt

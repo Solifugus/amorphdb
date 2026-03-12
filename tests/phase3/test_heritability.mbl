@@ -1,0 +1,46 @@
+# Test heritability implementation according to design document
+
+# Base template with per-attribute modifiers (design document specification)
+person_template = {
+    name:(copy) "Default Person",
+    age: 25,
+    id:(reset random(100, 999)) 342,
+    uuid:(reset uuid()) "default-uuid",
+    created:(reset now()) @2024-01-01T00:00:00Z,
+    secret:(exclude) "classified",
+    status:(link) "active"
+}
+
+# Employee template
+employee_template = {
+    id: 1000,
+    department: "Engineering",
+    salary:(copy) 50000,
+    manager:(link) "CEO"
+}
+
+# Basic instantiation from single template
+alice = new person person_template
+
+# Multiple sources with inline record containing modifiers (design document example)
+bob = new employee person_template { status:(link) "Active" } employee_template
+
+# Inline record with per-attribute modifiers
+charlie = new manager person_template employee_template {
+    name:(copy) "Charlie",
+    salary:(reset) 75000,
+    secret:(exclude) true
+}
+
+# Test individual inheritance behaviors
+diana = new person {
+    name:(copy) "Diana",
+    age:(link) 30,
+    private:(exclude) "hidden"
+}
+
+# Output results for verification
+alice
+bob
+charlie
+diana

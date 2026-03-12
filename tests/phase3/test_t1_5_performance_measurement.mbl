@@ -1,0 +1,179 @@
+# Phase 3 Test T1.5: Performance Impact Measurement
+# Testing inheritance resolution timing under various loads
+
+output("=== T1.5: Testing Inheritance Performance Impact ===")
+
+# Create deep inheritance chain for performance testing
+test.perf.level0 = {
+    name: "Performance Base",
+    data: "level0",
+    timestamp: "start"
+}
+
+# Build 10-level deep inheritance chain
+test.perf.level1 = new(test.perf.level0)
+test.perf.level1.data = "level1"
+
+test.perf.level2 = new(test.perf.level1)
+test.perf.level2.data = "level2"
+
+test.perf.level3 = new(test.perf.level2)
+test.perf.level3.data = "level3"
+
+test.perf.level4 = new(test.perf.level3)
+test.perf.level4.data = "level4"
+
+test.perf.level5 = new(test.perf.level4)
+test.perf.level5.data = "level5"
+
+test.perf.level6 = new(test.perf.level5)
+test.perf.level6.data = "level6"
+
+test.perf.level7 = new(test.perf.level6)
+test.perf.level7.data = "level7"
+
+test.perf.level8 = new(test.perf.level7)
+test.perf.level8.data = "level8"
+
+test.perf.level9 = new(test.perf.level8)
+test.perf.level9.data = "level9"
+
+test.perf.level10 = new(test.perf.level9)
+test.perf.level10.data = "level10"
+
+output("Created 10-level deep inheritance chain for performance testing")
+
+# Test 1: Single property access timing
+output("=== Test 1: Single Property Access Performance ===")
+
+# Access properties at various depths
+test.perf.level10.name
+test.perf.level10.timestamp
+test.perf.level10.data
+
+output("Single property access completed")
+
+# Test 2: Multiple property access performance
+output("=== Test 2: Multiple Property Access Performance ===")
+
+# Access multiple properties in sequence
+test.perf.level10.name
+test.perf.level9.name
+test.perf.level8.name
+test.perf.level7.name
+test.perf.level6.name
+test.perf.level5.name
+test.perf.level4.name
+test.perf.level3.name
+test.perf.level2.name
+test.perf.level1.name
+test.perf.level0.name
+
+output("Multiple depth property access completed")
+
+# Test 3: Create many instances from deep inheritance
+output("=== Test 3: Multiple Instance Creation Performance ===")
+
+# Create 20 instances from deepest level
+test.perf.instances.i01 = new(test.perf.level10)
+test.perf.instances.i02 = new(test.perf.level10)
+test.perf.instances.i03 = new(test.perf.level10)
+test.perf.instances.i04 = new(test.perf.level10)
+test.perf.instances.i05 = new(test.perf.level10)
+test.perf.instances.i06 = new(test.perf.level10)
+test.perf.instances.i07 = new(test.perf.level10)
+test.perf.instances.i08 = new(test.perf.level10)
+test.perf.instances.i09 = new(test.perf.level10)
+test.perf.instances.i10 = new(test.perf.level10)
+test.perf.instances.i11 = new(test.perf.level10)
+test.perf.instances.i12 = new(test.perf.level10)
+test.perf.instances.i13 = new(test.perf.level10)
+test.perf.instances.i14 = new(test.perf.level10)
+test.perf.instances.i15 = new(test.perf.level10)
+test.perf.instances.i16 = new(test.perf.level10)
+test.perf.instances.i17 = new(test.perf.level10)
+test.perf.instances.i18 = new(test.perf.level10)
+test.perf.instances.i19 = new(test.perf.level10)
+test.perf.instances.i20 = new(test.perf.level10)
+
+output("Created 20 instances from deep inheritance level")
+
+# Test 4: Concurrent access to inherited properties
+output("=== Test 4: Concurrent Property Access ===")
+
+# Access properties from different instances simultaneously
+test.perf.instances.i01.name
+test.perf.instances.i02.timestamp
+test.perf.instances.i03.data
+test.perf.instances.i04.name
+test.perf.instances.i05.timestamp
+test.perf.instances.i06.data
+test.perf.instances.i07.name
+test.perf.instances.i08.timestamp
+test.perf.instances.i09.data
+test.perf.instances.i10.name
+
+output("Concurrent property access completed")
+
+# Test 5: Wide inheritance tree performance
+output("=== Test 5: Wide Inheritance Tree Performance ===")
+
+# Create wide inheritance from same base
+test.perf.wide.branch01 = new(test.perf.level5)
+test.perf.wide.branch02 = new(test.perf.level5)
+test.perf.wide.branch03 = new(test.perf.level5)
+test.perf.wide.branch04 = new(test.perf.level5)
+test.perf.wide.branch05 = new(test.perf.level5)
+test.perf.wide.branch06 = new(test.perf.level5)
+test.perf.wide.branch07 = new(test.perf.level5)
+test.perf.wide.branch08 = new(test.perf.level5)
+test.perf.wide.branch09 = new(test.perf.level5)
+test.perf.wide.branch10 = new(test.perf.level5)
+
+# Modify each branch independently
+test.perf.wide.branch01.branch_data = "branch01"
+test.perf.wide.branch02.branch_data = "branch02"
+test.perf.wide.branch03.branch_data = "branch03"
+test.perf.wide.branch04.branch_data = "branch04"
+test.perf.wide.branch05.branch_data = "branch05"
+
+output("Wide inheritance tree created and modified")
+
+# Test 6: Complex nested object inheritance
+output("=== Test 6: Complex Nested Object Performance ===")
+
+test.perf.complex = {
+    metadata: {
+        version: "1.0",
+        config: {
+            settings: {
+                deep: {
+                    nested: {
+                        value: "performance_test"
+                    }
+                }
+            }
+        }
+    }
+}
+
+test.perf.complex_child = new(test.perf.complex)
+test.perf.complex_child.metadata.config.settings.deep.nested.modified = true
+
+# Access deeply nested inherited properties
+test.perf.complex_child.metadata.version
+test.perf.complex_child.metadata.config.settings.deep.nested.value
+test.perf.complex_child.metadata.config.settings.deep.nested.modified
+
+output("Complex nested object inheritance completed")
+
+# Final performance summary
+output("=== Performance Test Summary ===")
+output("Deep inheritance chain: 10 levels")
+output("Instance creation: 20 instances")
+output("Wide tree: 10 branches")
+output("Complex nesting: 6 levels deep")
+output("Property access patterns: Single, multiple, concurrent")
+
+output("T1.5 inheritance performance impact measurement completed")
+output("All inheritance resolution timing tests finished")

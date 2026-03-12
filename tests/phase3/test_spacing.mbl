@@ -1,0 +1,23 @@
+# Test free-form spacing around modifiers (design document specification)
+# The spec states: "spacing around modifiers is free-form"
+
+spacing_test = {
+    tight:(copy)"value1",                 # no spaces
+    normal:(copy) "value2",               # normal spacing
+    spaced: (copy) "value3",              # space before modifier
+    loose: (copy)  "value4",              # extra space after
+    mixed:  (link)  shared_value          # multiple spaces
+}
+
+# Test in assignments too
+assignment1:(copy)"direct"
+assignment2:(copy) "normal"
+assignment3: (copy) "spaced"
+assignment4:  (link)  spacing_test.tight
+
+# Output
+spacing_test
+assignment1
+assignment2
+assignment3
+assignment4

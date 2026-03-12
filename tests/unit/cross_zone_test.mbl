@@ -1,0 +1,12 @@
+
+# Test cross-zone write batching
+# These writes should be grouped by destination zone
+
+# Write to multiple zones in a loop
+for i in range(20) {
+    world.zone1.data[i] = "zone1_" + str(i)
+    world.zone2.data[i] = "zone2_" + str(i)
+    world.zone3.data[i] = "zone3_" + str(i)
+}
+
+world.cross_zone.test = "completed"

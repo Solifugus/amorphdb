@@ -1,0 +1,172 @@
+// Package main implements the AmorphDB control tool
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		showHelp()
+		os.Exit(1)
+	}
+
+	command := os.Args[1]
+
+	// Get local socket path
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get user home directory: %v\n", err)
+		os.Exit(1)
+	}
+	socketPath := filepath.Join(homeDir, ".amorph", "socket")
+
+	// Create client connection to local socket only
+	client, err := NewControlClient(socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to connect to AmorphDB service: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Make sure the AmorphDB service (amorphd) is running.\n")
+		os.Exit(1)
+	}
+	defer client.Close()
+
+	// Execute command
+	switch command {
+	case "status":
+		err = handleStatus(client)
+	case "stop":
+		err = handleStop(client)
+	case "compact":
+		err = handleCompact(client)
+	case "zones":
+		if len(os.Args) < 3 || os.Args[2] != "list" {
+			fmt.Fprintf(os.Stderr, "Usage: %s zones list\n", os.Args[0])
+			os.Exit(1)
+		}
+		err = handleZonesList(client)
+	case "help", "--help", "-h":
+		showHelp()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
+		fmt.Fprintf(os.Stderr, "Run '%s help' for usage information.\n", os.Args[0])
+		os.Exit(1)
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func handleStatus(client *ControlClient) error {
+	status, err := client.GetStatus()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Service: running\n")
+	fmt.Printf("Uptime: %s\n", formatDuration(status.Uptime))
+	fmt.Printf("Node Identity: %s\n", status.NodeIdentity)
+	fmt.Printf("Local Socket: %s\n", status.LocalSocket)
+	fmt.Printf("Network Socket: *:%d\n", status.NetworkPort)
+	fmt.Printf("Active Connections: %d\n", status.Connections)
+	fmt.Printf("Data Size: %s\n", formatBytes(status.DataSize))
+
+	return nil
+}
+
+func handleStop(client *ControlClient) error {
+	fmt.Print("Stopping AmorphDB service... ")
+	err := client.Stop()
+	if err != nil {
+		fmt.Println("failed")
+		return err
+	}
+	fmt.Println("success")
+	return nil
+}
+
+func handleCompact(client *ControlClient) error {
+	fmt.Print("Starting data compaction... ")
+	err := client.Compact()
+	if err != nil {
+		fmt.Println("failed")
+		return err
+	}
+	fmt.Println("success")
+	return nil
+}
+
+func handleZonesList(client *ControlClient) error {
+	// Placeholder for Step 10 (mesh networking) functionality
+	fmt.Println("Zone management not yet implemented (requires Step 10: Mesh Networking)")
+	fmt.Println("Available in future version for distributed mesh operations")
+	return nil
+}
+
+func formatDuration(seconds int64) string {
+	duration := time.Duration(seconds) * time.Second
+	days := int(duration.Hours()) / 24
+	hours := int(duration.Hours()) % 24
+	minutes := int(duration.Minutes()) % 60
+	secs := int(duration.Seconds()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm %ds", days, hours, minutes, secs)
+	} else if hours > 0 {
+		return fmt.Sprintf("%dh %dm %ds", hours, minutes, secs)
+	} else if minutes > 0 {
+		return fmt.Sprintf("%dm %ds", minutes, secs)
+	} else {
+		return fmt.Sprintf("%ds", secs)
+	}
+}
+
+func formatBytes(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+		TB = GB * 1024
+	)
+
+	switch {
+	case bytes >= TB:
+		return fmt.Sprintf("%.2f TB", float64(bytes)/TB)
+	case bytes >= GB:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/GB)
+	case bytes >= MB:
+		return fmt.Sprintf("%.2f MB", float64(bytes)/MB)
+	case bytes >= KB:
+		return fmt.Sprintf("%.2f KB", float64(bytes)/KB)
+	default:
+		return fmt.Sprintf("%d bytes", bytes)
+	}
+}
+
+func showHelp() {
+	fmt.Println("AmorphDB Control Tool")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Printf("  %s <command>\n", os.Args[0])
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  status        Show service status and statistics")
+	fmt.Println("  stop          Gracefully stop the AmorphDB service")
+	fmt.Println("  compact       Trigger data defragmentation")
+	fmt.Println("  zones list    List zone assignments (placeholder for Step 10)")
+	fmt.Println("  help          Show this help message")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Printf("  %s status     # Show current service status\n", os.Args[0])
+	fmt.Printf("  %s stop       # Stop the service gracefully\n", os.Args[0])
+	fmt.Printf("  %s compact    # Compact and defragment data\n", os.Args[0])
+	fmt.Println()
+	fmt.Println("Note: All commands connect via local UNIX socket only for security.")
+	fmt.Println("The AmorphDB service (amorphd) must be running.")
+	fmt.Println()
+}

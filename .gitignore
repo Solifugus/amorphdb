@@ -1,19 +1,33 @@
-# Build artifacts
-amorph
+# Build artifacts and binaries
+/amorphd
+/amorph
+/amorphctl
 *.exe
 *.dll
 *.so
 *.dylib
+/bin/
+
+# Go build cache
+*.test
+*.out
+go.work
+go.work.sum
 
 # Test files and temporary artifacts
 test_*.go
 *_test_temp*
 temp.txt
 problematic_inputs.txt
+coverage.out
 
 # Development and debugging files
 lexer_memory_monitor.go
 safe_lexer_wrapper.go
+
+# Runtime data
+/logs/
+*.log
 
 # IDE and editor files
 .vscode/

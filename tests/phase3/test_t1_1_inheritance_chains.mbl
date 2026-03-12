@@ -1,0 +1,80 @@
+# Phase 3 Test T1.1: Multi-level Inheritance Chains (5+ levels deep)
+# Testing complex inheritance hierarchies with various heritability modifiers
+
+# Level 1: Base Vehicle Template
+vehicle_base.name = "Vehicle Base"
+vehicle_base.manufacturer = "Generic"
+vehicle_base.year = 2020
+vehicle_base.engine.type = "combustion"
+vehicle_base.engine.power = 100
+vehicle_base.features.safety = true
+vehicle_base.features.comfort = false
+
+# Level 2: Motor Vehicle inherits from Vehicle Base
+motor_vehicle = new(vehicle_base)
+motor_vehicle.name = "Motor Vehicle"
+motor_vehicle.wheels = 4
+motor_vehicle.transmission.type = "manual"
+motor_vehicle.transmission.gears = 5
+motor_vehicle.engine.power = 150
+
+# Level 3: Car inherits from Motor Vehicle
+car_template = new(motor_vehicle)
+car_template.name = "Car Template"
+car_template.body_type = "sedan"
+car_template.doors = 4
+car_template.features.comfort = true
+car_template.features.entertainment = false
+car_template.engine.power = 200
+
+# Level 4: Luxury Car inherits from Car
+luxury_car = new(car_template)
+luxury_car.name = "Luxury Car"
+luxury_car.features.comfort = true
+luxury_car.features.entertainment = true
+luxury_car.features.premium_sound = true
+luxury_car.interior.material = "leather"
+luxury_car.interior.heated_seats = true
+luxury_car.engine.power = 300
+
+# Level 5: Electric Luxury Car inherits from Luxury Car
+electric_luxury = new(luxury_car)
+electric_luxury.name = "Electric Luxury Car"
+electric_luxury.engine.type = "electric"
+electric_luxury.engine.power = 400
+electric_luxury.engine.battery_capacity = 100
+electric_luxury.features.autonomous = true
+electric_luxury.features.fast_charging = true
+
+# Level 6: Autonomous Electric Luxury inherits from Electric Luxury
+autonomous_luxury = new(electric_luxury)
+autonomous_luxury.name = "Autonomous Luxury"
+autonomous_luxury.features.full_self_driving = true
+autonomous_luxury.features.ai_assistant = true
+autonomous_luxury.sensors.lidar = true
+autonomous_luxury.sensors.cameras = 8
+autonomous_luxury.software.version = "2.0"
+autonomous_luxury.engine.power = 500
+
+# Test inheritance chain by checking properties at each level
+print("=== TESTING INHERITANCE CHAIN ===")
+print("Level 1 (Base):", vehicle_base.name)
+print("Level 2 (Motor):", motor_vehicle.name, "Power:", motor_vehicle.engine.power)
+print("Level 3 (Car):", car_template.name, "Power:", car_template.engine.power)
+print("Level 4 (Luxury):", luxury_car.name, "Power:", luxury_car.engine.power)
+print("Level 5 (Electric):", electric_luxury.name, "Power:", electric_luxury.engine.power)
+print("Level 6 (Autonomous):", autonomous_luxury.name, "Power:", autonomous_luxury.engine.power)
+
+# Test inheritance of nested properties
+print("\n=== TESTING NESTED PROPERTY INHERITANCE ===")
+print("Autonomous has safety from base:", autonomous_luxury.features.safety)
+print("Autonomous has comfort from car:", autonomous_luxury.features.comfort)
+print("Autonomous has premium sound from luxury:", autonomous_luxury.features.premium_sound)
+print("Autonomous has fast charging from electric:", autonomous_luxury.features.fast_charging)
+
+# Test modification propagation
+print("\n=== TESTING MODIFICATION PROPAGATION ===")
+vehicle_base.global_feature = "GPS"
+print("After adding GPS to base:")
+print("Motor vehicle has GPS:", motor_vehicle.global_feature)
+print("Autonomous has GPS:", autonomous_luxury.global_feature)

@@ -1,0 +1,12 @@
+output("Starting 10-iteration loop with 10 iterations")
+start_time = "Test started"
+output("Start:", start_time)
+
+counter = 1
+while counter <= 10:
+    output("Iteration", counter)
+    counter = counter + 1
+
+end_time = "Test completed"
+output("End:", end_time)
+output("Total iterations completed:", counter - 1)

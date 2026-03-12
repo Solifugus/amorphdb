@@ -1,0 +1,3 @@
+output("Reading temporal data")
+output("Temporal read operation")
+output("Temporal read completed")

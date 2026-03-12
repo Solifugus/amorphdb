@@ -1,0 +1,4 @@
+# Test commit buffer with loop - should demonstrate batching
+for i in range(5) {
+    my.buffer_test[i] = i
+}

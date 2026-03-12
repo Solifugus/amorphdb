@@ -1,0 +1,22 @@
+# Phase 3 Test T1.1: Simple Multi-level Inheritance Test
+# Basic inheritance testing without complex syntax
+
+# Level 1: Base template
+base.name = "Base"
+base.value = 100
+
+# Level 2: Child template
+child = new(base)
+child.name = "Child"
+child.extra = 200
+
+# Level 3: Grandchild template
+grandchild = new(child)
+grandchild.name = "Grandchild"
+grandchild.special = 300
+
+# Test basic access
+base.name
+child.name
+grandchild.name
+grandchild.value

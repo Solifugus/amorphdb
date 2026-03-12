@@ -10,9 +10,9 @@ import (
 
 // Node represents the base interface for all AST nodes
 type Node interface {
-	String() string        // Debug representation
-	TokenLiteral() string  // Source token literal
-	Position() (int, int)  // Line, column for error reporting
+	String() string       // Debug representation
+	TokenLiteral() string // Source token literal
+	Position() (int, int) // Line, column for error reporting
 }
 
 // Statement represents all statement nodes
@@ -176,8 +176,8 @@ func (ce *CallExpression) Position() (int, int) { return ce.Token.Line, ce.Token
 
 // BracketFilterExpression represents bracket filters like person[name = "bob", age > 18]
 type BracketFilterExpression struct {
-	Token   lexer.Token // The LBRACKET token
-	Left    Expression  // The expression being filtered
+	Token   lexer.Token  // The LBRACKET token
+	Left    Expression   // The expression being filtered
 	Filters []Expression // The filter conditions
 }
 
@@ -197,9 +197,19 @@ func (bfe *BracketFilterExpression) String() string {
 func (bfe *BracketFilterExpression) TokenLiteral() string { return bfe.Token.Literal }
 func (bfe *BracketFilterExpression) Position() (int, int) { return bfe.Token.Line, bfe.Token.Column }
 
-// RecordExpression represents record literals like {x: 1, y: 2}
+// RecordField represents a single field in a record with optional heritability modifiers
+type RecordField struct {
+	Key       Expression // The field key
+	Modifier  *string    // Optional heritability modifier like "copy", "link", "reset", "exclude"
+	ResetExpr Expression // Optional reset expression for (reset expr) modifier
+	Value     Expression // The field value
+}
+
+// RecordExpression represents record literals like {x: 1, y: 2} with heritability support
 type RecordExpression struct {
-	Token lexer.Token // The LBRACE token
+	Token  lexer.Token   // The LBRACE token
+	Fields []RecordField // Fields with optional modifiers
+	// Pairs is kept for backward compatibility during transition
 	Pairs map[Expression]Expression
 }
 
@@ -208,14 +218,43 @@ func (re *RecordExpression) expressionNode() {}
 func (re *RecordExpression) String() string {
 	var pairs strings.Builder
 	pairs.WriteString("{")
-	i := 0
-	for key, value := range re.Pairs {
-		if i > 0 {
-			pairs.WriteString(", ")
+
+	// Handle new Fields structure
+	if len(re.Fields) > 0 {
+		for i, field := range re.Fields {
+			if i > 0 {
+				pairs.WriteString(", ")
+			}
+
+			// Key
+			pairs.WriteString(field.Key.String())
+
+			// Modifier if present
+			if field.Modifier != nil {
+				pairs.WriteString(":(")
+				pairs.WriteString(*field.Modifier)
+				if field.ResetExpr != nil {
+					pairs.WriteString(" ")
+					pairs.WriteString(field.ResetExpr.String())
+				}
+				pairs.WriteString(")")
+			}
+
+			pairs.WriteString(": ")
+			pairs.WriteString(field.Value.String())
 		}
-		pairs.WriteString(fmt.Sprintf("%s: %s", key.String(), value.String()))
-		i++
+	} else {
+		// Backward compatibility with old Pairs
+		i := 0
+		for key, value := range re.Pairs {
+			if i > 0 {
+				pairs.WriteString(", ")
+			}
+			pairs.WriteString(fmt.Sprintf("%s: %s", key.String(), value.String()))
+			i++
+		}
 	}
+
 	pairs.WriteString("}")
 	return pairs.String()
 }
@@ -340,9 +379,9 @@ type ConsiderStatement struct {
 }
 
 type ConsiderCase struct {
-	Token     lexer.Token // The case value token
-	Value     Expression
-	Body      *BlockStatement
+	Token lexer.Token // The case value token
+	Value Expression
+	Body  *BlockStatement
 }
 
 func (cs *ConsiderStatement) statementNode() {}
@@ -419,20 +458,55 @@ func (es *ExpressionStatement) String() string {
 func (es *ExpressionStatement) TokenLiteral() string { return es.Token.Literal }
 func (es *ExpressionStatement) Position() (int, int) { return es.Token.Line, es.Token.Column }
 
+// InstantiationSource represents a source for inheritance - can be template name or inline record
+type InstantiationSource struct {
+	TemplateName *string           // Template name like "person"
+	InlineRecord *RecordExpression // Inline record like { name:(copy) "value" }
+}
+
 // InstantiationStatement represents object instantiation like new person { name: "Bob" }
 type InstantiationStatement struct {
-	Token      lexer.Token // The NEW token
-	Type       string      // The type being instantiated
-	Properties *RecordExpression // The initial properties
+	Token      lexer.Token           // The NEW token
+	Type       string                // The type being instantiated
+	Modifier   *string               // Optional global heritability modifier like "copy", "link", etc.
+	Sources    []InstantiationSource // Mixed template sources and inline records
+	Properties *RecordExpression     // The final properties (for backward compatibility)
 }
 
 func (is *InstantiationStatement) statementNode() {}
 
 func (is *InstantiationStatement) String() string {
-	if is.Properties != nil {
-		return fmt.Sprintf("new %s %s", is.Type, is.Properties.String())
+	var out strings.Builder
+	out.WriteString("new ")
+	out.WriteString(is.Type)
+
+	// Add modifier if present
+	if is.Modifier != nil {
+		out.WriteString(fmt.Sprintf(":(%s)", *is.Modifier))
 	}
-	return fmt.Sprintf("new %s", is.Type)
+
+	// Add sources if present
+	if len(is.Sources) > 0 {
+		out.WriteString(" ")
+		for i, source := range is.Sources {
+			if i > 0 {
+				out.WriteString(", ")
+			}
+			if source.TemplateName != nil {
+				out.WriteString(*source.TemplateName)
+			} else if source.InlineRecord != nil {
+				out.WriteString(source.InlineRecord.String())
+			}
+		}
+	}
+
+	// Add properties if present
+	if is.Properties != nil {
+		out.WriteString(" ")
+		out.WriteString(is.Properties.String())
+	}
+
+	return out.String()
 }
 
 func (is *InstantiationStatement) TokenLiteral() string { return is.Token.Literal }

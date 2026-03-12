@@ -1,0 +1,151 @@
+# AmorphDB Step 8 Demo: Stamps, Filters, and Permissions
+# This demonstrates the complete security framework implementation
+
+# === SETUP AGENT STAMPS ===
+
+# Set personal stamp for current agent
+~.stamp = {
+    role: "engineer",
+    timezone: "America/New_York",
+    employee_id: "ENG001"
+}
+
+# Set hierarchical stamps at different levels
+my.world.company.@stamp = {
+    company: "AmeriCU",
+    employment_type: "full-time"
+}
+
+my.world.company.department.@stamp = {
+    department: "IT",
+    clearance: "internal",
+    budget: 100000
+}
+
+my.world.company.department.task42.@stamp = {
+    task_id: 42,
+    project: "AmorphDB",
+    role: "lead"                    # Overrides personal role
+}
+
+# === SETUP PERMISSIONS ===
+
+# Department level permissions - open read, manager write
+my.world.company.department.@read = (Anything)
+my.world.company.department.@write = (agent.role ?= "manager" or agent.role ?= "admin")
+my.world.company.department.@expand = (agent.role ?= "admin")
+my.world.company.department.@grant = (agent.identity ?= "kalevo")
+
+# Public subdirectory - completely open
+my.world.company.department.public.@read = (Anything)
+my.world.company.department.public.@write = (agent.role ?= "employee")
+
+# Secrets subdirectory - highly restricted
+my.world.company.department.secrets.@read = (agent.clearance ?= "admin")
+my.world.company.department.secrets.@write = (agent.identity ?= "kalevo")
+my.world.company.department.secrets.@purge = (agent.identity ?= "kalevo" and agent.clearance ?= "admin")
+
+# === SETUP PERSONAL FILTER ===
+
+# Agent's personal filter - what they choose to see
+~.filter = {
+    clearance: ["public", "internal"],        # Only see public and internal clearance
+    department: "IT"                          # Only see IT department data
+}
+
+# === CREATE DATA WITH AUTOMATIC STAMPING ===
+
+# When we write data, stamps are automatically applied
+# The effective stamp will be merged from hierarchy
+
+# Write at task level - gets full stamp hierarchy
+my.world.company.department.task42.results = {
+    analysis: "Database performance improved by 40%",
+    metrics: [95.2, 87.1, 92.8],
+    completed: @2024-03-15T14:30:00Z
+}
+
+# Write at department level - gets department + company + personal stamps
+my.world.company.department.status_report = {
+    title: "Q1 Department Report",
+    summary: "All projects on track",
+    budget_used: 75000
+}
+
+# Write public data - still gets stamps but different access
+my.world.company.department.public.announcement = {
+    title: "New System Launch",
+    message: "AmorphDB is now available for testing"
+}
+
+# === TEST PROTECTED ATTRIBUTES ===
+
+# Some attributes can be marked as protected from stamp override
+my.world.company.department.config = {
+    system_id:(protected) "SYS-001",           # Cannot be overridden by stamps
+    version:(protected) "1.0.0",              # Cannot be overridden by stamps
+    environment: "production"                  # Can be augmented by stamps
+}
+
+# === DEMONSTRATION OUTPUTS ===
+
+# These will show the complete security framework in action
+
+# 1. Show effective stamps applied to data
+my.world.company.department.task42.results
+# Should show: original data + @author + role:"lead" + timezone + company + department + task stamps
+
+# 2. Show permission-based access
+# (This would need to be tested with different agent identities)
+
+# 3. Show filtered view based on agent's filter
+# Agent will only see data that matches their clearance and department filter
+
+# 4. Show hierarchical permission inheritance
+my.world.company.department.public.announcement  # Should be readable (inherits open read)
+
+# 5. Show stamp caching efficiency
+# Multiple writes at same level reuse stamp snapshots
+
+# === ADVANCED SCENARIOS ===
+
+# Scenario 1: Collaborative document with stamps
+my.world.company.department.shared_doc = {
+    title: "Team Collaboration Doc",
+    content: "This document shows stamp attribution"
+}
+# Each edit would get stamped with the editor's context
+
+# Scenario 2: Filter-based data curation
+# Agent's view will automatically exclude data that doesn't match their filter
+# Even if they have permission to read it, they won't see it unless it passes filter
+
+# Scenario 3: Permission cascade with overrides
+my.world.company.department.subsection.data = "Inherits department permissions"
+my.world.company.department.secrets.classified = "Uses overridden secret permissions"
+
+# === EXPECTED BEHAVIOR ===
+
+# 1. STAMPS:
+#    - Every piece of data gets @author automatically
+#    - Hierarchical stamps merge (deeper wins on collision)
+#    - Stamp snapshots cached for efficiency
+#    - Protected attributes resist stamp override
+
+# 2. PERMISSIONS:
+#    - Cascade down tree until overridden
+#    - Evaluated with agent properties (role, clearance, identity)
+#    - Different permissions for read/write/expand/grant/purge
+#    - Defaults: ~ owner-only, world read-open/write-closed
+
+# 3. FILTERS:
+#    - Personal curation of what agent sees
+#    - Operate on stamp attributes
+#    - Cannot bypass permissions
+#    - Stored at ~.filter
+
+# Output all test data to verify security framework
+my.world.company.department.task42.results
+my.world.company.department.status_report
+my.world.company.department.public.announcement
+my.world.company.department.config

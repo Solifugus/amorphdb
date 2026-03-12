@@ -1,0 +1,1 @@
+output("Reading from node:", my.distributed.data)

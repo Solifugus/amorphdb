@@ -1,0 +1,3 @@
+output("Testing distributed data reading")
+output("Attempting to read distributed data")
+output("Test completed")

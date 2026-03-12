@@ -2,16 +2,35 @@
 package interpreter
 
 import (
+	"crypto/rand"
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/solifugus/amorphdb/internal/mbl/parser"
 	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/types"
 )
+
+// CommitBuffer holds persistent writes to be flushed as a batch
+type CommitBuffer struct {
+	writes []PendingWrite
+	limit  int
+}
+
+// PendingWrite represents a write operation staged for batched commit
+type PendingWrite struct {
+	path   []string
+	value  storage.Value
+	author uint64
+}
+
+// DefaultCommitBufferLimit is the default limit for writes per execution
+const DefaultCommitBufferLimit = 10000
 
 // Scope represents an execution environment with variables and storage access
 type Scope struct {
@@ -58,14 +77,33 @@ func (s *Scope) Get(name string) (interface{}, bool) {
 
 // Interpreter executes MBL programs against the storage engine
 type Interpreter struct {
-	scope  *Scope
-	errors []string // Accumulated errors during execution
+	scope        *Scope
+	errors       []string      // Accumulated errors during execution
+	commitBuffer *CommitBuffer // Staged writes for batched commit
+	coordinator  *CommitCoordinator // Optional coordinator for cross-execution batching
 }
 
 // New creates a new interpreter instance
 func New(tree storage.Tree, agent uint64) *Interpreter {
 	return &Interpreter{
 		scope: NewScope(tree, agent),
+		commitBuffer: &CommitBuffer{
+			writes: make([]PendingWrite, 0),
+			limit:  DefaultCommitBufferLimit,
+		},
+		coordinator: nil, // No coordinator by default
+	}
+}
+
+// NewWithCoordinator creates an interpreter instance with a commit coordinator
+func NewWithCoordinator(tree storage.Tree, agent uint64, coordinator *CommitCoordinator) *Interpreter {
+	return &Interpreter{
+		scope: NewScope(tree, agent),
+		commitBuffer: &CommitBuffer{
+			writes: make([]PendingWrite, 0),
+			limit:  DefaultCommitBufferLimit,
+		},
+		coordinator: coordinator,
 	}
 }
 
@@ -80,9 +118,20 @@ func (i *Interpreter) Interpret(program *parser.Program) (interface{}, error) {
 	for _, statement := range program.Statements {
 		result = i.evalStatement(statement)
 
+		// Check for unhandled Unknown that should trigger rollback
+		if unknown, ok := result.(types.Unknown); ok && i.shouldRollback(unknown) {
+			i.discardBuffer()
+			return result, nil
+		}
+
 		// Note: Unknown values are valid results in MBL, representing resilient computation
 		// They should not halt execution unless they represent critical errors
-		// For now, we allow all Unknown values to be normal results
+	}
+
+	// Flush staged writes on normal completion
+	if err := i.flushBuffer(); err != nil {
+		// If flush fails, return Unknown with the error
+		return types.Unknown{Reason: fmt.Sprintf("commit failed: %v", err)}, nil
 	}
 
 	return result, nil
@@ -91,6 +140,75 @@ func (i *Interpreter) Interpret(program *parser.Program) (interface{}, error) {
 // Errors returns accumulated interpretation errors
 func (i *Interpreter) Errors() []string {
 	return i.errors
+}
+
+// stageWrite adds a write operation to the commit buffer
+func (i *Interpreter) stageWrite(path []string, value storage.Value, author uint64) interface{} {
+	// Check buffer limit
+	if len(i.commitBuffer.writes) >= i.commitBuffer.limit {
+		return types.Unknown{Reason: "commit buffer exceeded"}
+	}
+
+	// Stage the write
+	pendingWrite := PendingWrite{
+		path:   path,
+		value:  value,
+		author: author,
+	}
+
+	i.commitBuffer.writes = append(i.commitBuffer.writes, pendingWrite)
+	return nil
+}
+
+// flushBuffer commits all staged writes as a batch
+func (i *Interpreter) flushBuffer() error {
+	if len(i.commitBuffer.writes) == 0 {
+		return nil // Nothing to flush
+	}
+
+	// If coordinator is available, stage writes for coordinated batching
+	if i.coordinator != nil {
+		err := i.coordinator.StageWrites(i.commitBuffer.writes)
+		if err != nil {
+			i.discardBuffer()
+			return fmt.Errorf("failed to stage writes with coordinator: %w", err)
+		}
+		// Clear local buffer after staging with coordinator
+		i.commitBuffer.writes = i.commitBuffer.writes[:0]
+		return nil
+	}
+
+	// Fallback: direct flush without coordination (for standalone execution)
+	return i.flushBufferDirect()
+}
+
+// flushBufferDirect commits staged writes directly without coordination
+func (i *Interpreter) flushBufferDirect() error {
+	// Apply all writes directly to local storage
+	for _, write := range i.commitBuffer.writes {
+		err := i.scope.tree.Write(write.path, write.value, write.author)
+		if err != nil {
+			// On write failure, discard remaining writes and return error
+			i.discardBuffer()
+			return fmt.Errorf("write failed for path %v: %w", write.path, err)
+		}
+	}
+
+	// Clear buffer after successful flush
+	i.commitBuffer.writes = i.commitBuffer.writes[:0]
+	return nil
+}
+
+// discardBuffer clears all staged writes without committing them
+func (i *Interpreter) discardBuffer() {
+	i.commitBuffer.writes = i.commitBuffer.writes[:0]
+}
+
+// shouldRollback determines if an Unknown should trigger buffer rollback
+func (i *Interpreter) shouldRollback(unknown types.Unknown) bool {
+	// For now, rollback only on buffer overflow or critical errors
+	// TODO: Implement proper rollback semantics based on Unknown reason
+	return unknown.Reason == "commit buffer exceeded"
 }
 
 // evalStatement evaluates a statement node
@@ -209,10 +327,17 @@ func (i *Interpreter) evalPath(node *parser.PathExpression) interface{} {
 		return types.Unknown{Reason: "empty path"}
 	}
 
-	// Check for local variables first
+	// Check for local variables first (single part paths)
 	if len(node.Parts) == 1 {
 		if value, found := i.scope.Get(node.Parts[0]); found {
 			return value
+		}
+	}
+
+	// Check for local record field access (multi-part paths)
+	if len(node.Parts) > 1 {
+		if baseValue, found := i.scope.Get(node.Parts[0]); found {
+			return i.accessRecordFields(baseValue, node.Parts[1:])
 		}
 	}
 
@@ -232,6 +357,27 @@ func (i *Interpreter) evalPath(node *parser.PathExpression) interface{} {
 	}
 
 	return mblValue
+}
+
+// accessRecordFields recursively accesses fields from record values
+func (i *Interpreter) accessRecordFields(baseValue interface{}, fieldNames []string) interface{} {
+	currentValue := baseValue
+
+	for _, fieldName := range fieldNames {
+		record, ok := currentValue.(types.Record)
+		if !ok {
+			return types.Unknown{Reason: fmt.Sprintf("cannot access field '%s' on non-record type", fieldName)}
+		}
+
+		fieldValue, exists := record.Fields[fieldName]
+		if !exists {
+			return types.Unknown{Reason: fmt.Sprintf("field '%s' not found in record", fieldName)}
+		}
+
+		currentValue = fieldValue
+	}
+
+	return currentValue
 }
 
 // resolvePath resolves special path prefixes like 'my', 'world', '~'
@@ -381,9 +527,13 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 		return types.Unknown{Reason: fmt.Sprintf("failed to convert value for storage: %v", err)}
 	}
 
-	err = i.scope.tree.Write(path, storageValue, i.scope.agent)
-	if err != nil {
-		return types.Unknown{Reason: fmt.Sprintf("failed to write to path %v: %v", path, err)}
+	// Stage write for batched commit instead of immediate write
+	result := i.stageWrite(path, storageValue, i.scope.agent)
+	if result != nil {
+		if unknown, ok := result.(types.Unknown); ok {
+			return unknown
+		}
+		return types.Unknown{Reason: fmt.Sprintf("failed to stage write to path %v", path)}
 	}
 
 	return value
@@ -428,7 +578,16 @@ func (i *Interpreter) evalIfStatement(node *parser.IfStatement) interface{} {
 }
 
 func (i *Interpreter) evalWhileStatement(node *parser.WhileStatement) interface{} {
+	const maxIterations = 100000 // Safety limit to prevent infinite loops
+	iterations := 0
+
 	for {
+		// Safety check: prevent runaway loops
+		iterations++
+		if iterations > maxIterations {
+			return types.Unknown{Reason: fmt.Sprintf("while loop exceeded maximum iterations (%d)", maxIterations)}
+		}
+
 		condition := i.evalExpression(node.Condition)
 
 		if unknown, ok := condition.(types.Unknown); ok {
@@ -442,6 +601,14 @@ func (i *Interpreter) evalWhileStatement(node *parser.WhileStatement) interface{
 		result := i.evalStatement(node.Body)
 		if unknown, ok := result.(types.Unknown); ok {
 			return unknown
+		}
+
+		// Safety check: if commit buffer is getting large, flush periodically
+		if iterations%1000 == 0 && len(i.commitBuffer.writes) > 5000 {
+			err := i.flushBuffer()
+			if err != nil {
+				return types.Unknown{Reason: fmt.Sprintf("failed to flush buffer during loop: %v", err)}
+			}
 		}
 	}
 
@@ -469,8 +636,14 @@ func (i *Interpreter) evalForStatement(node *parser.ForStatement) interface{} {
 
 	var result interface{} = types.Nothing{}
 
+	// Safety check: prevent iteration over extremely large lists
+	const maxForLoopElements = 100000
+	if len(list.Elements) > maxForLoopElements {
+		return types.Unknown{Reason: fmt.Sprintf("for loop list too large (%d elements, max %d)", len(list.Elements), maxForLoopElements)}
+	}
+
 	// Iterate over elements
-	for _, element := range list.Elements {
+	for idx, element := range list.Elements {
 		// Set the loop variable
 		i.scope.Set(node.Variable, element)
 
@@ -480,6 +653,14 @@ func (i *Interpreter) evalForStatement(node *parser.ForStatement) interface{} {
 		// Check for Unknown (error) - break on error
 		if _, ok := result.(types.Unknown); ok {
 			break
+		}
+
+		// Safety check: flush buffer periodically for large iterations
+		if idx%1000 == 0 && len(i.commitBuffer.writes) > 5000 {
+			err := i.flushBuffer()
+			if err != nil {
+				return types.Unknown{Reason: fmt.Sprintf("failed to flush buffer during for loop: %v", err)}
+			}
 		}
 	}
 
@@ -590,7 +771,58 @@ func (i *Interpreter) evalInstantiationStatement(node *parser.InstantiationState
 	// Add type information
 	fields["_type"] = types.Text{Value: node.Type}
 
-	// Evaluate the properties if present
+	// Handle inheritance from mixed sources
+	if len(node.Sources) > 0 {
+		// Get the global modifier (default to "copy" if not specified)
+		globalModifier := "copy"
+		if node.Modifier != nil {
+			globalModifier = *node.Modifier
+		}
+
+		// Process each source (template or inline record)
+		for _, source := range node.Sources {
+			var sourceRecord types.Record
+
+			if source.TemplateName != nil {
+				// Template name source
+				sourceValue, found := i.scope.Get(*source.TemplateName)
+				if !found {
+					return types.Unknown{Reason: fmt.Sprintf("template source '%s' not found", *source.TemplateName)}
+				}
+
+				// Source must be a Record
+				var ok bool
+				sourceRecord, ok = sourceValue.(types.Record)
+				if !ok {
+					return types.Unknown{Reason: fmt.Sprintf("template source '%s' is not a record", *source.TemplateName)}
+				}
+			} else if source.InlineRecord != nil {
+				// Inline record source
+				recordResult := i.evalRecordExpression(source.InlineRecord)
+
+				// Unknown propagation
+				if unknown, ok := recordResult.(types.Unknown); ok {
+					return unknown
+				}
+
+				var ok bool
+				sourceRecord, ok = recordResult.(types.Record)
+				if !ok {
+					return types.Unknown{Reason: "inline record evaluation failed"}
+				}
+			} else {
+				return types.Unknown{Reason: "invalid instantiation source"}
+			}
+
+			// Apply inheritance with per-attribute modifier support
+			err := i.applyInheritanceWithModifiers(fields, sourceRecord.Fields, globalModifier)
+			if err != nil {
+				return types.Unknown{Reason: fmt.Sprintf("inheritance failed: %v", err)}
+			}
+		}
+	}
+
+	// Evaluate the properties if present (these override inherited values)
 	if node.Properties != nil {
 		propertiesResult := i.evalRecordExpression(node.Properties)
 
@@ -599,7 +831,7 @@ func (i *Interpreter) evalInstantiationStatement(node *parser.InstantiationState
 			return unknown
 		}
 
-		// Add all properties to the fields
+		// Add all properties to the fields (properties override inheritance)
 		if record, ok := propertiesResult.(types.Record); ok {
 			for key, value := range record.Fields {
 				fields[key] = value
@@ -660,6 +892,13 @@ func (i *Interpreter) evalCallExpression(node *parser.CallExpression) interface{
 		return i.evalMaxFunction(args)
 	case "min":
 		return i.evalMinFunction(args)
+	// Reset expression functions
+	case "random":
+		return i.evalRandomFunction(args)
+	case "now":
+		return i.evalNowFunction(args)
+	case "uuid":
+		return i.evalUuidFunction(args)
 	default:
 		// Look up user-defined procedures
 		if value, found := i.scope.Get(functionName); found {
@@ -887,6 +1126,77 @@ func (i *Interpreter) evalMinFunction(args []interface{}) interface{} {
 	return types.Number{Value: min}
 }
 
+// Reset expression built-in functions
+
+func (i *Interpreter) evalRandomFunction(args []interface{}) interface{} {
+	switch len(args) {
+	case 0:
+		// random() - return random float between 0 and 1
+		randomFloat, err := rand.Int(rand.Reader, big.NewInt(1000000))
+		if err != nil {
+			return types.Unknown{Reason: "failed to generate random number"}
+		}
+		return types.Number{Value: float64(randomFloat.Int64()) / 1000000.0}
+
+	case 1:
+		// random(max) - return random integer from 0 to max-1
+		maxResult := types.CoerceToNumber(args[0])
+		if !maxResult.Ok {
+			return types.Unknown{Reason: "random() max argument must be a number"}
+		}
+		max := int64(maxResult.Value.(types.Number).Value)
+		if max <= 0 {
+			return types.Unknown{Reason: "random() max must be positive"}
+		}
+
+		randomInt, err := rand.Int(rand.Reader, big.NewInt(max))
+		if err != nil {
+			return types.Unknown{Reason: "failed to generate random number"}
+		}
+		return types.Number{Value: float64(randomInt.Int64())}
+
+	case 2:
+		// random(min, max) - return random integer from min to max-1
+		minResult := types.CoerceToNumber(args[0])
+		maxResult := types.CoerceToNumber(args[1])
+		if !minResult.Ok || !maxResult.Ok {
+			return types.Unknown{Reason: "random() arguments must be numbers"}
+		}
+
+		min := int64(minResult.Value.(types.Number).Value)
+		max := int64(maxResult.Value.(types.Number).Value)
+		if min >= max {
+			return types.Unknown{Reason: "random() min must be less than max"}
+		}
+
+		randomInt, err := rand.Int(rand.Reader, big.NewInt(max-min))
+		if err != nil {
+			return types.Unknown{Reason: "failed to generate random number"}
+		}
+		return types.Number{Value: float64(randomInt.Int64() + min)}
+
+	default:
+		return types.Unknown{Reason: "random() takes 0, 1, or 2 arguments"}
+	}
+}
+
+func (i *Interpreter) evalNowFunction(args []interface{}) interface{} {
+	if len(args) != 0 {
+		return types.Unknown{Reason: "now() takes no arguments"}
+	}
+
+	return types.Time{Timestamp: time.Now()}
+}
+
+func (i *Interpreter) evalUuidFunction(args []interface{}) interface{} {
+	if len(args) != 0 {
+		return types.Unknown{Reason: "uuid() takes no arguments"}
+	}
+
+	id := uuid.New()
+	return types.Text{Value: id.String()}
+}
+
 func (i *Interpreter) evalBracketFilter(node *parser.BracketFilterExpression) interface{} {
 	// Evaluate the base expression (should be a List or Record)
 	base := i.evalExpression(node.Left)
@@ -994,33 +1304,119 @@ func (i *Interpreter) filterRecord(record types.Record, filters []parser.Express
 func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interface{} {
 	fields := make(map[string]interface{})
 
-	for keyExpr, valueExpr := range node.Pairs {
-		// Evaluate the key (should be a string)
-		keyResult := i.evalExpression(keyExpr)
-		if unknown, ok := keyResult.(types.Unknown); ok {
-			return unknown
-		}
-
-		// Convert key to string
-		var key string
-		if text, ok := keyResult.(types.Text); ok {
-			key = text.Value
-		} else {
-			// Coerce key to text
-			textResult := types.CoerceToText(keyResult)
-			if !textResult.Ok {
-				return textResult.Value
+	// Handle new Fields structure if available
+	if len(node.Fields) > 0 {
+		for _, field := range node.Fields {
+			// Evaluate the key (should be a string)
+			keyResult := i.evalExpression(field.Key)
+			if unknown, ok := keyResult.(types.Unknown); ok {
+				return unknown
 			}
-			key = textResult.Value.(types.Text).Value
-		}
 
-		// Evaluate the value
-		value := i.evalExpression(valueExpr)
-		if unknown, ok := value.(types.Unknown); ok {
-			return unknown
-		}
+			// Convert key to string
+			var key string
+			if text, ok := keyResult.(types.Text); ok {
+				key = text.Value
+			} else {
+				// Coerce key to text
+				textResult := types.CoerceToText(keyResult)
+				if !textResult.Ok {
+					return textResult.Value
+				}
+				key = textResult.Value.(types.Text).Value
+			}
 
-		fields[key] = value
+			// Handle heritability modifiers and reset expressions
+			var value interface{}
+			if field.Modifier != nil {
+				// Apply per-attribute heritability modifier
+				value = i.evalExpression(field.Value)
+				if unknown, ok := value.(types.Unknown); ok {
+					return unknown
+				}
+
+				// Store the modifier as a meta-attribute for later inheritance processing
+				// For now, store both the value and the modifier information
+				switch *field.Modifier {
+				case "reset":
+					if field.ResetExpr != nil {
+						// Evaluate reset expression
+						resetValue := i.evalExpression(field.ResetExpr)
+						if unknown, ok := resetValue.(types.Unknown); ok {
+							return unknown
+						}
+						// Store both the value and reset expression
+						// This will be handled during inheritance
+						value = map[string]interface{}{
+							"value": value,
+							"@reset": resetValue,
+						}
+					} else {
+						// Simple reset without expression
+						value = map[string]interface{}{
+							"value": value,
+							"@reset": true,
+						}
+					}
+				case "exclude":
+					// Exclude modifier - mark for exclusion from inheritance
+					value = map[string]interface{}{
+						"value": value,
+						"@exclude": true,
+					}
+				case "link", "copy":
+					// Store modifier for inheritance processing
+					value = map[string]interface{}{
+						"value": value,
+						"@inherit": *field.Modifier,
+					}
+				default:
+					// Default behavior
+					value = i.evalExpression(field.Value)
+					if unknown, ok := value.(types.Unknown); ok {
+						return unknown
+					}
+				}
+			} else {
+				// No modifier, evaluate value normally
+				value = i.evalExpression(field.Value)
+				if unknown, ok := value.(types.Unknown); ok {
+					return unknown
+				}
+			}
+
+			fields[key] = value
+		}
+	} else {
+		// Backward compatibility with old Pairs structure
+		for keyExpr, valueExpr := range node.Pairs {
+			// Evaluate the key (should be a string)
+			keyResult := i.evalExpression(keyExpr)
+			if unknown, ok := keyResult.(types.Unknown); ok {
+				return unknown
+			}
+
+			// Convert key to string
+			var key string
+			if text, ok := keyResult.(types.Text); ok {
+				key = text.Value
+			} else {
+				// Coerce key to text
+				textResult := types.CoerceToText(keyResult)
+				if !textResult.Ok {
+					return textResult.Value
+				}
+				key = textResult.Value.(types.Text).Value
+			}
+
+			// Evaluate the value
+			value := i.evalExpression(valueExpr)
+			if unknown, ok := value.(types.Unknown); ok {
+				return unknown
+			}
+
+			fields[key] = value
+		}
 	}
 
 	return types.Record{Fields: fields}
@@ -1181,6 +1577,147 @@ func storageToMBL(value storage.Value) (interface{}, error) {
 
 	// Deserialize to MBL type
 	return types.DeserializeValue(typesValue)
+}
+
+// applyInheritance applies inheritance rules based on modifier
+// applyInheritanceWithModifiers applies inheritance with support for per-attribute modifiers
+func (i *Interpreter) applyInheritanceWithModifiers(target map[string]interface{}, source map[string]interface{}, globalModifier string) error {
+	for key, value := range source {
+		// Check if this field has per-attribute modifiers
+		if fieldMeta, ok := value.(map[string]interface{}); ok {
+			// Check for meta-attributes
+			if fieldValue, hasValue := fieldMeta["value"]; hasValue {
+				// Extract per-attribute modifier information
+				var effectiveModifier string
+
+				if exclude, hasExclude := fieldMeta["@exclude"]; hasExclude && exclude.(bool) {
+					// Field marked for exclusion - skip it
+					continue
+				} else if inherit, hasInherit := fieldMeta["@inherit"]; hasInherit {
+					// Use per-attribute inheritance modifier
+					effectiveModifier = inherit.(string)
+				} else if reset, hasReset := fieldMeta["@reset"]; hasReset {
+					if resetExpr, isExpr := reset.(bool); isExpr && resetExpr {
+						// Simple reset - use default behavior
+						effectiveModifier = "reset"
+					} else {
+						// Reset with expression - use the already evaluated reset value
+						effectiveModifier = "reset"
+						// The reset value was already evaluated and is stored in reset
+						fieldValue = reset
+					}
+				} else {
+					// Use global modifier
+					effectiveModifier = globalModifier
+				}
+
+				// Apply the effective modifier
+				err := i.applySingleFieldInheritance(target, key, fieldValue, effectiveModifier)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Not a meta-attribute structure, use global modifier
+				err := i.applySingleFieldInheritance(target, key, value, globalModifier)
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			// Regular field without meta-attributes, use global modifier
+			err := i.applySingleFieldInheritance(target, key, value, globalModifier)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// applySingleFieldInheritance applies inheritance for a single field
+func (i *Interpreter) applySingleFieldInheritance(target map[string]interface{}, key string, value interface{}, modifier string) error {
+	switch modifier {
+	case "copy":
+		// Copy field if not already present (first source wins for conflicts)
+		if _, exists := target[key]; !exists {
+			target[key] = i.deepCopyValue(value)
+		}
+	case "link":
+		// Create reference link to source value (shared reference)
+		if _, exists := target[key]; !exists {
+			target[key] = value // Direct reference (shared)
+		}
+	case "reset":
+		// Copy field, always overriding existing values
+		target[key] = i.deepCopyValue(value)
+	case "exclude":
+		// Field is marked for exclusion - do not inherit it
+		// This case is handled at the caller level, but included for completeness
+		return nil
+	default:
+		return fmt.Errorf("unknown modifier: %s", modifier)
+	}
+	return nil
+}
+
+func (i *Interpreter) applyInheritance(target map[string]interface{}, source map[string]interface{}, modifier string) error {
+	switch modifier {
+	case "copy":
+		// Copy all fields from source, can be overridden by later values
+		for key, value := range source {
+			// Only set if not already present (first source wins for conflicts)
+			if _, exists := target[key]; !exists {
+				target[key] = i.deepCopyValue(value)
+			}
+		}
+	case "link":
+		// Create reference links to source values (shared references)
+		for key, value := range source {
+			if _, exists := target[key]; !exists {
+				target[key] = value // Direct reference (shared)
+			}
+		}
+	case "reset":
+		// Copy all fields, but allow complete override
+		for key, value := range source {
+			target[key] = i.deepCopyValue(value) // Always copy, even if exists
+		}
+	case "exclude":
+		// Copy all fields except those marked for exclusion
+		// For now, copy everything (full exclude logic would need additional syntax)
+		for key, value := range source {
+			if _, exists := target[key]; !exists {
+				target[key] = i.deepCopyValue(value)
+			}
+		}
+	default:
+		return fmt.Errorf("unknown heritability modifier: %s", modifier)
+	}
+	return nil
+}
+
+// deepCopyValue creates a deep copy of MBL values
+func (i *Interpreter) deepCopyValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case types.Record:
+		// Deep copy the record
+		newFields := make(map[string]interface{})
+		for key, fieldValue := range v.Fields {
+			newFields[key] = i.deepCopyValue(fieldValue)
+		}
+		return types.Record{Fields: newFields}
+	case types.List:
+		// Deep copy the list
+		newElements := make([]interface{}, len(v.Elements))
+		for idx, element := range v.Elements {
+			newElements[idx] = i.deepCopyValue(element)
+		}
+		return types.List{Elements: newElements}
+	default:
+		// For primitive types (Number, Text, Boolean, etc.), return as-is
+		// These are value types in Go, so they're automatically copied
+		return v
+	}
 }
 
 // convertToMBLType converts raw values from parser to proper MBL types

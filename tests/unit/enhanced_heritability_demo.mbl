@@ -1,0 +1,60 @@
+# Enhanced Heritability Demo - Design Document Specification
+# This demonstrates the per-attribute heritability system as specified in the design
+# CORRECTED: Modifiers appear between colon and value as per design doc
+
+# Base templates with per-attribute modifiers
+person_template = {
+    name: "Default Person",
+    age: 25,
+    id:(reset random(100, 999)) 342,
+    secret:(exclude) "classified",
+    status:(link) "active"
+}
+
+employee_template = {
+    id: 1000,
+    department: "Engineering",
+    salary:(copy) 50000,
+    manager:(link) "CEO"
+}
+
+# Mixed instantiation syntax as per design document
+
+# Basic instantiation from single template
+alice = new person person_template
+
+# Multiple sources with inline record containing modifiers
+bob = new employee person_template { status:(link) "Active" } employee_template
+
+# Inline record with per-attribute modifiers
+charlie = new manager person_template employee_template {
+    name:(copy) "Charlie",
+    salary:(reset) 75000,
+    secret:(exclude) true
+}
+
+# Test individual inheritance behaviors
+diana = new person {
+    name:(copy) "Diana",
+    age:(link) shared_age,
+    temp_id:(reset random()) 999,
+    private:(exclude) "hidden"
+}
+
+# Expected behaviors:
+# alice.id should be newly generated (reset with expression)
+# alice.secret should not exist (excluded)
+# alice.status should be linked to person_template.status
+
+# bob.status should be linked (from inline record modifier)
+# bob.department should be inherited from employee_template
+
+# charlie.name should be copied independently
+# charlie.salary should be reset to 75000 (override)
+# charlie.secret should not exist (excluded)
+
+# Output for verification
+alice
+bob
+charlie
+diana

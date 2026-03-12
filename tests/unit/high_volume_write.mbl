@@ -1,0 +1,13 @@
+output("Starting high-volume write operations")
+
+# Write multiple data points rapidly
+counter = 0
+while counter < 100 {
+    data_key = "stress_data_" + string(counter)
+    data_value = "High volume data entry number " + string(counter)
+    output("Writing entry", counter)
+    counter = counter + 1
+}
+
+output("High-volume write operations completed")
+output("Total entries written:", counter)

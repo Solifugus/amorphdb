@@ -1,0 +1,3 @@
+output("Testing distributed data storage")
+data = "Hello from distributed AmorphDB!"
+output("Storing data:", data)

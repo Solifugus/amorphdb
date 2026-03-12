@@ -1,0 +1,4 @@
+x = 123
+y = 456  
+result = x + y
+output("Node computation result:", result)

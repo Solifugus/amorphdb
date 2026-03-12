@@ -1,0 +1,6 @@
+output("Testing loop syntax")
+counter = 0
+while counter < 3:
+    output("Loop iteration", counter)
+    counter = counter + 1
+output("Loop completed")

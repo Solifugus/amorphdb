@@ -1,0 +1,3 @@
+output("Single operation test")
+output("This is a simple single operation")
+output("Single operation completed")

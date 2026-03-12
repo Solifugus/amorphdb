@@ -716,11 +716,19 @@ The maximum execution speed of any inner run is one third of a second, matching 
 
 #### Heartbeat Atomicity
 
-Within a single heartbeat tick, a watcher's execution is atomic. All changes it makes to persistent data are held locally until the heartbeat completes. If the watcher produces an unhandled Unknown that escapes its body — indicating a failure such as a hardware error, network problem, or unresolvable operation — all changes from that tick are rolled back. None are replicated.
+Within a single heartbeat tick, a watcher's execution is atomic. All changes it makes to persistent data — whether in the local zone or in remote zones — are staged locally until execution completes. At the heartbeat boundary, staged writes are flushed as a single coordinated batch: local zone writes commit directly, and cross-zone writes are dispatched together as one replication payload per destination zone.
+
+This means a loop that writes to many attributes, even across many nodes, does not generate one network message per iteration. The mesh sees one write batch per tick, not one write per assignment. The cost of a loop is bounded by the size of the commit buffer, not by the number of iterations.
+
+If the watcher produces an unhandled Unknown that escapes its body — indicating a failure such as a hardware error, network problem, or unresolvable operation — all staged changes are discarded. None are replicated.
 
 If the watcher handles the Unknown internally (checks for it, takes corrective action), that is normal operation and changes commit as expected. The rollback only occurs when an Unknown propagates out of the watcher unhandled.
 
-This requires no distributed transaction coordination. Changes do not leave the node until the heartbeat boundary, so rollback is purely local — the node discards pending writes.
+This requires no distributed transaction coordination. Changes do not leave the node until the heartbeat boundary, so rollback is purely local — the node discards the staged write buffer.
+
+**Commit buffer limits:** A single execution may stage at most a configurable number of persistent writes (default: 10,000). If the limit is exceeded, an Unknown is produced with reason "commit buffer exceeded." This can be handled like any other Unknown — caught internally for partial work or allowed to propagate for full rollback. The limit exists to prevent unbounded memory use and to keep per-tick replication payloads manageable.
+
+The same staging model applies to outer runs. All persistent writes made during an outer run are staged and flushed when the program exits normally. An unhandled Unknown at the top level rolls back all staged writes from that run.
 
 #### Cross-Zone Operations
 
@@ -788,6 +796,21 @@ Local data uses the same types and structures as persistent data. The runtime ne
     my.contacts.joe = temp              # now persistent in the mesh
 
 When a program ends, anything not attached to `my` or `world` is discarded.
+
+**Write cost distinction:** Assignments to local (in-memory) variables are pure computation — they carry no network cost and are not staged for replication. Only assignments that reach through `my` or `world` enter the commit buffer and are subject to replication at the heartbeat boundary. This distinction matters most for loops: a loop performing heavy computation on local variables that writes to persistent storage only at the end is nearly free from the mesh's perspective, regardless of iteration count.
+
+    # all work is local — one persistent write at the end
+    total = 0
+    for item in my.inventory:
+        total = total + item.quantity   # local variable, no mesh cost
+    my.reports.total_stock = total      # one persistent write
+
+    # persistent writes per matching item — all staged, flushed as one batch
+    for item in my.inventory:
+        if item.quantity < 5:
+            item.status = "low stock"   # enters commit buffer
+
+Both patterns are valid. The second stages multiple writes, but they are held in the commit buffer and flushed together at the heartbeat boundary — the mesh never sees them one at a time.
 
 #### The Computer
 

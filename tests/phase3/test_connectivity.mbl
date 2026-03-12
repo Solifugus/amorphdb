@@ -1,0 +1,2 @@
+output("AmorphDB connectivity test")
+output("Node is responding successfully")

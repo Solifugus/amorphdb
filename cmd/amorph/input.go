@@ -6,41 +6,128 @@ import (
 	"strings"
 )
 
-// readInput handles input with basic continuation support
+// readInput handles input with full multi-line support
 func (r *REPL) readInput() string {
-	fmt.Print("amorph> ")
+	var lines []string
+	prompt := "amorph> "
 
-	// Read line from scanner
-	if !r.scanner.Scan() {
-		// EOF or error
-		return ""
+	for {
+		fmt.Print(prompt)
+
+		// Read line from scanner
+		if !r.scanner.Scan() {
+			// EOF or error - return what we have so far
+			break
+		}
+
+		currentLine := r.scanner.Text()
+		lines = append(lines, currentLine)
+
+		// Check if we need continuation
+		if !r.needsContinuation(currentLine, lines) {
+			break
+		}
+
+		// Use continuation prompt for next line
+		prompt = "     | "
 	}
 
-	line := r.scanner.Text()
-
-	// For now, just support single-line input
-	// Multi-line support can be added later once basic functionality works
-	return strings.TrimSpace(line)
+	// Join all lines and return
+	return strings.Join(lines, "\n")
 }
 
 // needsContinuation determines if input requires more lines
-// Simplified for now - will be enhanced later
 func (r *REPL) needsContinuation(currentLine string, allLines []string) bool {
 	trimmed := strings.TrimSpace(currentLine)
 
-	// Check for obvious continuation needs
+	// Empty line ends multi-line input
+	if trimmed == "" && len(allLines) > 1 {
+		return false
+	}
+
+	// Check for unmatched brackets across all lines
+	if r.hasUnmatchedBrackets(allLines) {
+		return true
+	}
+
+	// Check for control flow statements ending with ":"
 	if strings.HasSuffix(trimmed, ":") {
-		// Control statements like if:, while:, etc.
-		keywords := []string{"if", "elif", "else", "while", "for", "consider", "procedure"}
+		keywords := []string{"if", "elif", "else", "while", "for", "consider", "procedure", "watch"}
 		for _, keyword := range keywords {
-			if strings.HasPrefix(trimmed, keyword+" ") || trimmed == keyword+":" {
+			if strings.HasPrefix(trimmed, keyword+" ") ||
+			   strings.HasPrefix(trimmed, keyword+"(") ||
+			   trimmed == keyword+":" {
 				return true
 			}
 		}
+
+		// Also handle procedure definitions (identifier:) and other colon endings
+		if len(trimmed) > 1 {
+			return true
+		}
 	}
 
-	// Check for unmatched brackets
-	return r.hasUnmatchedBrackets([]string{currentLine})
+	// Check for indented continuation
+	if len(allLines) >= 2 {
+		// If we're in a multi-line block, check indentation
+		return r.isIndentedContinuation(currentLine, allLines)
+	}
+
+	return false
+}
+
+// isIndentedContinuation checks if current line continues an indented block
+func (r *REPL) isIndentedContinuation(currentLine string, allLines []string) bool {
+	if len(allLines) < 2 {
+		return false
+	}
+
+	// Get the indentation level of the current line
+	currentIndent := r.getIndentationLevel(currentLine)
+
+	// Find the base indentation level (first line that's not empty and not a header)
+	baseIndent := -1
+	blockIndent := -1
+
+	for i, line := range allLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue // Skip empty lines
+		}
+
+		indent := r.getIndentationLevel(line)
+
+		if i == 0 || (baseIndent == -1 && !strings.HasSuffix(trimmed, ":")) {
+			// First non-empty line or first non-header line sets base indentation
+			baseIndent = indent
+		} else if blockIndent == -1 && indent > baseIndent {
+			// First indented line sets block indentation
+			blockIndent = indent
+		}
+	}
+
+	// If we haven't established a block indentation yet, check if current line starts one
+	if blockIndent == -1 {
+		// If current line is indented relative to base, continue
+		return currentIndent > baseIndent
+	}
+
+	// If current line is at block level or deeper, continue
+	// If current line is back to base level or less, stop
+	return currentIndent >= blockIndent
+}
+
+// getIndentationLevel returns the number of leading tabs in a line
+func (r *REPL) getIndentationLevel(line string) int {
+	count := 0
+	for _, ch := range line {
+		if ch == '\t' {
+			count++
+		} else {
+			break
+		}
+	}
+	return count
 }
 
 // hasUnmatchedBrackets checks if there are unmatched brackets in the input

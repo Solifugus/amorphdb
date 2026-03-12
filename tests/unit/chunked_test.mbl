@@ -1,0 +1,39 @@
+output("Starting chunked operations test")
+
+# Chunk 1
+output("Starting chunk 1")
+counter = 1
+while counter <= 5:
+    output("Chunk 1, iteration", counter)
+    counter = counter + 1
+output("Chunk 1 completed")
+
+# Small delay (simulated with simple operations)
+delay_counter = 1
+while delay_counter <= 2:
+    temp = "delay operation"
+    delay_counter = delay_counter + 1
+
+# Chunk 2
+output("Starting chunk 2")
+counter = 1
+while counter <= 5:
+    output("Chunk 2, iteration", counter)
+    counter = counter + 1
+output("Chunk 2 completed")
+
+# Another small delay
+delay_counter = 1
+while delay_counter <= 2:
+    temp = "delay operation"
+    delay_counter = delay_counter + 1
+
+# Chunk 3
+output("Starting chunk 3")
+counter = 1
+while counter <= 5:
+    output("Chunk 3, iteration", counter)
+    counter = counter + 1
+output("Chunk 3 completed")
+
+output("All chunks completed successfully")

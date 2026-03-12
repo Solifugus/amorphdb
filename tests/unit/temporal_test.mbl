@@ -1,0 +1,1 @@
+output("Timestamp test at", current_time())

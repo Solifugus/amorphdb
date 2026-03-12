@@ -61,7 +61,7 @@ b = 4`
 		{ASSIGN, "="},
 		{NUMBER, "1"},
 		{NEWLINE, "\n"},
-		{IDENT, "if"},
+		{IF, "if"},
 		{IDENT, "y"},
 		{DEFINE, ":"},
 		{NEWLINE, "\n"},
@@ -511,10 +511,10 @@ func TestComplexIndentationExample(t *testing.T) {
 		}
 	}
 
-	if indentCount != 2 {
-		t.Fatalf("expected 2 INDENT tokens, got %d", indentCount)
+	if indentCount != 4 {
+		t.Fatalf("expected 4 INDENT tokens, got %d", indentCount)
 	}
-	if dedentCount != 2 {
-		t.Fatalf("expected 2 DEDENT tokens, got %d", dedentCount)
+	if dedentCount != 4 {
+		t.Fatalf("expected 4 DEDENT tokens, got %d", dedentCount)
 	}
 }

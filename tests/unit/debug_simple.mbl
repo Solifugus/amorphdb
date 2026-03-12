@@ -1,0 +1,2 @@
+output("Simple debug test")
+output("This should work fine")

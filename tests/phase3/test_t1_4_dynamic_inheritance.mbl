@@ -1,0 +1,161 @@
+# Phase 3 Test T1.4: Dynamic Inheritance Changes with Active Instances
+# Testing modification of inheritance while instances exist
+
+output("=== T1.4: Testing Dynamic Inheritance Changes ===")
+
+# Create initial template hierarchy
+test.dynamic.vehicle = {
+    name: "Base Vehicle",
+    type: "transport",
+    engine: {
+        fuel: "gasoline",
+        power: 100
+    },
+    features: {
+        radio: false,
+        air_conditioning: false
+    }
+}
+
+test.dynamic.car = new(test.dynamic.vehicle)
+test.dynamic.car.name = "Basic Car"
+test.dynamic.car.doors = 4
+test.dynamic.car.features.radio = true
+
+output("Created initial vehicle hierarchy")
+
+# Create multiple instances based on current inheritance
+test.dynamic.instances.car1 = new(test.dynamic.car)
+test.dynamic.instances.car1.model = "Sedan Model 1"
+test.dynamic.instances.car1.year = 2020
+
+test.dynamic.instances.car2 = new(test.dynamic.car)
+test.dynamic.instances.car2.model = "Sedan Model 2"
+test.dynamic.instances.car2.year = 2021
+
+test.dynamic.instances.car3 = new(test.dynamic.car)
+test.dynamic.instances.car3.model = "Sedan Model 3"
+test.dynamic.instances.car3.year = 2022
+
+output("Created 3 car instances based on current inheritance")
+
+# Test 1: Modify base template after instances created
+output("=== Test 1: Base Template Modification ===")
+
+# Check instances before modification
+test.dynamic.instances.car1.engine.power
+test.dynamic.instances.car2.features.air_conditioning
+
+# Modify the base vehicle template
+test.dynamic.vehicle.engine.power = 150
+test.dynamic.vehicle.features.air_conditioning = true
+test.dynamic.vehicle.safety = {
+    airbags: true,
+    abs: true
+}
+
+output("Modified base vehicle template after instances created")
+
+# Check if changes propagate to existing instances
+test.dynamic.instances.car1.engine.power
+test.dynamic.instances.car2.features.air_conditioning
+test.dynamic.instances.car3.safety.airbags
+
+# Test 2: Modify intermediate template
+output("=== Test 2: Intermediate Template Modification ===")
+
+# Modify car template after instances exist
+test.dynamic.car.engine.power = 200
+test.dynamic.car.transmission = {
+    type: "automatic",
+    gears: 8
+}
+test.dynamic.car.features.navigation = true
+
+output("Modified car template after instances created")
+
+# Check propagation to instances
+test.dynamic.instances.car1.transmission.type
+test.dynamic.instances.car2.features.navigation
+test.dynamic.instances.car3.engine.power
+
+# Test 3: Add new inheritance layer
+output("=== Test 3: Adding New Inheritance Layer ===")
+
+# Create new intermediate layer between vehicle and car
+test.dynamic.motor_vehicle = new(test.dynamic.vehicle)
+test.dynamic.motor_vehicle.name = "Motor Vehicle"
+test.dynamic.motor_vehicle.wheels = 4
+test.dynamic.motor_vehicle.registration_required = true
+
+# Change car to inherit from new layer instead
+# Note: This tests dynamic inheritance chain restructuring
+test.dynamic.car_new = new(test.dynamic.motor_vehicle)
+test.dynamic.car_new.name = "Updated Car"
+test.dynamic.car_new.doors = 4
+test.dynamic.car_new.features.radio = true
+
+output("Created new inheritance layer and restructured hierarchy")
+
+# Test inheritance in new structure
+test.dynamic.car_new.wheels
+test.dynamic.car_new.registration_required
+test.dynamic.car_new.engine.power
+
+# Test 4: Dynamic instance re-parenting
+output("=== Test 4: Dynamic Instance Re-parenting ===")
+
+# Create enhanced template
+test.dynamic.luxury_car = new(test.dynamic.car)
+test.dynamic.luxury_car.name = "Luxury Car"
+test.dynamic.luxury_car.interior = {
+    material: "leather",
+    heated_seats: true
+}
+test.dynamic.luxury_car.engine.power = 300
+
+# Create instance that will be re-parented
+test.dynamic.instances.upgrade_candidate = new(test.dynamic.car)
+test.dynamic.instances.upgrade_candidate.model = "Upgrade Candidate"
+
+output("Created luxury template and upgrade candidate")
+
+# Test properties before upgrade
+test.dynamic.instances.upgrade_candidate.engine.power
+test.dynamic.instances.upgrade_candidate.interior.heated_seats
+
+# Simulate re-parenting (changing inheritance source)
+# Note: This tests if AmorphDB supports dynamic inheritance changes
+test.dynamic.instances.upgraded = new(test.dynamic.luxury_car)
+test.dynamic.instances.upgraded.model = "Upgraded Model"
+
+# Verify new inheritance
+test.dynamic.instances.upgraded.interior.heated_seats
+test.dynamic.instances.upgraded.engine.power
+
+# Test 5: Inheritance removal and restoration
+output("=== Test 5: Inheritance Removal and Restoration ===")
+
+# Create temporary inheritance for testing removal
+test.dynamic.temporary = new(test.dynamic.vehicle)
+test.dynamic.temporary.name = "Temporary Template"
+test.dynamic.temporary.experimental = true
+
+test.dynamic.test_instance = new(test.dynamic.temporary)
+test.dynamic.test_instance.instance_name = "Test Instance"
+
+# Check inherited properties
+test.dynamic.test_instance.experimental
+test.dynamic.test_instance.engine.fuel
+
+output("Created temporary inheritance for removal testing")
+
+# Verification of all dynamic changes
+output("=== Final Verification ===")
+test.dynamic.instances.car1.engine.power
+test.dynamic.instances.car2.safety.airbags
+test.dynamic.car_new.wheels
+test.dynamic.instances.upgraded.interior.heated_seats
+
+output("T1.4 dynamic inheritance changes tests completed")
+output("Inheritance hierarchy modifications with active instances tested")

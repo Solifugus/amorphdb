@@ -1,0 +1,9 @@
+# Test commit buffer with loop assignments
+# This should demonstrate batched commits instead of individual writes
+
+for i in range(10) {
+    my.commit_buffer.test[i] = i * 2
+}
+
+my.commit_buffer.status = "completed"
+world.distributed.test = "commit_buffer_working"

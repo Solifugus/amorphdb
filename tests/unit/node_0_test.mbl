@@ -1,0 +1,3 @@
+output("Node amorphdb0 operational! Processing distributed MBL...")
+x = 0
+output("Node 0 computed:", x * 10 + 0)

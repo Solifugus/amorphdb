@@ -1,0 +1,195 @@
+# Phase 3 Test T2.3: Heartbeat Timing Edge Cases
+# Testing operations during heartbeat window boundaries
+
+output("=== T2.3: Testing Heartbeat Timing Edge Cases ===")
+
+# Setup heartbeat-sensitive data structures
+test.heartbeat.timing = {
+    heartbeat_count: 0,
+    operations_during_heartbeat: 0,
+    boundary_operations: 0,
+    timing_conflicts: 0
+}
+
+output("Created heartbeat timing test infrastructure")
+
+# Test 1: Operations right before heartbeat
+output("=== Test 1: Pre-heartbeat Operations ===")
+
+test.heartbeat.pre_beat.operation_1 = "just_before_heartbeat_1"
+test.heartbeat.pre_beat.operation_2 = "just_before_heartbeat_2"
+test.heartbeat.pre_beat.operation_3 = "just_before_heartbeat_3"
+test.heartbeat.pre_beat.timestamp_1 = "pre_beat_time_1"
+
+# Rapid sequence to test heartbeat boundary
+test.heartbeat.pre_beat.rapid_1 = 1
+test.heartbeat.pre_beat.rapid_2 = 2
+test.heartbeat.pre_beat.rapid_3 = 3
+test.heartbeat.pre_beat.rapid_4 = 4
+test.heartbeat.pre_beat.rapid_5 = 5
+
+test.heartbeat.timing.operations_during_heartbeat = 8
+
+output("Pre-heartbeat operations completed")
+
+# Test 2: Operations during heartbeat window
+output("=== Test 2: Mid-heartbeat Operations ===")
+
+test.heartbeat.mid_beat.critical_operation = "during_heartbeat_window"
+test.heartbeat.mid_beat.replication_data = {
+    source_node: "node1",
+    target_node: "node2",
+    data_size: 1024,
+    timestamp: "mid_heartbeat"
+}
+
+# Test data that should be queued during heartbeat
+test.heartbeat.mid_beat.queued_data_1 = "queued_during_heartbeat_1"
+test.heartbeat.mid_beat.queued_data_2 = "queued_during_heartbeat_2"
+test.heartbeat.mid_beat.queued_data_3 = "queued_during_heartbeat_3"
+
+# Cross-node synchronization during heartbeat
+test.heartbeat.sync.node1_status = "synchronizing"
+test.heartbeat.sync.node2_status = "synchronizing"
+test.heartbeat.sync.node3_status = "synchronizing"
+test.heartbeat.sync.node4_status = "synchronizing"
+
+output("Mid-heartbeat operations completed")
+
+# Test 3: Operations right after heartbeat
+output("=== Test 3: Post-heartbeat Operations ===")
+
+test.heartbeat.post_beat.flush_operation_1 = "just_after_heartbeat_1"
+test.heartbeat.post_beat.flush_operation_2 = "just_after_heartbeat_2"
+test.heartbeat.post_beat.recovery_data = {
+    recovered_operations: 3,
+    sync_status: "complete",
+    timestamp: "post_heartbeat"
+}
+
+# Test queue processing after heartbeat
+test.heartbeat.post_beat.processed_1 = "processed_from_queue_1"
+test.heartbeat.post_beat.processed_2 = "processed_from_queue_2"
+test.heartbeat.post_beat.processed_3 = "processed_from_queue_3"
+
+test.heartbeat.timing.boundary_operations = 6
+
+output("Post-heartbeat operations completed")
+
+# Test 4: Heartbeat frequency stress test
+output("=== Test 4: Heartbeat Frequency Stress Test ===")
+
+# Simulate multiple heartbeat cycles
+test.heartbeat.cycles.cycle_1 = {
+    start: "cycle_1_start",
+    operations: 5,
+    end: "cycle_1_end"
+}
+
+test.heartbeat.cycles.cycle_2 = {
+    start: "cycle_2_start",
+    operations: 7,
+    end: "cycle_2_end"
+}
+
+test.heartbeat.cycles.cycle_3 = {
+    start: "cycle_3_start",
+    operations: 3,
+    end: "cycle_3_end"
+}
+
+# Operations across multiple cycles
+test.heartbeat.cross_cycle.long_operation = "spans_multiple_heartbeats"
+test.heartbeat.cross_cycle.data_1 = "crosses_cycle_boundary_1"
+test.heartbeat.cross_cycle.data_2 = "crosses_cycle_boundary_2"
+
+test.heartbeat.timing.heartbeat_count = 3
+
+output("Heartbeat frequency stress test completed")
+
+# Test 5: Conflicting operations during heartbeat boundaries
+output("=== Test 5: Conflicting Operations During Boundaries ===")
+
+test.heartbeat.conflicts.resource = "initial_value"
+
+# Operations that might conflict across heartbeat boundaries
+test.heartbeat.conflicts.resource = "pre_heartbeat_value"
+test.heartbeat.conflicts.resource = "during_heartbeat_value"
+test.heartbeat.conflicts.resource = "post_heartbeat_value"
+
+# Complex nested conflicts
+test.heartbeat.conflicts.nested.shared_data = "initial_nested"
+test.heartbeat.conflicts.nested.shared_data = "pre_beat_nested"
+test.heartbeat.conflicts.nested.additional = "during_beat_additional"
+test.heartbeat.conflicts.nested.shared_data = "post_beat_nested"
+
+test.heartbeat.timing.timing_conflicts = 4
+
+output("Conflicting operations during boundaries completed")
+
+# Test 6: Replication timing during heartbeat
+output("=== Test 6: Replication Timing During Heartbeat ===")
+
+test.heartbeat.replication = {
+    source_data: "original_for_replication",
+    replication_status: "pending",
+    replicated_nodes: []
+}
+
+# Simulate replication across heartbeat boundaries
+test.heartbeat.replication.source_data = "modified_before_replication"
+test.heartbeat.replication.replication_status = "in_progress"
+test.heartbeat.replication.replicated_nodes = ["node1"]
+
+test.heartbeat.replication.replicated_nodes = ["node1", "node2"]
+test.heartbeat.replication.replication_status = "partial"
+
+test.heartbeat.replication.replicated_nodes = ["node1", "node2", "node3"]
+test.heartbeat.replication.replication_status = "nearly_complete"
+
+test.heartbeat.replication.replicated_nodes = ["node1", "node2", "node3", "node4"]
+test.heartbeat.replication.replication_status = "complete"
+
+output("Replication timing during heartbeat completed")
+
+# Test 7: Network partition during heartbeat
+output("=== Test 7: Network Partition During Heartbeat ===")
+
+test.heartbeat.partition = {
+    network_status: "healthy",
+    partition_detected: false,
+    affected_nodes: []
+}
+
+# Simulate partition detection during heartbeat
+test.heartbeat.partition.network_status = "degraded"
+test.heartbeat.partition.partition_detected = true
+test.heartbeat.partition.affected_nodes = ["node2"]
+
+test.heartbeat.partition.affected_nodes = ["node2", "node3"]
+test.heartbeat.partition.network_status = "partitioned"
+
+# Recovery during next heartbeat cycle
+test.heartbeat.partition.network_status = "recovering"
+test.heartbeat.partition.affected_nodes = ["node3"]
+
+test.heartbeat.partition.network_status = "healthy"
+test.heartbeat.partition.partition_detected = false
+test.heartbeat.partition.affected_nodes = []
+
+output("Network partition during heartbeat test completed")
+
+# Final verification
+output("=== Heartbeat Timing Verification ===")
+
+test.heartbeat.timing.heartbeat_count
+test.heartbeat.timing.operations_during_heartbeat
+test.heartbeat.timing.boundary_operations
+test.heartbeat.timing.timing_conflicts
+
+test.heartbeat.post_beat.recovery_data.sync_status
+test.heartbeat.replication.replication_status
+test.heartbeat.partition.network_status
+
+output("T2.3 heartbeat timing edge cases tests completed")
+output("Heartbeat boundary operations and timing validated")

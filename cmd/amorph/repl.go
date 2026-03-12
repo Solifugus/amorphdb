@@ -16,56 +16,60 @@ import (
 
 // REPL represents the Read-Eval-Print Loop implementation
 type REPL struct {
-	tree        storage.Tree              // Persistent storage
+	tree        storage.Tree              // Persistent storage (local or remote)
+	client      *ProtocolClient           // Protocol client for remote connections
 	interpreter *interpreter.Interpreter // MBL execution engine
 	scanner     *bufio.Scanner            // Input reading
 	agentID     uint64                    // Default agent identity
-	storageDir  string                    // Storage location
+	agentName   string                    // Agent identity name
 	homeDir     string                    // User's AmorphDB directory
+	isRemote    bool                      // Whether using remote connection
+	address     string                    // Connection address
 }
 
-// NewREPL creates a new REPL instance with initialized storage and interpreter
-func NewREPL() (*REPL, error) {
+// NewREPL creates a new REPL instance with connection to AmorphDB service
+func NewREPL(address, identity string) (*REPL, error) {
+	// Connect to AmorphDB service via protocol
+	client, err := NewProtocolClient(address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to AmorphDB service: %w", err)
+	}
+
+	return NewREPLWithClient(client, identity)
+}
+
+// NewREPLWithClient creates a new REPL instance with an existing client
+func NewREPLWithClient(client *ProtocolClient, identity string) (*REPL, error) {
 	// Get user's home directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	// Create ~/.amorph directory
 	amorphDir := filepath.Join(homeDir, ".amorph")
-	if err := os.MkdirAll(amorphDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create AmorphDB directory: %w", err)
+
+	// Default agent configuration
+	agentID := uint64(1000)
+	agentName := identity
+	if agentName == "" {
+		agentName = "anonymous"
 	}
 
-	// Create data subdirectory for storage
-	storageDir := filepath.Join(amorphDir, "data")
-	if err := os.MkdirAll(storageDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create storage directory: %w", err)
-	}
-
-	// Initialize storage tree
-	tree, err := storage.NewStorageTree(storageDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize storage: %w", err)
-	}
-
-	// Default agent ID for REPL sessions
-	const defaultAgentID uint64 = 1000
-
-	// Initialize MBL interpreter
-	interp := interpreter.New(tree, defaultAgentID)
+	// Initialize MBL interpreter with protocol client as storage
+	interp := interpreter.New(client, agentID)
 
 	// Create scanner for input reading
 	scanner := bufio.NewScanner(os.Stdin)
 
 	return &REPL{
-		tree:        tree,
+		tree:        client, // Protocol client implements storage.Tree interface
+		client:      client,
 		interpreter: interp,
 		scanner:     scanner,
-		agentID:     defaultAgentID,
-		storageDir:  storageDir,
+		agentID:     agentID,
+		agentName:   agentName,
 		homeDir:     amorphDir,
+		isRemote:    true, // All connections now go through service
 	}, nil
 }
 
@@ -73,8 +77,10 @@ func NewREPL() (*REPL, error) {
 func (r *REPL) Start() {
 	// Welcome message
 	fmt.Println("AmorphDB REPL - MBL Interactive Shell")
-	fmt.Printf("Storage: %s\n", r.storageDir)
-	fmt.Printf("Agent ID: %d\n", r.agentID)
+	fmt.Printf("Agent: %s (ID: %d)\n", r.agentName, r.agentID)
+	if r.isRemote {
+		fmt.Printf("Connected to service via protocol\n")
+	}
 	fmt.Println()
 	fmt.Println("Type 'exit' to quit, 'help' for help.")
 	fmt.Println()
@@ -162,8 +168,8 @@ func (r *REPL) showHelp() {
 
 // Close cleans up REPL resources
 func (r *REPL) Close() error {
-	// The storage tree should handle its own cleanup
-	// when it goes out of scope, but we can add explicit
-	// cleanup here if needed in the future
+	if r.client != nil {
+		return r.client.Close()
+	}
 	return nil
 }

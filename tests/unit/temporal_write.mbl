@@ -1,0 +1,4 @@
+output("Writing temporal data with timestamps")
+temporal_data = "Temporal value written at specific time"
+output("Temporal data:", temporal_data)
+output("Temporal write completed")

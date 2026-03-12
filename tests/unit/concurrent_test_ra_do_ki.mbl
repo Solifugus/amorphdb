@@ -1,0 +1,5 @@
+output("Concurrent operation on ra-do-ki")
+node_data = "Data from ra-do-ki at concurrent time"
+counter = 1 * 10
+output("Node ra-do-ki counter:", counter)
+output("Concurrent operation completed on ra-do-ki")

@@ -1,0 +1,7 @@
+x = 5
+
+if x > 3:
+	output("x is greater than 3")
+	y = x * 2
+
+result = y + 1

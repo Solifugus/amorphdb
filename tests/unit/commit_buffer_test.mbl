@@ -1,0 +1,12 @@
+
+# Test commit buffer with loop assignments
+# This should stage writes in buffer, not send individual messages
+
+for i in range(100) {
+    my.commit_test.iteration[i] = i * i
+    world.stress.node[i] = "value_" + str(i)
+}
+
+# Add a final write
+my.commit_test.completed = "finished"
+world.test.final = "done"

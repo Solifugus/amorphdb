@@ -2,15 +2,57 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 func main() {
+	// Command line flags
+	var (
+		node     = flag.String("node", "", "Connect to remote AmorphDB service (host:port)")
+		identity = flag.String("identity", "", "Agent identity for authentication")
+		run      = flag.String("run", "", "Execute MBL script file then exit")
+		help     = flag.Bool("help", false, "Show help")
+	)
+	flag.Parse()
+
+	// Show help
+	if *help {
+		showHelp()
+		return
+	}
+
+	// Determine connection mode
+	var connectionAddress string
+	if *node != "" {
+		// Remote mode: connect via TCP
+		connectionAddress = *node
+	} else {
+		// Local mode: connect via UNIX socket
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to get user home directory: %v\n", err)
+			os.Exit(1)
+		}
+		connectionAddress = filepath.Join(homeDir, ".amorph", "socket")
+	}
+
+	// Handle script mode
+	if *run != "" {
+		err := executeScript(*run, connectionAddress, *identity)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Script execution failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Create REPL instance
-	repl, err := NewREPL()
+	repl, err := NewREPL(connectionAddress, *identity)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing AmorphDB: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error initializing AmorphDB client: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -19,4 +61,59 @@ func main() {
 
 	// Start interactive REPL
 	repl.Start()
+}
+
+func showHelp() {
+	fmt.Println("AmorphDB Client - MBL Interactive Shell")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Printf("  %s [options]\n", os.Args[0])
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  -node <host:port>    Connect to remote AmorphDB service")
+	fmt.Println("  -identity <agent>    Agent identity for authentication")
+	fmt.Println("  -run <script.mbl>    Execute MBL script file then exit")
+	fmt.Println("  -help                Show this help")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Printf("  %s                                    # Local REPL via UNIX socket\n", os.Args[0])
+	fmt.Printf("  %s -node localhost:5000              # Remote REPL via TCP\n", os.Args[0])
+	fmt.Printf("  %s -identity kalevo                  # Local REPL as specific agent\n", os.Args[0])
+	fmt.Printf("  %s -run script.mbl                   # Execute script locally\n", os.Args[0])
+	fmt.Printf("  %s -node host:5000 -run script.mbl   # Execute script remotely\n", os.Args[0])
+	fmt.Println()
+	fmt.Println("Interactive Commands:")
+	fmt.Println("  exit, quit, :q    Exit the REPL")
+	fmt.Println("  help, ?           Show REPL help")
+	fmt.Println()
+}
+
+func executeScript(scriptPath, address, identity string) error {
+	// Read script file
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return fmt.Errorf("failed to read script: %w", err)
+	}
+
+	// Create client connection
+	client, err := NewProtocolClient(address)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	// Create REPL for script execution
+	repl, err := NewREPLWithClient(client, identity)
+	if err != nil {
+		return fmt.Errorf("failed to create REPL: %w", err)
+	}
+	defer repl.Close()
+
+	// Execute script content
+	result := repl.execute(string(content))
+	if result != "" {
+		fmt.Println(result)
+	}
+
+	return nil
 }

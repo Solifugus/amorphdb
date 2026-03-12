@@ -1,0 +1,5 @@
+Person = {name: "Unknown", age: 0}
+alice = new Person
+alice.name = "Alice"  
+alice.age = 30
+output("Created person:", alice.name, "age", alice.age)

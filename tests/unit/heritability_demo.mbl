@@ -1,0 +1,26 @@
+# AmorphDB Step 7 - Heritability & Instantiation Demo
+
+# Create base templates
+base_person = {"name": "Template Person", "age": 25, "species": "human"}
+base_employee = {"id": 1000, "department": "Engineering", "salary": 50000}
+base_manager = {"team_size": 5, "reports_to": "CEO"}
+
+# Basic instantiation
+simple_person = new person {"name": "Alice", "age": 30}
+
+# Copy inheritance - creates independent copies
+alice = new employee:(copy) base_person, base_employee {"name": "Alice", "id": 2001}
+
+# Link inheritance - shares references to original data
+bob = new employee:(link) base_person, base_employee {"name": "Bob", "id": 2002}
+
+# Reset inheritance - allows complete override
+manager_charlie = new manager:(reset) base_person, base_employee, base_manager {"name": "Charlie", "id": 3001, "salary": 75000}
+
+# Multiple inheritance with property override
+senior_dev = new senior_developer:(copy) base_person, base_employee {"name": "Diana", "level": "Senior", "salary": 80000}
+
+alice
+bob
+manager_charlie
+senior_dev

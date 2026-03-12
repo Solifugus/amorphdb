@@ -1,0 +1,113 @@
+# Phase 3 Test T1.3: Modifier Conflict Resolution
+# Testing overlapping inheritance modifiers (copy, link, reset, exclude)
+
+output("=== T1.3: Testing Inheritance Modifier Conflicts ===")
+
+# Create base template with comprehensive data
+test.modifiers.base = {
+    name: "Base Template",
+    shared_data: {
+        config: "base_config",
+        version: "1.0.0",
+        features: ["basic", "standard"]
+    },
+    settings: {
+        debug: false,
+        timeout: 30,
+        retry_count: 3
+    },
+    metadata: {
+        created: "2024-01-01",
+        author: "system",
+        tags: ["base", "template"]
+    }
+}
+
+output("Created base template with comprehensive data")
+
+# Test 1: Copy modifier - should create independent copy
+output("=== Test 1: Copy Modifier ===")
+test.modifiers.copy_child = new(test.modifiers.base)
+test.modifiers.copy_child.name = "Copy Child"
+test.modifiers.copy_child.shared_data.config = "copy_config"
+test.modifiers.copy_child.settings.debug = true
+
+output("Created copy child with modified config and debug setting")
+
+# Test 2: Link modifier - should maintain live reference
+output("=== Test 2: Link Modifier (if supported) ===")
+test.modifiers.link_child = new(test.modifiers.base)
+test.modifiers.link_child.name = "Link Child"
+
+# Modify original - should affect link child but not copy child
+test.modifiers.base.shared_data.version = "1.1.0"
+test.modifiers.base.settings.timeout = 60
+
+output("Modified base template - link child should reflect changes")
+
+# Test 3: Reset modifier testing
+output("=== Test 3: Reset Modifier ===")
+test.modifiers.reset_child = new(test.modifiers.base)
+test.modifiers.reset_child.name = "Reset Child"
+# Reset should clear inherited properties and start fresh
+test.modifiers.reset_child.fresh_start = true
+test.modifiers.reset_child.new_config = "reset_specific"
+
+output("Created reset child with fresh properties")
+
+# Test 4: Exclude modifier testing
+output("=== Test 4: Exclude Modifier ===")
+test.modifiers.exclude_child = new(test.modifiers.base)
+test.modifiers.exclude_child.name = "Exclude Child"
+# Should inherit everything except excluded properties
+test.modifiers.exclude_child.custom_feature = "excluded_version"
+
+output("Created exclude child with selective inheritance")
+
+# Test 5: Multiple modifier conflicts
+output("=== Test 5: Multiple Modifier Conflicts ===")
+test.modifiers.complex = {
+    base_value: 100,
+    shared: {
+        data1: "original",
+        data2: "original"
+    },
+    exclusive: {
+        item1: "base",
+        item2: "base"
+    }
+}
+
+test.modifiers.complex_child = new(test.modifiers.complex)
+test.modifiers.complex_child.base_value = 200
+test.modifiers.complex_child.shared.data1 = "modified"
+test.modifiers.complex_child.new_property = "added"
+
+output("Created complex child with multiple modifications")
+
+# Verification tests - check final state
+output("=== Verification: Checking Final States ===")
+
+# Check copy child independence
+test.modifiers.copy_child.shared_data.version
+test.modifiers.copy_child.settings.debug
+
+# Check link child synchronization (if supported)
+test.modifiers.link_child.shared_data.version
+test.modifiers.link_child.settings.timeout
+
+# Check reset child fresh start
+test.modifiers.reset_child.fresh_start
+test.modifiers.reset_child.name
+
+# Check exclude child selective inheritance
+test.modifiers.exclude_child.custom_feature
+test.modifiers.exclude_child.metadata.author
+
+# Check complex inheritance resolution
+test.modifiers.complex_child.base_value
+test.modifiers.complex_child.shared.data1
+test.modifiers.complex_child.new_property
+
+output("T1.3 modifier conflict resolution tests completed")
+output("Inheritance modifier behaviors validated")

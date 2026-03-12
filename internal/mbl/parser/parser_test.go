@@ -232,13 +232,13 @@ func TestIfStatements(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "simple if",
-			input: "if x > 5:\n\ty = 10",
+			name:     "simple if",
+			input:    "if x > 5:\n\ty = 10",
 			expected: "if (x > 5): {\n  y = 10\n}",
 		},
 		{
-			name: "if with else",
-			input: "if x > 5:\n\ty = 10\nelse:\n\ty = 0",
+			name:     "if with else",
+			input:    "if x > 5:\n\ty = 10\nelse:\n\ty = 0",
 			expected: "if (x > 5): {\n  y = 10\n} else {\n  y = 0\n}",
 		},
 	}
