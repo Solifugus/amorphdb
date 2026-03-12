@@ -191,7 +191,7 @@ func testStorageTemporalQueries(t *testing.T, dataDir string) {
 			t.Fatalf("Failed to write temporal value %s: %v", valueStr, err)
 		}
 
-		timestamps[i] = time.Now().Unix()
+		timestamps[i] = time.Now().UnixMicro()
 		if i < len(temporalValues)-1 {
 			time.Sleep(100 * time.Millisecond) // Ensure different timestamps
 		}
@@ -209,7 +209,7 @@ func testStorageTemporalQueries(t *testing.T, dataDir string) {
 
 	// Test historical values using ReadAt
 	for i, expectedValue := range temporalValues[:len(temporalValues)-1] {
-		historicalValue, err := tree.ReadAt(path, timestamps[i]+50) // Query slightly after timestamp
+		historicalValue, err := tree.ReadAt(path, timestamps[i]+50000) // Query 50ms after timestamp (in microseconds)
 		if err != nil {
 			t.Fatalf("Failed to read historical value at timestamp %d: %v", timestamps[i], err)
 		}
