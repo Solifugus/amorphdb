@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/solifugus/amorphdb/internal/mesh"
 	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/zone"
 )

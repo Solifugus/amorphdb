@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/solifugus/amorphdb/internal/mesh"
 	"github.com/solifugus/amorphdb/internal/zone"

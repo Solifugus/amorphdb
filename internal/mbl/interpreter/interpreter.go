@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/solifugus/amorphdb/internal/mbl/lexer"
 	"github.com/solifugus/amorphdb/internal/mbl/parser"
 	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/types"
@@ -140,6 +141,48 @@ func (i *Interpreter) Interpret(program *parser.Program) (interface{}, error) {
 // Errors returns accumulated interpretation errors
 func (i *Interpreter) Errors() []string {
 	return i.errors
+}
+
+// EvaluateExpression parses and evaluates a single MBL expression
+func (i *Interpreter) EvaluateExpression(input string) (interface{}, error) {
+	// Parse as expression
+	l := lexer.New(input)
+	p := parser.New(l)
+
+	// Parse as a single expression by creating a simple program
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		return nil, fmt.Errorf("parse errors: %v", strings.Join(p.Errors(), "; "))
+	}
+
+	// Execute and return result
+	result, err := i.Interpret(program)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// ExecuteStatement parses and executes a single MBL statement
+func (i *Interpreter) ExecuteStatement(input string) (interface{}, error) {
+	// Parse as statement
+	l := lexer.New(input)
+	p := parser.New(l)
+
+	// Parse as a program (which can contain statements)
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		return nil, fmt.Errorf("parse errors: %v", strings.Join(p.Errors(), "; "))
+	}
+
+	// Execute and return result
+	result, err := i.Interpret(program)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 // stageWrite adds a write operation to the commit buffer
