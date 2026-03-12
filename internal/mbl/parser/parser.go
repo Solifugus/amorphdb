@@ -234,6 +234,17 @@ func (p *Parser) decrementRecursionDepth() {
 	}
 }
 
+// hasCriticalError checks if the parser has hit errors that should stop parsing
+func (p *Parser) hasCriticalError() bool {
+	for _, err := range p.errors {
+		if strings.Contains(err, "maximum recursion depth") ||
+		   strings.Contains(err, "maximum node count") {
+			return true
+		}
+	}
+	return false
+}
+
 // incrementNodeCount safely increments node count
 func (p *Parser) incrementNodeCount() bool {
 	p.nodeCount++
@@ -267,6 +278,12 @@ func (p *Parser) ParseProgram() *Program {
 		if stmt != nil {
 			program.Statements = append(program.Statements, stmt)
 		}
+
+		// Check for critical errors that should stop parsing
+		if p.hasCriticalError() {
+			break
+		}
+
 		p.nextToken()
 	}
 

@@ -99,7 +99,7 @@ func (sm *StampManager) getPersonalStamp(agentID uint64) (map[string]interface{}
 	}
 
 	// Deserialize the stamp
-	valueStruct := types.Value{TypeTag: storage.TypeText, Data: value}; stampValue, _ := types.DeserializeValue(valueStruct)
+	valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; stampValue, _ := types.DeserializeValue(valueStruct)
 	if record, ok := stampValue.(types.Record); ok {
 		return record.Fields, nil
 	}
@@ -124,7 +124,7 @@ func (sm *StampManager) getHierarchicalStamp(path []string, agentID uint64) (map
 	}
 
 	// Deserialize the stamp
-	valueStruct := types.Value{TypeTag: storage.TypeText, Data: value}; stampValue, _ := types.DeserializeValue(valueStruct)
+	valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; stampValue, _ := types.DeserializeValue(valueStruct)
 	if record, ok := stampValue.(types.Record); ok {
 		return record.Fields, nil
 	}

@@ -2,29 +2,36 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/solifugus/amorphdb/internal/mbl/interpreter"
+	"github.com/solifugus/amorphdb/internal/storage"
 )
 
-// NewTestREPL creates a REPL instance for testing with temporary storage
+// NewTestREPL creates a REPL instance for testing with memory storage
 func NewTestREPL(t *testing.T) *REPL {
-	// Create temporary directory for test storage
-	tempDir := t.TempDir()
-	storageDir := filepath.Join(tempDir, "data")
-	if err := os.MkdirAll(storageDir, 0755); err != nil {
-		t.Fatalf("Failed to create test storage directory: %v", err)
-	}
+	// Use a simple test home directory
+	tempDir := "/tmp/amorph-test"
 
-	// Create REPL with test storage
-	repl, err := NewREPL()
-	if err != nil {
-		t.Fatalf("Failed to create test REPL: %v", err)
-	}
+	// Create memory storage for testing (no external dependencies)
+	memoryTree := storage.NewMemoryTree()
 
-	// Override storage directory for isolation
-	repl.storageDir = storageDir
+	// Create interpreter with memory storage
+	agentID := uint64(1000)
+	interpreter := interpreter.New(memoryTree, agentID)
+
+	// Create test REPL without network dependencies
+	repl := &REPL{
+		tree:        memoryTree,
+		client:      nil, // No protocol client for tests
+		interpreter: interpreter,
+		scanner:     nil, // Not needed for execute() tests
+		agentID:     agentID,
+		agentName:   "test-agent",
+		homeDir:     tempDir,
+		isRemote:    false, // Local test storage
+	}
 
 	return repl
 }

@@ -1,33 +1,35 @@
-package main
+package integration
 
 import (
 	"fmt"
-	"log"
-	"os"
+	"testing"
 
 	"github.com/solifugus/amorphdb/internal/mbl/interpreter"
 	"github.com/solifugus/amorphdb/internal/mbl/lexer"
 	"github.com/solifugus/amorphdb/internal/mbl/parser"
 	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/types"
-	"github.com/solifugus/amorphdb/internal/zone"
 )
 
-func main() {
-	fmt.Println("🧪 Simple Commit Buffer Test")
-	fmt.Println("============================")
+func TestSimpleCommitDemo(t *testing.T) {
+	t.Log("🧪 Simple Commit Buffer Test")
+	t.Log("============================")
 
 	// Test basic commit buffer functionality with simple syntax
-	testSimpleCommitBuffer()
+	t.Run("SimpleCommitBuffer", func(t *testing.T) {
+		testSimpleCommitBuffer(t)
+	})
 
 	// Test coordinator functionality
-	testCoordinatorBatching()
+	t.Run("CoordinatorBatching", func(t *testing.T) {
+		testCoordinatorBatching(t)
+	})
 
-	fmt.Println("\n✅ Commit buffer implementation tests completed!")
+	t.Log("\n✅ Commit buffer implementation tests completed!")
 }
 
-func testSimpleCommitBuffer() {
-	fmt.Println("\n1️⃣ Testing basic commit buffer with simple assignments")
+func testSimpleCommitBuffer(t *testing.T) {
+	t.Log("\n1️⃣ Testing basic commit buffer with simple assignments")
 
 	// Create test storage
 	storage := storage.NewMemoryTree()
@@ -45,36 +47,33 @@ func testSimpleCommitBuffer() {
 	program := p.ParseProgram()
 
 	if len(p.Errors()) > 0 {
-		fmt.Printf("❌ Parse errors: %v\n", p.Errors())
-		return
+		t.Fatalf("❌ Parse errors: %v", p.Errors())
 	}
 
 	result, err := interp.Interpret(program)
 	if err != nil {
-		fmt.Printf("❌ Execution error: %v\n", err)
-		return
+		t.Fatalf("❌ Execution error: %v", err)
 	}
 
 	if unknown, ok := result.(types.Unknown); ok {
-		fmt.Printf("❌ Execution returned Unknown: %s\n", unknown.Reason)
+		t.Logf("❌ Execution returned Unknown: %s\n", unknown.Reason)
 		return
 	}
 
 	// Check coordinator staging
 	pendingCount := coordinator.GetPendingCount()
-	fmt.Printf("✅ Simple assignment executed, %d writes staged in coordinator\n", pendingCount)
+	t.Logf("✅ Simple assignment executed, %d writes staged in coordinator\n", pendingCount)
 
 	// Test flush
 	if err := coordinator.FlushAll(); err != nil {
-		fmt.Printf("❌ Coordinator flush failed: %v\n", err)
-		return
+		t.Fatalf("❌ Coordinator flush failed: %v", err)
 	}
 
-	fmt.Printf("✅ Coordinator flush successful\n")
+	t.Logf("✅ Coordinator flush successful\n")
 }
 
-func testCoordinatorBatching() {
-	fmt.Println("\n2️⃣ Testing coordinator batching functionality")
+func testCoordinatorBatching(t *testing.T) {
+	t.Log("\n2️⃣ Testing coordinator batching functionality")
 
 	// Create test storage
 	storage := storage.NewMemoryTree()
@@ -91,41 +90,29 @@ func testCoordinatorBatching() {
 		program := p.ParseProgram()
 
 		if len(p.Errors()) > 0 {
-			fmt.Printf("❌ Parse errors for interpreter %d: %v\n", i, p.Errors())
-			continue
+			t.Fatalf("❌ Parse errors for interpreter %d: %v", i, p.Errors())
 		}
 
 		result, err := interp.Interpret(program)
 		if err != nil {
-			fmt.Printf("❌ Execution error for interpreter %d: %v\n", i, err)
-			continue
+			t.Fatalf("❌ Execution error for interpreter %d: %v", i, err)
 		}
 
 		if unknown, ok := result.(types.Unknown); ok {
-			fmt.Printf("❌ Interpreter %d returned Unknown: %s\n", i, unknown.Reason)
+			t.Logf("❌ Interpreter %d returned Unknown: %s\n", i, unknown.Reason)
 			continue
 		}
 	}
 
 	// Check total pending writes
 	pendingCount := coordinator.GetPendingCount()
-	fmt.Printf("✅ Multiple interpreters executed, %d total writes staged\n", pendingCount)
+	t.Logf("✅ Multiple interpreters executed, %d total writes staged\n", pendingCount)
 
 	// Flush all as batch
 	if err := coordinator.FlushAll(); err != nil {
-		fmt.Printf("❌ Batch flush failed: %v\n", err)
-		return
+		t.Fatalf("❌ Batch flush failed: %v", err)
 	}
 
-	fmt.Printf("✅ Batch flush successful - all writes committed as single batch\n")
+	t.Logf("✅ Batch flush successful - all writes committed as single batch\n")
 }
 
-func createTestCoordinator(storage storage.Tree) *interpreter.CommitCoordinator {
-	// Create minimal hash ring for testing
-	hashRing := zone.NewHashRing(1, 1)
-	hashRing.AddNode("test-node", "127.0.0.1:8080")
-
-	// Create coordinator without replication manager for simple testing
-	logger := log.New(os.Stdout, "[Coordinator] ", log.LstdFlags)
-	return interpreter.NewCommitCoordinator(hashRing, nil, storage, "test-node", logger)
-}

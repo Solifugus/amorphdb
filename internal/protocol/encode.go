@@ -66,6 +66,12 @@ func EncodeReadResponseMessage(msg *ReadResponseMessage) ([]byte, error) {
 	return encodeValue(0x01, msg.Value)
 }
 
+// EncodeStatusMessage serializes a StatusMessage (empty request)
+func EncodeStatusMessage(msg *StatusMessage) ([]byte, error) {
+	// StatusMessage has no fields, return empty payload
+	return []byte{}, nil
+}
+
 // EncodeWriteMessage serializes a WriteMessage
 func EncodeWriteMessage(msg *WriteMessage) ([]byte, error) {
 	var buf bytes.Buffer

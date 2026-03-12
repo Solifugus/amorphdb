@@ -223,8 +223,8 @@ func (m *MockTree) Read(path []string) (storage.Value, error) {
 	// Return Nothing as default
 	nothingValue, _ := types.CreateValue(types.Nothing{})
 	return storage.Value{
-		TypeTag: nothingValue.TypeTag,
-		Data:    nothingValue.Data,
+		TypeTag: nothingValue.TypeTag(),
+		Data:    nothingValue.Serialize(),
 	}, nil
 }
 

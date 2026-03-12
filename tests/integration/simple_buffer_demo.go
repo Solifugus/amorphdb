@@ -1,51 +1,45 @@
-package main
+package integration
 
 import (
-	"fmt"
 	"os"
 	"strings"
+	"testing"
 
 	"github.com/solifugus/amorphdb/internal/mbl/interpreter"
-	"github.com/solifugus/amorphdb/internal/mbl/parser"
-	"github.com/solifugus/amorphdb/internal/mbl/lexer"
 	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/types"
 )
 
-func main() {
-	fmt.Println("🚀 Testing Commit Buffer Implementation...")
+func TestSimpleBufferDemo(t *testing.T) {
+	t.Log("🚀 Testing Commit Buffer Implementation...")
 
 	// Test 1: Basic functionality
-	if !testBasicFunctionality() {
-		fmt.Println("❌ Basic functionality test failed")
-		os.Exit(1)
-	}
+	t.Run("BasicFunctionality", func(t *testing.T) {
+		testBasicFunctionality(t)
+	})
 
 	// Test 2: Loop scenario (the main fix)
-	if !testLoopScenario() {
-		fmt.Println("❌ Loop scenario test failed")
-		os.Exit(1)
-	}
+	t.Run("LoopScenario", func(t *testing.T) {
+		testLoopScenario(t)
+	})
 
-	fmt.Println("🎉 All commit buffer tests passed!")
-	fmt.Println("✅ The loop/heartbeat timeout issue has been resolved!")
+	t.Log("🎉 All commit buffer tests passed!")
+	t.Log("✅ The loop/heartbeat timeout issue has been resolved!")
 }
 
-func testBasicFunctionality() bool {
-	fmt.Println("Testing basic commit buffer functionality...")
+func testBasicFunctionality(t *testing.T) {
+	t.Log("Testing basic commit buffer functionality...")
 
 	// Create temporary storage
 	tempDir, err := os.MkdirTemp("", "amorphdb_test_")
 	if err != nil {
-		fmt.Printf("Failed to create temp dir: %v\n", err)
-		return false
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
 	tree, err := storage.NewStorageTree(tempDir)
 	if err != nil {
-		fmt.Printf("Failed to create storage tree: %v\n", err)
-		return false
+		t.Fatalf("Failed to create storage tree: %v", err)
 	}
 	defer tree.Close()
 
@@ -53,59 +47,51 @@ func testBasicFunctionality() bool {
 	interp := interpreter.New(tree, 12345)
 
 	// Test local variable (should bypass commit buffer)
-	fmt.Println("  Testing local variable assignment...")
+	t.Log("  Testing local variable assignment...")
 	result, err := executeProgram(interp, `x = 42`)
 	if err != nil {
-		fmt.Printf("Failed to execute local assignment: %v\n", err)
-		return false
+		t.Fatalf("Failed to execute local assignment: %v", err)
 	}
 
 	if num, ok := result.(types.Number); !ok || num.Value != 42 {
-		fmt.Printf("Expected number 42, got %v\n", result)
-		return false
+		t.Fatalf("Expected number 42, got %v", result)
 	}
 
 	// Test single persistent write
-	fmt.Println("  Testing single persistent write...")
+	t.Log("  Testing single persistent write...")
 	result, err = executeProgram(interp, `world.test.value = "hello"`)
 	if err != nil {
-		fmt.Printf("Failed to execute persistent write: %v\n", err)
-		return false
+		t.Fatalf("Failed to execute persistent write: %v", err)
 	}
 
 	// Verify it was written to storage
 	storedValue, err := tree.Read([]string{"world", "test", "value"})
 	if err != nil {
-		fmt.Printf("Failed to read stored value: %v\n", err)
-		return false
+		t.Fatalf("Failed to read stored value: %v", err)
 	}
 
 	storedText := string(storedValue.Data)
 	// Handle potential whitespace from storage encoding
 	if !strings.Contains(storedText, "hello") {
-		fmt.Printf("Expected text containing 'hello', got '%s'\n", storedText)
-		return false
+		t.Fatalf("Expected text containing 'hello', got '%s'", storedText)
 	}
 
-	fmt.Println("  ✅ Basic functionality working!")
-	return true
+	t.Log("  ✅ Basic functionality working!")
 }
 
-func testLoopScenario() bool {
-	fmt.Println("Testing loop scenario (the core fix)...")
+func testLoopScenario(t *testing.T) {
+	t.Log("Testing loop scenario (the core fix)...")
 
 	// Create temporary storage
 	tempDir, err := os.MkdirTemp("", "amorphdb_loop_test_")
 	if err != nil {
-		fmt.Printf("Failed to create temp dir: %v\n", err)
-		return false
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
 	tree, err := storage.NewStorageTree(tempDir)
 	if err != nil {
-		fmt.Printf("Failed to create storage tree: %v\n", err)
-		return false
+		t.Fatalf("Failed to create storage tree: %v", err)
 	}
 	defer tree.Close()
 
@@ -113,7 +99,7 @@ func testLoopScenario() bool {
 	interp := interpreter.New(tree, 12345)
 
 	// Test the scenario that was failing before: loop with persistent writes
-	fmt.Println("  Testing loop with multiple persistent writes...")
+	t.Log("  Testing loop with multiple persistent writes...")
 	program := `
 counter = 1
 while counter <= 10:
@@ -123,41 +109,24 @@ while counter <= 10:
 
 	result, err := executeProgram(interp, program)
 	if err != nil {
-		fmt.Printf("Failed to execute loop with persistent writes: %v\n", err)
-		return false
+		t.Fatalf("Failed to execute loop with persistent writes: %v", err)
 	}
 
 	// Check that we didn't get an Unknown result (which would indicate failure)
 	if unknown, ok := result.(types.Unknown); ok {
 		if unknown.Reason == "commit buffer exceeded" {
-			fmt.Println("  ℹ️ Buffer overflow protection triggered (expected for large loops)")
+			t.Log("  ℹ️ Buffer overflow protection triggered (expected for large loops)")
 		} else {
-			fmt.Printf("Unexpected Unknown result: %v\n", unknown.Reason)
-			return false
+			t.Fatalf("Unexpected Unknown result: %v", unknown.Reason)
 		}
 	}
 
 	// Try to verify some of the writes were committed (before any buffer overflow)
 	storedValue, err := tree.Read([]string{"world", "loop_data[1]"})
 	if err == nil && len(storedValue.Data) > 0 {
-		fmt.Println("  ✅ First loop iteration was committed to storage")
+		t.Log("  ✅ First loop iteration was committed to storage")
 	}
 
-	fmt.Println("  ✅ Loop scenario working - writes are batched instead of individual!")
-	return true
+	t.Log("  ✅ Loop scenario working - writes are batched instead of individual!")
 }
 
-func executeProgram(interp *interpreter.Interpreter, code string) (interface{}, error) {
-	// Parse the code
-	l := lexer.New(code)
-	p := parser.New(l)
-	program := p.ParseProgram()
-
-	// Check for parser errors
-	if len(p.Errors()) > 0 {
-		return nil, fmt.Errorf("parse errors: %v", p.Errors())
-	}
-
-	// Execute the program
-	return interp.Interpret(program)
-}

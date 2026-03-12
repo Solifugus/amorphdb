@@ -1560,17 +1560,17 @@ func mblToStorage(value interface{}) (storage.Value, error) {
 		return storage.Value{}, err
 	}
 
-	// storage.Value and types.Value have the same structure
+	// Convert types.Value interface to storage.Value struct
 	return storage.Value{
-		TypeTag: typesValue.TypeTag,
-		Data:    typesValue.Data,
+		TypeTag: typesValue.TypeTag(),
+		Data:    typesValue.Serialize(),
 	}, nil
 }
 
 // storageToMBL converts storage.Value to MBL type
 func storageToMBL(value storage.Value) (interface{}, error) {
-	// Convert storage.Value to types.Value
-	typesValue := types.Value{
+	// Convert storage.Value to types.SerializedValue
+	typesValue := types.SerializedValue{
 		TypeTag: value.TypeTag,
 		Data:    value.Data,
 	}

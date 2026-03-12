@@ -95,7 +95,7 @@ func (pe *PermissionEvaluator) getEffectivePermission(path []string, permType Pe
 		}
 
 		// Deserialize and return the condition
-		valueStruct := types.Value{TypeTag: storage.TypeText, Data: value}; condition, _ := types.DeserializeValue(valueStruct)
+		valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; condition, _ := types.DeserializeValue(valueStruct)
 		return condition, nil
 	}
 

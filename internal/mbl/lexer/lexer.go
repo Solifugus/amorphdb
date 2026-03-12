@@ -557,12 +557,20 @@ func (l *Lexer) isStandaloneModifier() bool {
 
 	// Look ahead to find the content and closing paren
 	tempPos := l.readPosition
+	wordStart := tempPos
 	for tempPos < len(l.input) && l.input[tempPos] != ')' && l.input[tempPos] != '\n' {
 		tempPos++
 	}
 
 	// Must have closing parenthesis
 	if tempPos >= len(l.input) || l.input[tempPos] != ')' {
+		return false
+	}
+
+	// Check if the content between parentheses is a valid modifier
+	word := l.input[wordStart:tempPos]
+	_, isValidModifier := modifiers[word]
+	if !isValidModifier {
 		return false
 	}
 

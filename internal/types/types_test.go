@@ -23,7 +23,12 @@ func TestTextRoundTrip(t *testing.T) {
 		t.Fatalf("CreateValue failed: %v", err)
 	}
 
-	deserialized, err := DeserializeValue(value)
+	// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 	if err != nil {
 		t.Fatalf("DeserializeValue failed: %v", err)
 	}
@@ -65,7 +70,12 @@ func TestTextUnicode(t *testing.T) {
 				t.Fatalf("CreateValue failed for %q: %v", testText, err)
 			}
 
-			deserialized, err := DeserializeValue(value)
+			// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed for %q: %v", testText, err)
 			}
@@ -112,7 +122,12 @@ func TestNumberRoundTrip(t *testing.T) {
 				t.Fatalf("CreateValue failed: %v", err)
 			}
 
-			deserialized, err := DeserializeValue(value)
+			// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -161,7 +176,12 @@ func TestTimeRoundTrip(t *testing.T) {
 				t.Fatalf("CreateValue failed: %v", err)
 			}
 
-			deserialized, err := DeserializeValue(value)
+			// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -201,7 +221,12 @@ func TestMoneyRoundTrip(t *testing.T) {
 				t.Fatalf("CreateValue failed: %v", err)
 			}
 
-			deserialized, err := DeserializeValue(value)
+			// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -242,7 +267,12 @@ func TestPictureRoundTrip(t *testing.T) {
 		t.Fatalf("CreateValue failed: %v", err)
 	}
 
-	deserialized, err := DeserializeValue(value)
+	// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 	if err != nil {
 		t.Fatalf("DeserializeValue failed: %v", err)
 	}
@@ -273,7 +303,12 @@ func TestReferenceRoundTrip(t *testing.T) {
 		t.Fatalf("CreateValue failed: %v", err)
 	}
 
-	deserialized, err := DeserializeValue(value)
+	// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 	if err != nil {
 		t.Fatalf("DeserializeValue failed: %v", err)
 	}
@@ -297,11 +332,17 @@ func TestNothingRoundTrip(t *testing.T) {
 	}
 
 	// Verify Nothing serializes to minimal bytes (empty)
-	if len(value.Data) != 0 {
-		t.Errorf("Nothing should serialize to empty data, got %d bytes", len(value.Data))
+	serializedData := value.Serialize()
+	if len(serializedData) != 0 {
+		t.Errorf("Nothing should serialize to empty data, got %d bytes", len(serializedData))
 	}
 
-	deserialized, err := DeserializeValue(value)
+	// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 	if err != nil {
 		t.Fatalf("DeserializeValue failed: %v", err)
 	}
@@ -331,11 +372,17 @@ func TestUnknownRoundTrip(t *testing.T) {
 
 			// Verify Unknown preserves reason and uses minimal encoding
 			expectedSize := 4 + len([]byte(reason)) // 4 bytes length + reason
-			if len(value.Data) != expectedSize {
-				t.Errorf("Unknown serialization size mismatch: got %d, want %d", len(value.Data), expectedSize)
+			serializedData := value.Serialize()
+			if len(serializedData) != expectedSize {
+				t.Errorf("Unknown serialization size mismatch: got %d, want %d", len(serializedData), expectedSize)
 			}
 
-			deserialized, err := DeserializeValue(value)
+			// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -361,11 +408,17 @@ func TestAnythingRoundTrip(t *testing.T) {
 	}
 
 	// Verify Anything serializes to minimal bytes (empty)
-	if len(value.Data) != 0 {
-		t.Errorf("Anything should serialize to empty data, got %d bytes", len(value.Data))
+	serializedData := value.Serialize()
+	if len(serializedData) != 0 {
+		t.Errorf("Anything should serialize to empty data, got %d bytes", len(serializedData))
 	}
 
-	deserialized, err := DeserializeValue(value)
+	// Convert interface to SerializedValue for deserialization
+	serializedValue := SerializedValue{
+		TypeTag: value.TypeTag(),
+		Data:    value.Serialize(),
+	}
+	deserialized, err := DeserializeValue(serializedValue)
 	if err != nil {
 		t.Fatalf("DeserializeValue failed: %v", err)
 	}
@@ -400,8 +453,8 @@ func TestTypeTagConsistency(t *testing.T) {
 				t.Fatalf("CreateValue failed: %v", err)
 			}
 
-			if value.TypeTag != tc.expectedTag {
-				t.Errorf("Type tag mismatch: got 0x%02x, want 0x%02x", value.TypeTag, tc.expectedTag)
+			if value.TypeTag() != tc.expectedTag {
+				t.Errorf("Type tag mismatch: got 0x%02x, want 0x%02x", value.TypeTag(), tc.expectedTag)
 			}
 		})
 	}
@@ -413,47 +466,47 @@ func TestDeserializationErrors(t *testing.T) {
 	// Test various malformed data scenarios
 	testCases := []struct {
 		name    string
-		value   Value
+		value   SerializedValue
 		wantErr bool
 	}{
 		{
 			name:    "invalid text data too short",
-			value:   Value{TypeTag: TypeText, Data: []byte{0x01}}, // Missing length data
+			value:   SerializedValue{TypeTag: TypeText, Data: []byte{0x01}}, // Missing length data
 			wantErr: true,
 		},
 		{
 			name:    "invalid number data wrong size",
-			value:   Value{TypeTag: TypeNumber, Data: []byte{0x01, 0x02, 0x03}}, // Not 8 bytes
+			value:   SerializedValue{TypeTag: TypeNumber, Data: []byte{0x01, 0x02, 0x03}}, // Not 8 bytes
 			wantErr: true,
 		},
 		{
 			name:    "invalid time data wrong size",
-			value:   Value{TypeTag: TypeTime, Data: []byte{0x01, 0x02, 0x03}}, // Not 9 bytes
+			value:   SerializedValue{TypeTag: TypeTime, Data: []byte{0x01, 0x02, 0x03}}, // Not 9 bytes
 			wantErr: true,
 		},
 		{
 			name:    "invalid time precision",
-			value:   Value{TypeTag: TypeTime, Data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}}, // Invalid precision
+			value:   SerializedValue{TypeTag: TypeTime, Data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}}, // Invalid precision
 			wantErr: true,
 		},
 		{
 			name:    "invalid money data wrong size",
-			value:   Value{TypeTag: TypeMoney, Data: []byte{0x01, 0x02, 0x03}}, // Not 11 bytes
+			value:   SerializedValue{TypeTag: TypeMoney, Data: []byte{0x01, 0x02, 0x03}}, // Not 11 bytes
 			wantErr: true,
 		},
 		{
 			name:    "nothing with data",
-			value:   Value{TypeTag: TypeNothing, Data: []byte{0x01}}, // Should be empty
+			value:   SerializedValue{TypeTag: TypeNothing, Data: []byte{0x01}}, // Should be empty
 			wantErr: true,
 		},
 		{
 			name:    "anything with data",
-			value:   Value{TypeTag: TypeAnything, Data: []byte{0x01}}, // Should be empty
+			value:   SerializedValue{TypeTag: TypeAnything, Data: []byte{0x01}}, // Should be empty
 			wantErr: true,
 		},
 		{
 			name:    "unknown type tag",
-			value:   Value{TypeTag: 0xFF, Data: []byte{}}, // Unknown type
+			value:   SerializedValue{TypeTag: 0xFF, Data: []byte{}}, // Unknown type
 			wantErr: true,
 		},
 	}

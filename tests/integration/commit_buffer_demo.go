@@ -1,34 +1,34 @@
-package main
+package integration
 
 import (
-	"fmt"
-	"log"
+	"testing"
 
 	"github.com/solifugus/amorphdb/internal/mbl/interpreter"
-	"github.com/solifugus/amorphdb/internal/mbl/lexer"
-	"github.com/solifugus/amorphdb/internal/mbl/parser"
 	"github.com/solifugus/amorphdb/internal/storage"
-	"github.com/solifugus/amorphdb/internal/types"
 )
 
-func main() {
-	fmt.Println("AmorphDB Commit Buffer Demo")
-	fmt.Println("===========================")
+func TestCommitBufferDemo(t *testing.T) {
+	t.Log("AmorphDB Commit Buffer Demo")
+	t.Log("===========================")
 
 	// Create storage tree
 	tree := storage.NewMemoryTree()
 
 	// Test 1: Local variables should not enter commit buffer
-	testLocalVariables(tree)
+	t.Run("LocalVariables", func(t *testing.T) {
+		testLocalVariables(t, tree)
+	})
 
 	// Test 2: Persistent writes should be batched
-	testPersistentBatching(tree)
+	t.Run("PersistentBatching", func(t *testing.T) {
+		testPersistentBatching(t, tree)
+	})
 
-	fmt.Println("\n✅ All commit buffer tests passed!")
+	t.Log("\n✅ All commit buffer tests passed!")
 }
 
-func testLocalVariables(tree storage.Tree) {
-	fmt.Println("\n1. Testing local variables (zero mesh cost)")
+func testLocalVariables(t *testing.T, tree storage.Tree) {
+	t.Log("\n1. Testing local variables (zero mesh cost)")
 
 	source := `
 		# Local variable assignments - should NOT enter commit buffer
@@ -37,13 +37,18 @@ func testLocalVariables(tree storage.Tree) {
 		z = x + 100
 	`
 
-	result := executeProgram(tree, source)
-	fmt.Printf("   Result: %v\n", result)
-	fmt.Println("   ✅ Local variables handled correctly")
+	// Create interpreter for this test
+	interp := interpreter.New(tree, 12345)
+	result, err := executeProgram(interp, source)
+	if err != nil {
+		t.Fatalf("Failed to execute local variables test: %v", err)
+	}
+	t.Logf("   Result: %v", result)
+	t.Log("   ✅ Local variables handled correctly")
 }
 
-func testPersistentBatching(tree storage.Tree) {
-	fmt.Println("\n2. Testing persistent writes batching")
+func testPersistentBatching(t *testing.T, tree storage.Tree) {
+	t.Log("\n2. Testing persistent writes batching")
 
 	source := `
 		# Multiple persistent writes - should be staged and batched
@@ -52,39 +57,22 @@ func testPersistentBatching(tree storage.Tree) {
 		world.shared.value = 42
 	`
 
-	result := executeProgram(tree, source)
-	fmt.Printf("   Result: %v\n", result)
+	// Create interpreter for this test
+	interp := interpreter.New(tree, 12345)
+	result, err := executeProgram(interp, source)
+	if err != nil {
+		t.Fatalf("Failed to execute persistent batching test: %v", err)
+	}
+	t.Logf("   Result: %v", result)
 
 	// Verify the writes actually persisted
 	count, _ := tree.Read([]string{"world", "agent", "1", "data", "count"})
 	name, _ := tree.Read([]string{"world", "agent", "1", "data", "name"})
 	shared, _ := tree.Read([]string{"world", "shared", "value"})
 
-	fmt.Printf("   Persisted count: %v\n", count)
-	fmt.Printf("   Persisted name: %v\n", name)
-	fmt.Printf("   Persisted shared: %v\n", shared)
-	fmt.Println("   ✅ Persistent writes batched and committed")
+	t.Logf("   Persisted count: %v", count)
+	t.Logf("   Persisted name: %v", name)
+	t.Logf("   Persisted shared: %v", shared)
+	t.Log("   ✅ Persistent writes batched and committed")
 }
 
-func executeProgram(tree storage.Tree, source string) interface{} {
-	// Tokenize
-	tokens := lexer.Tokenize(source)
-
-	// Parse
-	p := parser.NewParser(tokens)
-	program, err := p.ParseProgram()
-	if err != nil {
-		log.Fatalf("Parse error: %v", err)
-	}
-
-	// Create interpreter
-	i := interpreter.NewInterpreter(tree, 1) // agent ID 1
-
-	// Execute
-	result, err := i.Execute(program)
-	if err != nil {
-		log.Fatalf("Execution error: %v", err)
-	}
-
-	return result
-}

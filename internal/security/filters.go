@@ -89,7 +89,7 @@ func (fm *FilterManager) getFilterCondition(agentID uint64) (*FilterCondition, e
 	}
 
 	// Deserialize the filter
-	valueStruct := types.Value{TypeTag: storage.TypeText, Data: value}; filterValue, _ := types.DeserializeValue(valueStruct)
+	valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; filterValue, _ := types.DeserializeValue(valueStruct)
 
 	// Parse the filter condition
 	condition, err := fm.parseFilterCondition(filterValue)
