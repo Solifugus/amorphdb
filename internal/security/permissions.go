@@ -76,7 +76,9 @@ func (pe *PermissionEvaluator) CheckPermission(agent *Agent, path []string, perm
 func (pe *PermissionEvaluator) getEffectivePermission(path []string, permType PermissionType, agentID uint64) (interface{}, error) {
 	// Walk from the target path up to root, checking for permission meta-attributes
 	for i := len(path); i >= 0; i-- {
-		currentPath := path[:i]
+		// Create a copy to avoid modifying the original path slice
+		currentPath := make([]string, i)
+		copy(currentPath, path[:i])
 
 		// Construct the permission meta-attribute name
 		permAttr := "@" + string(permType)
