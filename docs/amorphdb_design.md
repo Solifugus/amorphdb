@@ -98,121 +98,105 @@ Text, Number, Time, Money, Picture, Reference, Procedure, Watcher, Embed
   Examples:
     - @2026-02-01 (February 1st, 2026)
     - @2026-02-15 15:30:00.0 (February 15th, 2026 at 3:30 PM)
+    - @03:00:00.0 (3 hours exactly)
+  If latter parts are omitted, the time literal has reduced precision rather than
+  defaulting to zeros. `@2026-02-01` represents the entirety of February 1st, not
+  midnight. This affects comparison behavior (see Comparison operators).
 - Money
-  A number in a global currency with automatic conversion.
-  In MBL, money literals begin with the currency character (¤). They resolve against exchange rates at write time.
+  A number with associated currency type.
+  In MBL, currencies are prefixed with the "¤" symbol (universal symbol for any currency) followed by a number followed by the currency type.
+  For convenience, if the currency is omitted then USD is default.
+  Further, if the number is prefixed by a specific currency symbol then the currency suffix is unnecessary.
   Examples:
-    - ¤19.99 (in the agent's default currency)
-    - ¤USD19.99 (explicitly USD)
-    - ¤EUR15.00 (explicitly EUR)
+    - ¤19.95 USD
+    - ¤23.45 (USD is assumed)
+    - $29.95 (USD is understood)
 - Picture
-  RGBA 16-bit depth (65,536 levels per channel).
-  Regardless of source format, pictures are always normalized to 16-bit RGBA upon assignment to allow uniform arithmetic. The type system handles conversion from standard formats (PNG, JPEG, etc.).
-  Examples:
-    - img = ~/computer/desktop/photos/vacation.jpg
-    - blank = Picture(640, 480)
-    - pixel_color = img[320, 240]
+  Normalized 2D image stored as raw RGBA with 16-bit per channel.
+  Every picture is the same format — grayscale is represented as equal R, G, B values,
+  and fully opaque pixels simply have maximum alpha.
+  The value consists of a width, height, and pixel data in row-major order.
 - Reference
-  A path to another attribute in the tree — not the value, but the place.
-  In MBL, the `&` prefix on a path creates a reference instead of accessing the value.
-  References can point across the mesh — they are not bound to local storage.
-  Examples:
-    - my_ref = &world.market.stocks.AAPL.price
-    - owner = &~.world.properties[address = "123 Main St"].owner
+  Interpretable text to other data.
 - Procedure
-  A sequence of statements that can be invoked with parameters.
-  Procedures may return a value or operate through side effects. They are stored like any other value and inherit from the location where they are defined.
+  A callable block of code with optional parameters and default values.
+  The implementation is stored in the `@code` meta attribute.
+  Sub-attributes of a procedure serve as its persistent local data scope.
 - Watcher
-  A procedure that executes automatically when specified attributes change.
-  Watchers are the reactive programming mechanism — they turn the database into a live computational environment.
+  A reactive block of code that executes when monitored values change.
+  The implementation is stored in the `@code` meta attribute.
+  Sub-attributes of a watcher serve as its persistent local data scope,
+  and include `enabled` (defaults to true) and `watching` (list of monitored paths).
 - Embed
-  A record whose attributes appear in the current namespace.
-  The attributes of an embedded record become attributes of the embedding instance.
-  Unlike references, the embedded data exists at write time — subsequent changes to the source do not propagate.
+  A reference to another record whose attributes are projected into the referencing
+  record as if they were native. The embedded record is a frozen snapshot — changes
+  to the source after embedding are not reflected.
 
-#### Time and Money
+### Meta Types
 
-Time and money handle representation complexity automatically.
+- Nothing
+  Any reference to data that doesn't exist will return this.
+  Assigning this effectively eliminates any value.
+  Nothing is the absence of a value, distinct from an empty text string (see `empty` under Text Constants).
+- Unknown
+  This is a value intended to be used for tertiary operations, similar to NULL in SQL.
+  However, as any value may have sub-attributes in AmorphDB, the Unknown may have the following:
+  - reason
+    A textual indicator of why this is unknown.
+  - options
+    A numerically indexed list of things it might be.
+  Other custom attributes may be provided.
+  The purpose is to make dealing with unknowns more intelligent where possible or desirable.
+- Anything
+  The only value that will not match this is Nothing.
+  Anything has uses such as determining if a value exists or not.
 
-Time calculations maintain appropriate precision — adding `@03:00:00` to `@2026-02-01` yields `@2026-02-01 03:00:00`, preserving the precision of both operands.
+### Structures
 
-Money tracks currency and handles conversion. When different currencies are combined, the operation uses exchange rates at evaluation time. Storage maintains the original currency until explicitly converted.
+There is only one underlying structure — a node in the storage system. MBL provides two views of it, differentiating how that structure is treated.
 
-    price_usd = ¤USD19.99
-    price_eur = ¤EUR15.00
-    total = price_usd + price_eur           # converts at current exchange rate
-    total..currency                         # shows the currency of the result
-    total..convert("USD")                   # explicit conversion to USD
+- Record
+  A node in the storage system.
+  In MBL, a record has attributes indexed by name (textually).
+  Created with brace syntax: `myrec = { x: 1, y: 0, name: "coordinates" }`
+- List
+  A node in the storage system.
+  In MBL, a list has attributes indexed numerically.
+  Created with bracket syntax: `mylst = ["apple", "orange", "banana"]`
 
-### Instance Metadata
+### Instance Meta Attributes
 
-Every instance carries meta attributes accessible via `@name` notation. The `@` prefix distinguishes meta attributes from the instance's own attributes.
+Attributes whose labels begin with `@` are meta attributes — they describe properties of the instance itself rather than user data. Meta attributes are stored in the same attribute chain as normal attributes but are hidden from normal enumeration and cannot collide with user-defined names.
 
-| Meta attribute | Type | Meaning |
-|----------------|------|---------|
-| `@timestamp` | Time | When the instance was written |
-| `@author` | Reference | The agent that wrote the instance |
-| `@embed` | Embed | Stamp attributes embedded in the instance |
-| `@host` | Text | The node that initially stored the instance |
-| `@zone` | Text | The zone the instance belongs to |
-| `@previous` | Reference | The previous instance of the same attribute |
-| `@next` | Reference | The next instance of the same attribute |
-| `@checksum` | Text | Cryptographic hash of the instance content |
+The `@` symbol unifies all instance-level concerns: `@` alone or `@timestamp` refers to when the instance was written, while named meta attributes like `@inherit` describe how the instance behaves.
 
-Instance metadata is immutable once written. It provides audit trails, temporal navigation, and integrity verification without requiring additional storage structures.
+The system automatically injects the `@author` meta attribute on every instance at write time, recording the identity of the agent that performed the write. This is a system-level guarantee — no user code can suppress or alter it.
 
-### Indexing
+#### Heritability
 
-Attributes can be indexed to support efficient queries. MBL provides two indexing strategies:
+When a new record is instantiated from an existing one, each attribute's inheritance behavior is controlled by the parent. This ensures the parent protects its own contract — children cannot accidentally expose excluded fields or break linked relationships.
 
-#### Numerical Indexing
+Inheritance behavior is declared inline using a parenthetical modifier between the definition operator `:` and the value:
 
-Numerical indexes treat the attribute as an ordered list. New values are appended with the next sequential index.
+    name:(copy) "Joe"                        # explicit copy
+    name: "Joe"                              # same — copy is the default
+    quantity:(link) 0                        # linked to parent
+    id:(reset random(100, 999)) 342          # reset with expression
+    secret:(exclude)                         # omitted from children
 
-    my.events..append("first event")       # creates my.events[0]
-    my.events..append("second event")      # creates my.events[1]
-    my.events[0]                           # returns "first event"
-    my.events[1]                           # returns "second event"
-
-Numerical indexes support range queries:
-
-    my.events[0:2]                         # returns events 0 and 1
-    my.events[1:]                          # returns events from 1 to the end
-    my.events[:3]                          # returns events 0, 1, and 2
-
-#### Textual Indexing
-
-Textual indexes treat the attribute as a key-value map. Values are accessed by their text key.
-
-    my.config.database_host = "localhost"      # creates my.config["database_host"]
-    my.config.database_port = 5432              # creates my.config["database_port"]
-    my.config["database_host"]                  # returns "localhost"
-    my.config[database_host = "localhost"]     # query: returns the instance
-
-Textual indexes support pattern matching and conditional queries:
-
-    my.users[name = "Alice"]                # exact match
-    my.users[name ~ "Ali*"]                 # pattern match
-    my.users[age > 25, status = "active"]   # compound conditions
-
-#### Dynamic Indexing
-
-An attribute can switch between numerical and textual indexing as data patterns change. The system automatically maintains appropriate indexes based on usage.
-
-### Heritability
-
-When a record serves as a source for instantiation (via the `new` keyword), heritability modifiers determine how each attribute is transferred to the new instance. Modifiers are specified in the source record's attribute definitions.
-
-#### Modifiers
+The modifier can also appear in standalone assignment: `myvar = (link) yourvar`
 
 | Modifier | Behavior |
 |----------|----------|
-| `(copy)` | Value is duplicated; subsequent changes are independent |
-| `(link)` | Value remains linked; changes propagate to the instantiated record |
-| `(reset)` | Value is computed fresh during instantiation |
-| `(exclude)` | Attribute is not transferred to the instantiated record |
+| *(none)* | Default: child gets a new instance pointing to the same value. Independent going forward. |
+| `(copy)` | Explicit form of the default. |
+| `(link)` | Child stores a Reference to the parent's attribute. Reads follow the reference; writes propagate to the parent. |
+| `(reset <expr>)` | Child gets a new value by evaluating the expression. |
+| `(exclude)` | Attribute is not created in the child. |
 
-If no modifier is specified, `(copy)` is the default behavior.
+These modifiers are stored as instance meta attributes (`@inherit` and `@reset`) in the underlying storage. The inline syntax is shorthand for setting them.
+
+The `@reset` meta attribute holds the reset expression. Beyond inheritance, it is also available as a general-purpose default that can be invoked explicitly to restore an attribute to its defined starting state.
 
 Example:
 
@@ -242,7 +226,7 @@ Multiple sources may be listed. They are applied left to right — each successi
         role: "staff"
 
     bob = new person employee { name: "Bob", department: "IT" }
-
+    
     linked = new person { status:(link) "Active" } employee
 
 Instantiation is recursive. When a source contains sub-records, those sub-records are also instantiated with their heritability rules applied at each level.
@@ -413,780 +397,613 @@ Text and number operations return new values — they never modify the original.
 
 Operations may be chained left-to-right, forming a natural pipeline:
 
-    result = my.data..sort..reverse..first(5)
+    result = mytext..trim(" ")..upper..replace("old", "new")
 
 #### Text Operations
 
-| Operation | Effect |
-|-----------|--------|
-| `text..length` | Character count (UTF-8 aware) |
-| `text..upper` | Uppercase version |
-| `text..lower` | Lowercase version |
-| `text..trim` | Remove leading/trailing whitespace |
-| `text..split(delimiter)` | Array of substrings |
-| `text..replace(old, new)` | Replace occurrences |
-| `text..contains(substring)` | True if substring is present |
-| `text..starts(prefix)` | True if text begins with prefix |
-| `text..ends(suffix)` | True if text ends with suffix |
+    txt..length                                 # number of characters
+    txt..find(needle, start = 0)                # position of first match, Nothing if not found
+    txt..extract(from_num, thru_num)            # substring by position
+    txt..extract(after_txt, until_txt)          # substring by text markers
+    txt..replace(old_txt, new_txt, start = 0)   # replace all occurrences of text
+    txt..replace(from_num, to_num, new_txt)     # replace by position
+    txt..split(separator = ",")                 # split into a list
+    txt..trim(chars = " ", side = "both")       # strip characters ("both", "left", or "right")
+    txt..pad(total, chars = " ", side = "right") # pad to exact total length ("left" or "right")
+    txt..upper                                  # uppercase
+    txt..lower                                  # lowercase
+    txt..title                                  # titlecase
+
+**`extract` with text markers** returns the text between the first occurrence of the opening and closing markers. If markers are not found, returns Nothing. If multiple matches exist, returns a list of all matches.
+
+**`split`** preserves empty segments. `"a,,b"..split(",")` returns `["a", empty, "b"]`. The `empty` value represents a zero-length text segment, distinct from Nothing.
+
+**`pad`** repeats the `chars` pattern and truncates to hit the exact total specified. `"x"..pad(9, "-+")` produces `"x-+-+-+-+"`.
+
+#### Record and List Operations
+
+Lists and records are the same underlying structure — a node with attributes. Lists are indexed numerically, records by name. The following operations modify in place.
+
+    x..count                                    # number of attributes under this node
+    x..combine(separator = ",")                 # join values into text
+    x..remove(position)                         # remove by numeric index (list reindexes)
+    x..remove(value)                            # remove first match by value (list) or by name (record)
+    x..remove(from, to)                         # remove a range by index
+    x..reverse                                  # reverse current order
+    x..sort(order = "ascending")                # alphanumeric sort ("ascending" or "descending")
+    x..sort(procedure)                          # custom sort
+    rec..inject(template, opener = "{", closer = "}")  # fill template from record attributes
+
+List-specific operations (numeric indexing):
+
+    lst..append(value)                          # add to end
+    lst..prepend(value)                         # add to beginning, shift indexes
+    lst..insert(position, value)                # insert at position, shift indexes
+
+**`remove`** by index differs from assigning Nothing — `mylist[3] = Nothing` leaves a gap, `mylist..remove(3)` removes the element and reindexes subsequent items. Range removal `mylist..remove(3, 5)` removes indexes 3 through 5 and reindexes.
+
+**`sort` with a procedure** follows the standard comparator pattern. The procedure receives two arguments and returns a negative number, zero, or a positive number:
+
+    by_quantity(a, b):
+        return a.quantity - b.quantity
+
+    my.inventory..sort(by_quantity)
+
+**`inject`** replaces placeholders in the template with matching attribute values from the record. If a placeholder references an attribute that does not exist, it is replaced with Nothing's text representation.
+
+#### Universal Operations
+
+    x..type                 # returns the type name: "Text", "Number", "Time",
+                            # "Money", "Picture", "Reference", "Procedure",
+                            # "Watcher", "Embed", "Nothing", or "Unknown"
+
+Explicit type conversion is rarely needed — the operator-driven coercion system handles most cases. Arithmetic (`+`) coerces to number, concatenation (`&`) coerces to text. When explicit conversion is required, the operators serve as converters: `mytext + 0` converts text to number, `empty & myvalue` converts any value to text.
+
+#### Text Constants
+
+The following keywords produce text values that cannot be typed as literals:
+
+    quote                   # the " character
+    tab                     # tab character
+    newline                 # newline character
+    empty                   # zero-length text, distinct from Nothing
+
+#### Character Lookup
+
+    symbol(65)              # decimal: produces "A"
+    symbol("0x41")          # hexadecimal: produces "A"
+    symbol("U+0041")        # unicode notation: produces "A"
+
+`symbol` accepts a numeric value or a text representation of a code point and returns the corresponding character.
 
 #### Number Operations
 
-| Operation | Effect |
-|-----------|--------|
-| `num..abs` | Absolute value |
-| `num..floor` | Round down to integer |
-| `num..ceil` | Round up to integer |
-| `num..round` | Round to nearest integer |
-| `num..round(decimals)` | Round to specified decimal places |
+    num..round(places = 0)          # round to N decimal places
+    num..floor                      # round down to integer
+    num..ceiling                    # round up to integer
+    num..truncate                   # drop decimal, toward zero
+    num..abs                        # absolute value
+    num..sign                       # returns -1, 0, or 1
+    num..min(other)                 # smaller of two values
+    num..max(other)                 # larger of two values
+    num..clamp(low, high)           # constrain to range
+    num..power(exp)                 # exponentiation
+    num..root(n = 2)                # nth root (default square root)
+    num..log(base = 10)             # logarithm
+    num..sin                        # sine (radians)
+    num..cos                        # cosine (radians)
+    num..tan                        # tangent (radians)
+    num..asin                       # arcsine
+    num..acos                       # arccosine
+    num..atan                       # arctangent
 
-#### Picture Operations
+#### Numeric Constants
 
-| Operation | Effect |
-|-----------|--------|
-| `pic..width` | Width in pixels |
-| `pic..height` | Height in pixels |
-| `pic..resize(width, height)` | Scaled version |
-| `pic..crop(x, y, width, height)` | Cropped region |
-| `pic..rotate(degrees)` | Rotated version |
-| `pic..blur(radius)` | Blurred version |
-| `pic..grayscale` | Grayscale version |
+    pi                      # 3.14159265...
+    euler                   # 2.71828182... (Euler's number, e)
 
-#### Time Operations
+#### Random
 
-| Operation | Effect |
-|-----------|--------|
-| `time..year` | Year component |
-| `time..month` | Month component (1-12) |
-| `time..day` | Day component (1-31) |
-| `time..hour` | Hour component (0-23) |
-| `time..minute` | Minute component (0-59) |
-| `time..second` | Second component (0-59) |
-| `time..weekday` | Day of week (1=Sunday, 7=Saturday) |
-| `time..format(template)` | Formatted string representation |
-
-#### Collection Operations
-
-| Operation | Effect |
-|-----------|--------|
-| `collection..length` | Count of elements |
-| `collection..empty` | True if no elements |
-| `collection..append(value)` | Add value to end |
-| `collection..prepend(value)` | Add value to beginning |
-| `collection..sort` | Sorted version |
-| `collection..reverse` | Reversed version |
-| `collection..first(n)` | First n elements |
-| `collection..last(n)` | Last n elements |
-| `collection..contains(value)` | True if value is present |
-
-### Variables and Scope
-
-Variables exist in three scopes:
-
-1. **Local** — Function or procedure parameters and temporary variables
-2. **Session** — Variables that persist for the duration of an agent's connection
-3. **Persistent** — Data stored permanently in the mesh
-
-#### Local Variables
-
-Local variables are declared implicitly by assignment within procedures. They exist only during procedure execution.
-
-    procedure calculate(x, y):
-        temp = x * 2        # local variable
-        result = temp + y   # local variable
-        return result
-
-#### Session Variables
-
-Session variables persist across procedure calls within a single agent session but are lost when the session ends. They are useful for maintaining state during interactive work.
-
-    session.current_project = "AmorphDB"
-    session.debug_mode = true
-
-#### Persistent Variables
-
-Persistent variables are stored in the mesh and survive across sessions. All paths beginning with `my` or `world` are persistent.
-
-    my.settings.theme = "dark"          # persisted to your home
-    world.shared.config = "production"   # persisted to shared space
-
-#### Scope Resolution
-
-The interpreter resolves unqualified names by searching in order:
-
-1. Local scope (procedure parameters and locals)
-2. Session scope
-3. Persistent scope under `my`
-
-This means local variables shadow session variables, which shadow persistent variables.
-
-### Procedures
-
-Procedures are named sequences of statements that accept parameters and may return values. They are stored as values like any other data and can be passed as parameters or stored in collections.
-
-    procedure greet(name):
-        return "Hello, " & name & "!"
-
-    procedure calculate_tax(amount, rate):
-        if rate > 1:
-            rate = rate / 100       # convert percentage to decimal
-        return amount * rate
-
-#### Procedure Storage
-
-Procedures can be stored anywhere in the hierarchy and called by reference:
-
-    my.utils.tax_calculator = procedure(amount, rate):
-        return amount * (rate / 100)
-
-    my.utils.validator = procedure(data):
-        if data..empty:
-            return Unknown("empty data")
-        return data
-
-#### Return Values
-
-Procedures may return explicit values or operate through side effects. If no explicit `return` is specified, the procedure returns the value of its last expression.
-
-    procedure log_and_return(message):
-        my.logs..append(@now & ": " & message)
-        message     # implicit return
-
-#### Error Handling
-
-Procedures handle errors by returning Unknown values rather than throwing exceptions. This maintains the principle of continuous operation.
-
-    procedure safe_divide(a, b):
-        if b ?= 0:
-            return Unknown("division by zero")
-        return a / b
-
-### Watchers
-
-Watchers are procedures that execute automatically when specified attributes change. They form the reactive programming foundation of AmorphDB.
-
-    watch price_monitor(world.market.stocks.AAPL.price):
-        if world.market.stocks.AAPL.price > 200:
-            my.alerts..append("AAPL exceeded $200")
-
-#### Watcher Syntax
-
-A watcher declaration includes:
-
-1. The `watch` keyword
-2. A name for the watcher
-3. Parentheses containing the attribute(s) to monitor
-4. The procedure body
-
-The monitored attribute(s) may include wildcards or conditional expressions:
-
-    watch user_activity(world.users.*.last_login):
-        # triggers when any user's last_login changes
-
-    watch threshold_breach(my.metrics[value > 100]):
-        # triggers when any metric exceeds 100
-
-#### Multiple Triggers
-
-Watchers can monitor multiple attributes:
-
-    watch correlation_analysis(world.market.stocks.AAPL.price, world.market.stocks.GOOGL.price):
-        correlation = calculate_correlation(AAPL.price, GOOGL.price)
-        my.analysis.correlation = correlation
-
-#### Watcher Lifecycle
-
-Watchers run during mesh heartbeat cycles. When an attribute changes, affected watchers are queued for execution in the next heartbeat. This ensures watchers see a consistent view of data and prevents infinite trigger loops.
-
-Watchers execute on the node that owns the zone where they are stored. As zones split and migrate, watchers move with the data they monitor.
+    random(min, max)        # returns a random number in the range [min, max]
 
 ### Control Flow
 
-#### Conditional Statements
+#### Conditionals
 
-    if condition:
-        # statements
-    elif other_condition:
-        # statements
+An `if` block evaluates a condition and executes the associated body. An optional `else if` chain and final `else` provide alternatives. If the body is a single statement, it may appear on the same line after the colon. Otherwise, an indented block on the next line is expected. The `pass` keyword serves as an explicit no-op for empty blocks.
+
+    if x ?= 5:
+        my.computer.output("five")
+    else if x > 10:
+        my.computer.output("big")
     else:
-        # statements
+        pass
 
-#### Loops
+    if z > 1: my.computer.output("positive")
 
-    # For loop with range
-    for i in 1..10:
-        my.numbers[i] = i * i
+#### Consider
 
-    # For loop with collection
-    for item in my.collection:
-        process(item)
+The `consider` block evaluates a value against a series of conditions. It short-circuits on first match — once a condition is satisfied, the remaining conditions are skipped. An `else` clause catches anything that did not match.
 
-    # While loop
-    while condition:
-        # statements
+Inside a `consider` block, each `if` tests against the considered value. A bare value defaults to equality (`?=`). A comparison operator may be prefixed for other comparisons.
 
-#### Break and Continue
+    consider status:
+        if "active": my.computer.output("Active")
+        if "pending": my.computer.output("Pending")
+        else: my.computer.output("Other")
 
-    for i in 1..100:
-        if i % 15 ?= 0:
-            continue        # skip multiples of 15
-        if i > 50:
-            break           # stop after 50
+    consider age:
+        if < 13: my.computer.output("child")
+        if < 20: my.computer.output("teenager")
+        if >= 20: my.computer.output("adult")
 
-### Built-in Functions
+Multiple values can share a condition using `or`:
 
-| Function | Purpose |
-|----------|---------|
-| `output(value)` | Print value to current output stream |
-| `input(prompt)` | Read value from current input stream |
-| `random(min, max)` | Random number in range |
-| `now()` | Current timestamp |
-| `uuid()` | Generate unique identifier |
-| `hash(value)` | Cryptographic hash of value |
-| `encrypt(data, key)` | Encrypt data |
-| `decrypt(data, key)` | Decrypt data |
-| `type(value)` | Type of value |
-| `length(collection)` | Count elements |
-| `keys(record)` | Attribute names |
-| `values(record)` | Attribute values |
+    consider code:
+        if "a" or "b" or "c": my.computer.output("early alphabet")
+        if "x" or "y" or "z": my.computer.output("late alphabet")
+        else: my.computer.output("middle")
 
-### Import System
+There is no fallthrough. Each matching branch executes its body and the `consider` block ends.
 
-MBL supports importing procedures and definitions from other parts of the hierarchy:
+#### While Loop
 
-    import world.shared.math as math
-    import world.shared.utils.*
+A `while` loop repeats its body as long as the condition is true.
 
-    result = math.factorial(5)
+    x = 0
+    while x < 10:
+        my.computer.output(x)
+        x = x + 1
 
-Imported names are resolved at reference time — they create links to the original definitions rather than copying them. This means updates to shared libraries propagate automatically to all users.
+#### For Loop
 
+A `for` loop iterates over the attributes of a record or list. The loop variable is bound to each attribute in sequence — it is the attribute itself, which means it is both the key and the entry point to everything beneath it.
 
-## Storage Engine
+    for item in my.inventory:
+        my.computer.output(item)                     # the key (name or index)
+        my.computer.output(item.quantity)            # sub-attributes are directly accessible
+        my.computer.output(item.description)
 
-The AmorphDB storage engine is designed for append-only temporal data with efficient read access. Every write creates a new instance rather than overwriting existing data. The storage model maintains complete history while optimizing for both current and historical queries.
+Because the loop variable *is* the attribute, writes through it modify the actual data:
 
-### File Structure
+    for item in my.inventory:
+        if item.quantity < 5:
+            item.status = "low stock"
 
-Each zone's storage consists of four coordinated files:
+This is consistent with the storage model — an attribute is its label and its contents simultaneously. The loop variable behaves exactly like any other path element in the language, with no special accessor syntax or dereferencing required.
 
-- **Values file** (`values.dat`) — actual data content
-- **Instances file** (`instances.dat`) — timestamped pointers to values with metadata
-- **Attributes file** (`attributes.dat`) — hierarchy structure with instance chains
-- **Hash index** (`hash.idx`) — fast path lookup for current values
+The loop variable also works naturally with concatenation and other operators:
 
-This separation allows different caching and archiving strategies for each data type. Values can be compressed and moved to slower storage while instances and attributes remain accessible on fast storage.
+    for item in my.inventory:
+        my.computer.output(item & ": " & item.quantity)
 
-### Values Storage
+### Procedures
 
-The values file stores the actual content of all data types using a bucketed approach:
+A procedure is defined with a name, an optional parameter list in parentheses, a colon, and an indented body. If the body is a single statement, it may appear on the same line after the colon.
 
-#### Bucket Strategy
+    # no parameters, no return value
+    sayhi:
+        my.computer.output("Hi!")
 
-| Size Range | Bucket | Strategy |
-|------------|--------|----------|
-| 0-64 bytes | Small | Inline storage, no compression |
-| 65-4KB | Medium | LZ4 compression |
-| 4KB-1MB | Large | ZSTD compression |
-| 1MB+ | Huge | ZSTD + external file reference |
+    # no parameters, returns a value
+    get_pi:
+        return 3.14
 
-This bucketed approach optimizes for different data patterns — small values benefit from immediate access, while large values benefit from aggressive compression.
+    # parameters
+    add(a, b):
+        return a + b
 
-#### Value Addressing
+    # default parameter values
+    greet(name, greeting = "Hello"):
+        my.computer.output(greeting & " " & name)
 
-Each value is addressed by a 64-bit offset in the values file. Values are written sequentially with no gaps. When a value is deleted (through compaction), the space is marked as free in a freelist but not immediately reclaimed.
+Procedures are called by name. Parentheses are required if the procedure was defined with parameters:
 
-#### Deduplication
+    sayhi
+    pi = get_pi
+    x = add(5, 6)
+    greet("Joe")                    # "Hello Joe"
+    greet("Joe", "Hey")             # "Hey Joe"
 
-Identical values are stored only once. The system computes a SHA-256 hash of each value and maintains a hash-to-offset mapping. When the same value is written again, it references the existing storage.
+A procedure that does not explicitly `return` a value returns Nothing.
 
-This is particularly effective for template-based records where many instances share common sub-values.
+Like watchers, a procedure's implementation is stored in the `@code` meta attribute, and its sub-attributes serve as persistent local data scope. This allows procedures stored in the hierarchy to maintain state across calls:
 
-### Instance Storage
+    my.procedures.counter.@code             # the implementation
+    my.procedures.counter.total = 0         # persistent local data
 
-Instances are fixed-size records that link values to timestamps and metadata:
+    # the procedure can reference its own sub-attributes
+    my.procedures.counter:
+        .total = .total + 1
+        return .total
 
-```
-Instance Record (64 bytes):
-- Value offset (8 bytes)
-- Timestamp (8 bytes)
-- Author ID (8 bytes)
-- Checksum (32 bytes)
-- Previous instance offset (8 bytes)
-```
+### Watchers
 
-#### Instance Chaining
+A watcher monitors one or more values and executes its body when any of them change. It is defined with the `watch` keyword, a name, a list of watched values in parentheses, a colon, and an indented body.
 
-Instances for the same attribute are linked in a doubly-linked list ordered by timestamp. The attribute record points to the most recent instance, and each instance points to its predecessor. This enables efficient temporal navigation in either direction.
+    watch toobigx(x):
+        if x > 10: x = (quietly) 10
 
-#### Integrity Verification
+    watch balance_check(my.account.balance, my.account.limit):
+        if my.account.balance > my.account.limit:
+            my.account.status = (quietly) "overlimit"
 
-Each instance includes a SHA-256 checksum covering:
-- The value content
-- The timestamp
-- The author ID
-- The previous instance checksum (forming a hash chain)
+A watcher is a value in the hierarchy like any other. It is operated by the node responsible for the zone where it lives. Its sub-attributes form its persistent local data scope.
 
-This provides cryptographic verification that the data has not been modified and establishes a tamper-evident audit trail.
+#### Watcher Attributes
 
-### Attribute Hierarchy
+Every watcher has the following attributes:
 
-The attributes file maintains the hierarchical structure of the data. Each attribute record contains:
+    mywatcher.enabled               # true (default) or false
+    mywatcher.watching              # list of monitored paths
+    mywatcher.@code                 # the implementation (meta attribute)
 
-```
-Attribute Record (variable size):
-- Name hash (8 bytes)
-- Name length and content (variable)
-- Current instance offset (8 bytes)
-- Child count (4 bytes)
-- Child attribute offsets (variable)
-- Indexing strategy (1 byte)
-- Metadata (variable)
-```
+The `enabled` attribute controls whether the watcher fires. The `watching` list contains the paths being monitored. The `@code` meta attribute holds the implementation, kept in meta space so it cannot collide with user-defined local data.
 
-#### Hierarchical Navigation
+Additional sub-attributes may be used freely as persistent local storage for the watcher:
 
-The attribute structure forms a tree where each node knows its children. This enables efficient traversal of the hierarchy without scanning the entire file. Path resolution is O(log n) in the depth of the hierarchy.
+    my.watchers.stock_alert.last_run = world.clock.utc
+    my.watchers.stock_alert.run_count = my.watchers.stock_alert.run_count + 1
 
-#### Index Strategy
+#### Managing Watchers
 
-Each attribute declares its indexing strategy:
-- **Temporal only** — accessible by timestamp
-- **Numerical** — ordered list with integer indices
-- **Textual** — key-value map with string keys
-- **Hybrid** — supports both numerical and textual access
+Watchers are managed through normal data operations — no special API is required.
 
-The chosen strategy affects how child attributes are organized and queried.
+    # disable a watcher
+    my.watchers.stock_alert.enabled = false
 
-### Hash Index
+    # re-enable it
+    my.watchers.stock_alert.enabled = true
 
-The hash index provides O(1) lookup for current attribute values without scanning the entire hierarchy. It maps path hashes directly to the current instance offset.
+    # add a path to the watch list
+    my.watchers.stock_alert.watching[+] = my.warehouse.inventory
 
-#### Index Structure
+    # remove a path from the watch list
+    my.watchers.stock_alert.watching[1] = Nothing
 
-The index uses a consistent hash table with linear probing:
+    # replace the implementation
+    my.watchers.stock_alert.@code = (new implementation)
 
-```
-Index Entry (32 bytes):
-- Path hash (8 bytes)
-- Instance offset (8 bytes)
-- Instance timestamp (8 bytes)
-- Next entry offset (8 bytes) — for collision handling
-```
+    # stop and remove the watcher entirely
+    my.watchers.stock_alert = Nothing
 
-#### Update Strategy
+    # query all disabled watchers
+    for w in my.watchers:
+        if w.enabled ?= false:
+            my.computer.output(w & " is disabled")
 
-The index is updated asynchronously during heartbeat cycles. This means the index might temporarily lag behind recent writes, but temporal queries against the attribute files are always consistent.
+All changes to `enabled`, `watching`, or `@code` take effect on the next mesh heartbeat. Because watchers are data in the hierarchy, permissions apply naturally — you cannot disable or modify another agent's watcher unless you have `@write` permission on it.
 
-### Defragmentation
+#### Quiet Assignment
 
-The storage engine performs background defragmentation to reclaim space from deleted values and optimize layout for access patterns.
+Assigning a value normally triggers any watchers monitoring that value. The `(quietly)` modifier suppresses this — the value is written but no watchers fire.
 
-#### Compaction Process
+    x = 10                  # triggers watchers on x
+    x = (quietly) 10        # writes x without triggering watchers
 
-1. **Analysis phase** — identify fragmented regions and access patterns
-2. **Planning phase** — determine optimal value relocation strategy
-3. **Migration phase** — move values to new locations and update references
-4. **Verification phase** — validate that all references are correct
-5. **Commit phase** — atomically switch to the new layout
+This follows the same parenthetical modifier pattern used for heritability (`:(copy)`, `:(link)`, etc.). Spacing around the modifier is free-form: `=(quietly)10`, `= (quietly) 10`, and `=(quietly) 10` are all equivalent.
 
-During defragmentation, the zone enters maintenance mode. Read operations continue using the existing layout while write operations are queued. Once migration completes, queued writes are applied to the new layout.
+`(quietly)` is useful both inside and outside watchers. Inside a watcher, it prevents the watcher from retriggering itself when that is not desired. Outside a watcher, it allows bulk updates or corrections without causing a cascade of reactions.
 
-#### Hot/Cold Separation
+Note that watchers *can* retrigger themselves — a watcher that modifies its own watched value without `(quietly)` will fire again. This is intentional. Some use cases require self-triggering watchers to drive iterative or looping processes. When self-triggering is not desired, `(quietly)` prevents it explicitly.
 
-The defragmentation process separates frequently accessed (hot) data from rarely accessed (cold) data. Hot data is placed in the beginning of the values file for better cache performance. Cold data can be moved to slower storage or more aggressively compressed.
+### Execution Model
 
-### Caching Strategy
+#### Outer Run
 
-The storage engine employs a multi-level caching strategy optimized for temporal access patterns:
+An outer run is a program sent into the service by a client for execution. The program's local scope exists only in memory — it is not persistent. However, the `my` and `world` keywords reach into persistent storage in the mesh, allowing the program to read, write, inject procedures, set up watchers, or perform ad hoc operations.
 
-#### Instance Cache
+When the program ends, its local scope is discarded. Anything it wrote to `my` or `world` persists.
 
-Recently accessed instances are cached in memory with LRU eviction. This cache is particularly effective for current values and recent history, which see the majority of queries.
+    # outer run: inject a watcher into persistent storage, then exit
+    my.watchers.stock_alert: watch stock_check(my.inventory):
+        for item in my.inventory:
+            if item.quantity < 5:
+                item.status = "low stock"
 
-#### Value Cache
+    # outer run: ad hoc query
+    for item in my.inventory:
+        if item.status ?= "low stock":
+            my.computer.output(item & ": " & item.quantity)
 
-The value cache stores decompressed content for recently accessed values. Large values (>4KB) are cached in compressed form and decompressed on demand.
+#### Inner Run
 
-#### Path Cache
+An inner run is code that executes within the mesh itself, driven by watchers. Watchers that have been persisted under `my` or `world` are alive in the mesh continuously — they fire in response to value changes and execute their bodies as inner runs.
 
-Resolved paths are cached to avoid repeated hierarchy traversal. This cache includes both successful path resolutions and negative lookups (paths that don't exist).
+Inner runs are the mesh's nervous system. There is no scheduler, no cron, no event queue — just watchers reacting to changes in the data they monitor, including `world.clock`.
 
-#### Hash Index Cache
+The maximum execution speed of any inner run is one third of a second, matching the mesh heartbeat. This interval is the rate at which updates propagate across the mesh and is derived from the minimum time the human brain can distinguish between events.
 
-The most frequently accessed portions of the hash index are kept in memory. Given that most queries target current values, a relatively small cache provides high hit rates.
+#### Heartbeat Atomicity
 
-### Consistency Guarantees
+Within a single heartbeat tick, a watcher's execution is atomic. All changes it makes to persistent data — whether in the local zone or in remote zones — are staged locally until execution completes. At the heartbeat boundary, staged writes are flushed as a single coordinated batch: local zone writes commit directly, and cross-zone writes are dispatched together as one replication payload per destination zone.
 
-#### Write Ordering
+This means a loop that writes to many attributes, even across many nodes, does not generate one network message per iteration. The mesh sees one write batch per tick, not one write per assignment. The cost of a loop is bounded by the size of the commit buffer, not by the number of iterations.
 
-All writes within a zone are strictly ordered by timestamp. Concurrent writes to the same zone are serialized at the zone authority. This ensures that the temporal sequence reflects causality.
+If the watcher produces an unhandled Unknown that escapes its body — indicating a failure such as a hardware error, network problem, or unresolvable operation — all staged changes are discarded. None are replicated.
 
-#### Read Consistency
+If the watcher handles the Unknown internally (checks for it, takes corrective action), that is normal operation and changes commit as expected. The rollback only occurs when an Unknown propagates out of the watcher unhandled.
 
-Reads always see a consistent snapshot of the data. Temporal queries see exactly the state of data as it existed at the specified time, even if newer writes have occurred since then.
+This requires no distributed transaction coordination. Changes do not leave the node until the heartbeat boundary, so rollback is purely local — the node discards the staged write buffer.
 
-#### Cross-Zone Consistency
+**Commit buffer limits:** A single execution may stage at most a configurable number of persistent writes (default: 10,000). If the limit is exceeded, an Unknown is produced with reason "commit buffer exceeded." This can be handled like any other Unknown — caught internally for partial work or allowed to propagate for full rollback. The limit exists to prevent unbounded memory use and to keep per-tick replication payloads manageable.
 
-Writes that span multiple zones use a two-phase commit protocol to ensure atomicity. The coordinator zone prepares all participant zones before committing the transaction.
+The same staging model applies to outer runs. All persistent writes made during an outer run are staged and flushed when the program exits normally. An unhandled Unknown at the top level rolls back all staged writes from that run.
 
-### Backup and Recovery
+#### Cross-Zone Operations
 
-#### Continuous Backup
+Writes within a single zone are atomic within a heartbeat. When an operation spans multiple zones — such as transferring a value between two accounts on different nodes — true atomicity is not available. Instead, the recommended pattern uses a transaction record as the source of truth and watchers for self-healing.
 
-The storage engine supports continuous backup through file-level streaming. Since storage is append-only, backup can stream new writes without interrupting operations.
+**The pattern:**
 
-#### Point-in-Time Recovery
+1. Write a transaction record capturing the intent, marked as "pending."
+2. Execute each step, updating the transaction status as steps complete.
+3. A watcher monitors for transactions that remain incomplete beyond an expected time and either retries or reverses them.
 
-Recovery can target any timestamp in the stored history. The system reconstructs the exact state of data as it existed at the recovery point, including partial transactions that were in progress.
+Example:
 
-#### Integrity Verification
+    # record the intent
+    my.transfers[+]:
+        from = my.world.accounts.checking
+        to = my.world.accounts.savings
+        amount = 100
+        status = "pending"
+        created = world.clock.utc
 
-The backup process verifies integrity of all data during streaming. Any corruption detected during backup triggers automatic repair from replicas before the corrupted data propagates to backup storage.
+    # a watcher processes pending transfers
+    watch transfer_processor(my.transfers):
+        for t in my.transfers:
+            if t.status ?= "pending":
+                t.from.balance = t.from.balance - t.amount
+                t.status = "debited"
+            if t.status ?= "debited":
+                t.to.balance = t.to.balance + t.amount
+                t.status = "complete"
 
+    # a separate watcher monitors for stuck transfers
+    watch transfer_health(my.transfers):
+        for t in my.transfers:
+            if t.status ?= "debited" and (world.clock.utc - t.created) > @00:00:10:
+                if t.retries ?= Nothing or t.retries < 3:
+                    t.retries = (t.retries + 0) + 1
+                    t.status = "pending"
+                else:
+                    t.from.balance = t.from.balance + t.amount
+                    t.status = "failed"
 
-## Distributed Architecture
+The transaction record captures every state change — the temporal model provides a complete audit trail. If a node fails between steps, the health watcher detects the stalled transaction and resolves it. No special syntax is required — this is ordinary MBL using records and watchers.
 
-AmorphDB is fundamentally a mesh architecture — a collection of peer nodes that collectively maintain a unified global database. There is no central coordinator, no primary/secondary relationship, and no single point of failure.
+This mirrors how real financial systems operate: transactions are journaled, steps execute sequentially, and reconciliation processes catch failures.
 
-### Mesh Topology
+### Scope
 
-Each node in the mesh knows about every other node, but this knowledge is maintained through gossip protocols rather than centralized registration. Nodes discover each other through:
+A running program (outer or inner) has its own in-memory tree using the same structures as persistent storage. At the root of this tree, two keywords provide links beyond local scope:
 
-1. **Bootstrap** — initial connection to any existing mesh member
-2. **Gossip** — periodic exchange of topology information
-3. **Referral** — learned about through other nodes' gossip
+| Keyword | Destination |
+|---------|-------------|
+| `my` | The current agent's home in the mesh (`~`, i.e., `world.agent.{identity}`) |
+| `world` | The global root of the persistent hierarchy (reachable as `my.world`) |
 
-#### Node Identity
+    program's in-memory tree:
+        x = 5                       # local, in memory only
+        temp = { a: 1, b: 2 }      # local record, in memory only
+        my                          # → link to ~ (world.agent.{identity})
+        world                       # → link to my.world
 
-Each node has a cryptographic identity consisting of:
-- **Public key** — used for mesh authentication and encrypted communication
-- **Node ID** — derived from the public key for consistent identification
-- **Capabilities** — storage capacity, computational power, network bandwidth
-- **Zone assignments** — which portions of the global tree this node manages
+Local data uses the same types and structures as persistent data. The runtime needs no serialization boundary between them. Data becomes persistent when written under `my` or `world`:
 
-#### Heartbeat Protocol
+    temp = { name: "Joe", age: 34 }    # local
+    my.contacts.joe = temp              # now persistent in the mesh
 
-Nodes exchange heartbeat messages every 5 seconds containing:
-- Node health status and resource utilization
-- Zone assignments and replica status
-- Recently received write operations for cross-zone coordination
-- Clock synchronization information
+When a program ends, anything not attached to `my` or `world` is discarded.
 
-The heartbeat serves multiple purposes:
-- **Failure detection** — nodes that miss several heartbeats are considered offline
-- **Write coordination** — ensures eventual consistency across zones
-- **Load balancing** — provides data for zone splitting decisions
-- **Time synchronization** — maintains consistent timestamps across the mesh
+**Write cost distinction:** Assignments to local (in-memory) variables are pure computation — they carry no network cost and are not staged for replication. Only assignments that reach through `my` or `world` enter the commit buffer and are subject to replication at the heartbeat boundary. This distinction matters most for loops: a loop performing heavy computation on local variables that writes to persistent storage only at the end is nearly free from the mesh's perspective, regardless of iteration count.
 
-### Zone Distribution
+    # all work is local — one persistent write at the end
+    total = 0
+    for item in my.inventory:
+        total = total + item.quantity   # local variable, no mesh cost
+    my.reports.total_stock = total      # one persistent write
 
-The unit of distribution is a **zone** — a subtree of the global hierarchy assigned to a specific node for write authority. Zones are assigned through consistent hashing, which provides automatic load balancing and minimizes data movement when nodes join or leave.
+    # persistent writes per matching item — all staged, flushed as one batch
+    for item in my.inventory:
+        if item.quantity < 5:
+            item.status = "low stock"   # enters commit buffer
 
-#### Consistent Hashing
+Both patterns are valid. The second stages multiple writes, but they are held in the commit buffer and flushed together at the heartbeat boundary — the mesh never sees them one at a time.
 
-The hash ring maps zone identifiers to nodes in a deterministic way:
+#### The Computer
 
-```
-Zone ID: hash(subtree_root + temporal_range) → Ring position → Node assignment
-```
+`~.computer` (accessible as `my.computer` from program root) is a virtual mount in the agent's home that provides access to the local machine. It is not stored in the mesh — it is provided by the node the agent is connected from.
 
-Examples:
-- `hash("world.agent.kalevo")` → Position 0x1A2B → Node C
-- `hash("world.market:2020-2023")` → Position 0x7F81 → Node A
-- `hash("world.market:current")` → Position 0xF234 → Node B
+    my.computer.output(value)       # write to stdout (procedure)
+    my.computer.input(prompt)       # read from stdin (procedure, returns text)
+    my.computer.error(value)        # write to stderr (procedure)
+    my.computer.files               # local filesystem
+    my.computer.printers            # local printers
+    my.computer.display             # screen/UI
+    my.computer.network             # network interfaces
 
-#### Replication Strategy
+The structure under `my.computer` depends on the local machine — different hardware exposes different resources.
 
-Each zone is replicated to N subsequent nodes on the hash ring (typically N=2 for 3-way replication). The first node is the **authority** for writes, while subsequent nodes are **replicas** for reads and failover.
+**Availability:** An outer run always has access to `my.computer` because it is running on a client connected to a local machine. A watcher (inner run) has access to `my.computer` only if it is executing on the node where it was created. If the watcher migrates to a replica during failover, `my.computer` resolves to Nothing.
 
-Replicas maintain synchronized copies through the heartbeat protocol. When the authority receives a write, it forwards the operation to replicas during the next heartbeat cycle.
+**Bridging local resources to the mesh:** Physical resources can be made available to other agents by advertising them in the persistent hierarchy and using a local watcher to bridge between the mesh and the hardware:
 
-#### Zone Splitting
+    # advertise a printer in a public space
+    my.world.services.printers.bldg3_hp:
+        node = ~
+        description = "HP Office - Building 3"
+        available = true
 
-Zones autonomously split when they exceed capacity thresholds:
+    # local watcher bridges mesh requests to hardware
+    watch bldg3_printer(my.world.services.printers.bldg3_hp.queue):
+        for job in my.world.services.printers.bldg3_hp.queue:
+            my.computer.printers.hp_office.print(job.document)
+            job.status = "complete"
 
-**Spatial splits** divide large subtrees:
-- A zone managing `world.users` with 10,000 children might split into `world.users.a-m` and `world.users.n-z`
-- The split point is chosen to balance data size and access patterns
+Because the bridging watcher runs on the local node, it has access to `my.computer`. If the node goes down for maintenance, the watcher stops and the resource becomes unavailable — reflecting the physical reality. Other agents can monitor service health through watchers of their own.
 
-**Temporal splits** separate current and historical data:
-- Recent data (last 30 days) stays on fast SSD storage
-- Historical data moves to slower archival storage
-- Queries automatically route to the appropriate temporal zone
+#### Scope Resolution
 
-After splitting, new zones are re-hashed onto the ring and may land on different nodes, providing automatic load distribution.
+Bare references (no prefix) cascade upward through local scopes — inner blocks see outer variables. This follows the line prefix rule: a bare reference resolves to the nearest matching upstream scope.
 
-### Write Coordination
+In persistent storage, bare references do not cascade by default. Paths must be explicit. An attribute defined with `(cascade)` overrides this — its value becomes visible to bare references from descendant scopes in the persistent hierarchy.
 
-#### Single-Zone Writes
+The `~` sigil always resolves to the current agent's home in the mesh, regardless of scope depth. It works inside bracket expressions and any other context where `my` is not in scope.
 
-Writes within a single zone are processed directly by the zone authority:
+#### Watcher and Procedure Scope
 
-1. **Validation** — check permissions, schema constraints, and data integrity
-2. **Assignment** — apply timestamps, author stamps, and generate checksums
-3. **Storage** — append to local storage files
-4. **Replication** — queue for replica updates during next heartbeat
-5. **Response** — confirm success to client
+A watcher's sub-attributes are its persistent local data scope. The `.` prefix accesses these directly. The owning agent is the agent who created it, and `~` resolves to that agent's home. A watcher has access to `my.computer` only when executing on its originating node.
 
-#### Cross-Zone Writes
+Procedures stored in the hierarchy work the same way — their sub-attributes are persistent local data accessible via `.` prefix.
 
-Writes that affect multiple zones use distributed transaction coordination:
 
-1. **Prepare phase** — the coordinating zone sends prepare requests to all affected zones
-2. **Vote phase** — each zone validates the write and votes commit/abort
-3. **Commit phase** — if all zones vote commit, the coordinator sends commit requests
-4. **Acknowledge phase** — each zone applies the write and acknowledges completion
+## Data Storage and Retrieval System
 
-This ensures atomicity across zone boundaries while maintaining the mesh's decentralized nature.
+The storage layer is built from three interlocking structures: attributes, instances, and values.
 
-### Failure Handling
+An **attribute** is a named or numbered entry in a set. Each attribute points to its first instance and to the next attribute in the same set, forming a linked list of siblings.
 
-#### Node Failures
+    attribute:
+      - attribute_value_id    # the attribute's label (points to a value)
+      - first_instance_id     # the most recent instance under this attribute
+      - next_attribute_id     # the next sibling attribute in this set
 
-When a node fails, its responsibilities are automatically redistributed:
+An **instance** is a single assignment in time. Instances chain backward to form a temporal history, and each instance may have its own set of sub-attributes. This is the core of AmorphDB's temporal model — nothing is overwritten, every change is preserved.
 
-1. **Detection** — missing heartbeats trigger failure detection (15-30 seconds)
-2. **Promotion** — replica nodes become authorities for affected zones
-3. **Re-replication** — new replicas are created on available nodes
-4. **Re-balancing** — hash ring adjustments may trigger zone migrations
+    instance:
+      - timestamp             # UTC UNIX time the value was written
+      - value_id              # composite pointer: [4-bit bucket][60-bit offset]
+      - older_instance_id     # the previous instance of this attribute
+      - first_attribute_id    # first sub-attribute under this instance
 
-The mesh continues operating with reduced capacity until the failed node recovers or is permanently removed.
+The `@author` meta attribute is automatically injected by the system on every instance.
 
-#### Partition Tolerance
+A **value** is the raw stored data. All values share a common header followed by type-specific content.
 
-Network partitions are handled through quorum-based decisions:
+    value:
+      - 0x1E                  # record separator (corruption guard)
+      - type                  # determines the layout that follows
 
-- Zones with a majority of replicas remain writable
-- Zones with only a minority of replicas become read-only
-- When partitions heal, conflicts are resolved through timestamp ordering
+      If text:
+        - length
+        - literal UTF-8 content
 
-#### Data Recovery
+      If number:
+        - literal value (largest float supported by processor architecture)
 
-Failed nodes that rejoin the mesh automatically resynchronize:
+      If time:
+        - literal UNIX timestamp (2038-proofed)
 
-1. **Delta calculation** — compare local state to current replicas
-2. **Incremental sync** — download only missing operations since failure
-3. **Verification** — validate integrity of recovered data
-4. **Resumption** — return to normal operation once fully synchronized
+      If money:
+        - literal number value (same as number)
+        - currency byte
 
-### Performance Optimizations
+      If picture:
+        - width
+        - height
+        - pixel data (width × height × 8 bytes, row-major RGBA, 16-bit per channel)
 
-#### Locality Optimization
+      If reference:
+        - length
+        - literal UTF-8 content (interpretable path to other data)
 
-The mesh optimizes for data locality through several mechanisms:
+      If embed:
+        - reference to source record (frozen snapshot)
 
-- **Agent affinity** — users' data tends to be co-located on nearby nodes
-- **Temporal locality** — recent data is cached more aggressively
-- **Access patterns** — frequently accessed data is replicated more widely
+      If procedure:
+        - parameter count
+        - for each parameter: name (length + text), has_default flag, default_value_id
+        - source length + source text
+        - AST length + serialized AST
 
-#### Compression and Archival
+      If watcher:
+        - watch count
+        - for each watch: instance_id
+        - source length + source text
+        - AST length + serialized AST
 
-Historical data is progressively compressed and archived:
+### Storage File Organization
 
-- **Recent data** (< 7 days) — uncompressed on fast storage
-- **Medium-term data** (7-90 days) — LZ4 compression on standard storage
-- **Long-term data** (> 90 days) — ZSTD compression on archival storage
+Each node maintains fixed-width files for attributes and instances, and bucketed files for values.
 
-#### Caching Strategy
+**Attributes file:** Each entry is a fixed-size record. Purged slots are immediately reusable.
 
-Multi-level caching reduces latency for frequent operations:
+**Instances file:** Each entry is a fixed-size record. Purged slots are immediately reusable.
 
-- **Local cache** — recently accessed data cached in memory
-- **Zone cache** — popular data cached at zone replicas
-- **Global cache** — widely accessed data cached at multiple nodes
+**Value buckets:** Values are stored in bucketed files organized by size. This minimizes fragmentation by keeping similarly-sized values together, improving reuse of purged space.
 
-### Security in the Mesh
+The `value_id` in an instance record is a composite 64-bit pointer:
 
-#### Node Authentication
+    value_id (64 bits):
+        [4 bits: bucket] [60 bits: offset]
 
-All nodes authenticate to the mesh using public key cryptography:
+The top 4 bits identify the bucket, the remaining 60 bits are the offset within that bucket. This allows up to 16 buckets with no structural change to the instance record.
 
-- Each node has a Ed25519 keypair
-- Node identity is derived from the public key
-- All inter-node communication is authenticated and encrypted
+| Bucket | Contents | Storage |
+|--------|----------|---------|
+| 0 | Tiny (under 64 bytes — numbers, money, time, references) | Bucket file |
+| 1 | Small (64–512 bytes — short text, small procedures) | Bucket file |
+| 2 | Medium (512–4096 bytes — longer text, procedures) | Bucket file |
+| 3 | Large (4096+ bytes) | Individual files in a folder |
+| 4 | Pictures | Individual files in a folder |
+| 5–15 | Reserved for future use | — |
 
-#### Data Protection
+For bucket files (0–2), the offset is a byte position within the file. For folder-based buckets (3–4), the offset is a file number within the folder. Folder-based storage has no fragmentation concern — each value is its own file.
 
-Data is protected both in transit and at rest:
+Most values in typical use — numbers, short text, money, time, references — fall in the tiny bucket. This concentrates the common case in a single compact file with minimal wasted space and high reuse potential.
 
-- **Transport security** — TLS 1.3 for all inter-node communication
-- **Storage encryption** — AES-256-GCM for data at rest
-- **Key management** — zone-specific keys with automatic rotation
+### Storage Optimizations
 
-#### Permission Enforcement
+The base storage model prioritizes simplicity, but two low-complexity optimizations are expected:
 
-Permissions are enforced consistently across all nodes:
+**Hash indexes for attribute lookup.** The linked list of sibling attributes supports ordered traversal but makes lookup by name O(n). A hash table mapping attribute labels to attribute IDs provides O(1) direct access for the common case. The linked list is retained for enumeration.
 
-- Authority nodes validate permissions before accepting writes
-- Replica nodes verify permissions before serving reads
-- Permission changes propagate through the gossip protocol
+**Value deduplication.** Values are content-addressed: on write, the value bytes (type + content) are hashed, and if an identical value already exists, the new instance points to it rather than storing a duplicate. This naturally extends the value-sharing that already occurs during inheritance.
 
-### Monitoring and Observability
+To keep write latency flat, deduplication uses two tiers. Small values (numbers, short text, money, time, references) are deduplicated inline on write — the hash check is cheap relative to the I/O. Large values (long text, pictures, procedures) are written immediately and a background process scans for duplicates during low load, merging them and redirecting instance pointers. Some short-lived duplication is acceptable.
 
-#### Mesh Health Metrics
+### Purge
 
-The mesh continuously monitors its own health:
+Assignment to Nothing records a change — the value is gone but the history of its existence is preserved. Purge is a separate operation that permanently erases instances from history. It is the one operation that breaks the "nothing is overwritten" guarantee and is therefore restricted by the `@purge` permission.
 
-- **Node availability** — track active vs. failed nodes
-- **Zone distribution** — ensure balanced load across nodes
-- **Replication status** — verify all zones have sufficient replicas
-- **Network health** — monitor inter-node communication latency
+#### Purge Audit
 
-#### Performance Metrics
+Even though purge erases data, the fact of the purge is preserved. A purge log records:
 
-Comprehensive performance monitoring covers:
+- What was purged (path and attribute)
+- When the purge occurred
+- Who authorized it (`@author` of the purge)
 
-- **Write latency** — time from client request to completion
-- **Read latency** — time to serve read requests
-- **Throughput** — operations per second across the mesh
-- **Resource utilization** — CPU, memory, storage, and network usage
+The data is gone but accountability for its removal is retained.
 
-#### Alerting and Self-Healing
+#### Storage Reclamation
 
-The mesh includes automated alerting and self-healing:
+Purged blocks are tombstoned in place using the `0x1F` byte (ASCII Unit Separator), complementing the `0x1E` (Record Separator) used for live records. The tombstone records the block size so the space can be reused.
 
-- **Anomaly detection** — identify unusual patterns in metrics
-- **Automatic recovery** — restart failed services, migrate overloaded zones
-- **Capacity planning** — predict when additional nodes are needed
-- **Security monitoring** — detect potential security threats or breaches
+A separate free list file provides fast lookup for allocation:
 
+    free_list entry:
+        - offset              # position in the file
+        - size                # bytes available
 
-## Defragmentation
+On write, the service checks the free list first. If a block of suitable size exists, it is reused. Otherwise, the value is appended to the end of the file. The free list is sorted by block size for best-fit allocation.
 
-As data ages in AmorphDB, the values file accumulates dead space from old versions that are no longer the current instance. This fragmentation reduces storage efficiency and can impact performance. The defragmentation system compacts storage during maintenance windows while preserving all temporal guarantees.
+The free list can be rebuilt from the main file by scanning for tombstones if it is ever lost or corrupted — the tombstoned blocks make the file self-describing.
 
-### Fragmentation Sources
+#### Defragmentation
 
-Dead space accumulates from several sources:
+Attributes and instances are stored in fixed-width files. Every record is the same size, so purged slots are immediately reusable by new records. These files never need defragmentation.
 
-1. **Value updates** — when an attribute changes, the old value remains but is no longer current
-2. **Attribute deletion** — removed attributes leave their values orphaned
-3. **Instance expiration** — when retention policies remove old instances
-4. **Failed transactions** — partially written data from aborted operations
+Values are variable-size and stored in bucketed files. Over time, purging can leave scattered free blocks too small to reuse. A background defragmentation process consolidates free space during low load:
 
-Over time, this can result in significant wasted space, particularly in zones with high update rates.
-
-### Compaction Strategy
-
-Defragmentation operates at the zone level and follows a careful process to maintain data integrity:
-
-#### Preparation Phase
-
-1. **Zone enters maintenance mode** — writes are queued, reads continue from current files
-2. **Fragmentation analysis** — identify dead space and optimal compaction strategy
-3. **Backup verification** — ensure recent backups exist for recovery if needed
-4. **Resource reservation** — allocate memory and temporary storage for compaction
-
-#### Compaction Phase
-
-1. **Value relocation** — copy live values to new storage locations
-2. **Reference updates** — modify instance records to point to new value offsets
-3. **Index reconstruction** — rebuild hash indexes with new offsets
-4. **Integrity verification** — validate all references and checksums
-
-#### Commit Phase
-
-1. **Atomic swap** — replace old files with compacted versions
-2. **Apply queued writes** — process operations that arrived during maintenance
-3. **Resume normal operation** — zone returns to active status
-4. **Cleanup** — remove temporary files and release resources
-
-### Scheduling
-
-Defragmentation is scheduled based on several factors:
-
-#### Fragmentation Thresholds
-
-- **Space utilization** — trigger when dead space exceeds 30% of total storage
-- **Access patterns** — prioritize zones with high fragmentation and high read load
-- **Time since last compaction** — ensure regular maintenance even for low-change zones
-
-#### Maintenance Windows
-
-Compaction is scheduled during periods of low activity:
-
-- **Historical analysis** — identify typical low-activity periods for each zone
-- **Advance notification** — warn clients of upcoming maintenance windows
-- **Emergency compaction** — immediate compaction when fragmentation severely impacts performance
-
-#### Coordination with Replicas
-
-Since zones have multiple replicas, defragmentation can be staggered:
-
-1. **Replica compaction** — compact replica nodes first
-2. **Authority handoff** — temporarily promote a compacted replica to authority
-3. **Original authority compaction** — compact the original authority
-4. **Role restoration** — return authority to the original node
-
-This approach minimizes downtime while ensuring all replicas remain efficiently organized.
-
-### Data Preservation
-
-Defragmentation must preserve all temporal data while reorganizing storage:
-
-#### Temporal Integrity
-
-- **Timestamp preservation** — all instance timestamps remain unchanged
-- **Chain integrity** — previous/next pointers in instance chains are updated correctly
-- **Hash verification** — all checksums are recalculated for new storage locations
-
-#### Performance Optimization
-
-During compaction, the system optimizes data layout:
-
-- **Hot data clustering** — place frequently accessed values at the beginning of files
-- **Cold data archival** — move infrequently accessed values to compressed storage
-- **Temporal ordering** — organize values to improve temporal query performance
-
-#### Backup Integration
-
-Defragmentation coordinates with the backup system:
-
-- **Pre-compaction snapshot** — create recovery point before beginning compaction
-- **Incremental backup** — stream only the changes made during compaction
-- **Verification** — ensure backup integrity before removing old files
-
-### Error Handling
-
-If defragmentation fails partway through, recovery mechanisms ensure data safety:
-
-#### Rollback Capability
-
-- **Transaction log** — record all changes made during compaction
-- **Rollback procedure** — revert to pre-compaction state if errors occur
-- **Consistency verification** — validate data integrity after rollback
-
-#### Partial Compaction
-
-If resources are limited, compaction can proceed incrementally:
-
-- **Segment-based compaction** — compact portions of the values file independently
-- **Priority-based ordering** — compact the most fragmented segments first
-- **Resource monitoring** — pause compaction if system resources become constrained
-
-### Performance Impact
-
-Defragmentation is designed to minimize impact on normal operations:
-
-#### Resource Management
-
-- **Memory usage** — limit compaction memory to avoid affecting other operations
-- **I/O throttling** — control disk access to prevent performance degradation
-- **CPU priority** — run compaction at lower priority than client operations
-
-#### Client Experience
-
-- **Read availability** — reads continue throughout most of the compaction process
-- **Write queuing** — writes are queued briefly during the atomic swap phase
-- **Transparent recovery** — clients automatically retry if operations fail during maintenance
-
-#### Post-Compaction Benefits
-
-After compaction, zones experience improved performance:
-
-- **Reduced storage usage** — significant space savings from dead value removal
-- **Improved cache efficiency** — better spatial locality for related data
-- **Faster temporal queries** — optimized layout accelerates historical data access
+1. The node enters maintenance mode and replicas assume zone authority.
+2. Values are relocated to fill gaps, working from the end of the file toward the beginning.
+3. Instance records are updated with new value offsets as values move.
+4. Free space is consolidated at the end and the file is truncated.
+5. The node rejoins the mesh and resyncs — the replica sends all instances written during maintenance, which append cleanly to the freshly compacted files.
+6. The node resumes authority and replicas return to replica mode.
 
 
 ## Stamps, Filters, and Permissions
@@ -1480,169 +1297,227 @@ AmorphDB consists of three components:
 | Component | Role |
 |-----------|------|
 | **Service** (`amorphd`) | Daemon. Manages local storage, participates in the mesh, listens on a local socket and a network socket. |
-| **Client** (`amorph`) | Interactive shell and batch processor. Connects to a service, executes MBL code. |
-| **Control** (`amorphctl`) | Administrative tool. Manages the service, configures mesh participation, monitors health. |
+| **Control** (`amorphctl`) | Admin tool. Connects via local socket. Start, stop, status, zone management, compaction. |
+| **Client** (`amorph`) | User tool. Connects via local socket or network socket. Interactive REPL or script execution. |
 
-### Service (amorphd)
+The **service** is the only component that touches disk storage directly. All other components communicate with it through sockets. The local socket serves the control tool, local clients, and local resources such as devices. The network socket serves remote clients and mesh traffic between nodes. The protocol is the same over both, with encryption and authentication layered on for network connections (see Security).
 
-The service is the core component that manages data storage and mesh participation. It runs as a daemon process on each node.
+A remote client connects to any node. If the requested data lives in a different node's zone, the connected node proxies the request transparently. The client does not need to know the mesh topology.
 
-#### Responsibilities
+### The Client
 
-- **Local storage** — maintains the zone data assigned to this node
-- **Mesh participation** — communicates with other nodes via heartbeat and gossip
-- **Client connections** — serves requests from local and remote clients
-- **Zone management** — handles zone splitting, replication, and migration
-- **Security** — enforces permissions, manages encryption, handles authentication
+The client (`amorph`) is the primary interface for humans and external programs to interact with AmorphDB. It supports two modes of operation.
 
-#### Sockets
+**Interactive mode (REPL):**
 
-The service listens on two sockets:
+    $ amorph
+    amorph> my.contacts.joe.name
+    "Joe"
+    amorph> my.contacts.joe.age = 35
+    amorph> for item in my.inventory:
+         ..     if item.quantity < 5:
+         ..         my.computer.output(item)
+         ..
+    Widgets (3)
+    Sprockets (1)
+    amorph>
 
-- **Local socket** (Unix domain socket) — for connections from clients on the same machine
-- **Network socket** (TCP) — for connections from other mesh nodes and remote clients
+The REPL detects indented blocks and continues with `..` until a blank line ends the block. Each entry is sent as an outer run. Output from `my.computer.output` appears in the terminal. Errors from `my.computer.error` appear on stderr.
 
-The local socket provides better performance and security for clients running on the same machine. The network socket enables remote access and mesh coordination.
+**Script mode:**
 
-#### Configuration
+    $ amorph run myscript.mbl
+    $ cat myscript.mbl | amorph run
 
-Service configuration is minimal by design:
+A `.mbl` file contains MBL source code. The file contents are sent as a single outer run. MBL scripts may also be made directly executable on Unix systems with a shebang line:
 
-```yaml
-# /etc/amorphd/config.yaml
-data_directory: /var/lib/amorphd
-local_socket: /var/run/amorphd/socket
-network_port: 5000
-mesh_seeds:
-  - "node1.example.com:5000"
-  - "node2.example.com:5000"
-```
+    #!/usr/bin/env amorph run
 
-Most configuration is automatically discovered or negotiated through the mesh.
+**Connection options:**
 
-### Client (amorph)
+    $ amorph                                    # local socket (default)
+    $ amorph --node 192.168.1.50:5000          # connect to remote node
+    $ amorph --identity kalevo                  # authenticate as specific agent
 
-The client provides both interactive and batch access to AmorphDB. It connects to a service and executes MBL code.
+By default, the client connects to the local node's socket. For remote connections, an address is specified and authentication proceeds via challenge-response (see Security). If no identity is specified, the client uses the identity stored in the local configuration.
 
-#### Interactive Mode
 
-When run without arguments, the client launches an interactive REPL:
+## Security
 
-```bash
-$ amorph
-Connected to amorphd on local socket
-Agent: kalevo
+### Node Bootstrap
 
-amorph> my.test.value = "hello world"
-amorph> my.test.value
-"hello world"
-amorph> my.test.@timestamp
-@2026-03-10 14:30:15
-```
+A new node joins the mesh by connecting to at least one known node address.
 
-The REPL provides:
-- **Line editing** — history, tab completion, multi-line input
-- **Syntax highlighting** — MBL code is colorized for readability
-- **Error reporting** — detailed error messages with context
-- **Help system** — integrated documentation and examples
+1. The new node connects to the seed node and performs a Diffie-Hellman key exchange, establishing an ephemeral secure channel.
+2. The channel upgrades to post-quantum encryption, protecting the exchange against future quantum attacks.
+3. Over this secure channel, the new node requests an identity.
+4. The seed node generates a CV syllable identity and a key pair for the new node.
+5. The new node stores its identity and keys locally (not in the mesh).
+6. The seed node introduces the new node to other nodes it knows about.
 
-#### Batch Mode
+The very first node in a mesh self-generates its identity and keys. There is no external authority.
 
-The client can execute MBL files non-interactively:
+### Node-to-Node Encryption
 
-```bash
-$ amorph script.mbl
-$ amorph --node=production.example.com:5000 --script=batch_process.mbl
-```
+Every pair of nodes that communicates establishes its own encrypted channel. Keys are exchanged lazily — two nodes that have never communicated perform a key exchange the first time they need to, then cache the result. Over time, each node accumulates keys for the peers it actually talks to.
 
-Batch mode supports:
-- **Remote execution** — connect to any mesh node
-- **Parameter passing** — command-line arguments become MBL variables
-- **Output capture** — redirect results for further processing
-- **Error handling** — exit codes reflect script success/failure
+This means each node only holds keys for nodes it has communicated with, and each channel can rotate keys independently.
 
-#### Agent Authentication
+### External Agent Authentication
 
-The client handles agent authentication automatically:
+External agents (humans, AIs, programs) authenticate using two-factor derived keys. The agent's private key is not stored as a static artifact anywhere — it is derived at authentication time from multiple factors:
 
-1. **Key discovery** — looks for agent keys in standard locations
-2. **Automatic login** — authenticates using discovered keys
-3. **Agent creation** — helps new users create agent identities
-4. **Key management** — assists with key rotation and backup
+- Something the agent knows (a passphrase)
+- Something the agent has (a device secret)
 
-### Control (amorphctl)
+Neither factor alone is sufficient. A stolen device without the passphrase is useless. A compromised passphrase without the device is useless.
 
-The control tool provides administrative functions for managing AmorphDB deployments.
+**Authentication flow:**
 
-#### Cluster Management
+1. Agent connects to any node via the client.
+2. Agent provides their identity.
+3. The node looks up the agent's public key from the mesh (`world.agent.{identity}.keys.public`).
+4. The node encrypts a random challenge with the public key.
+5. The agent derives their private key from their factors, decrypts the challenge, and returns it.
+6. The node confirms the identity.
 
-```bash
-# View cluster status
-amorphctl status
+The derived private key exists only in memory during the session. It is never stored permanently.
 
-# Add a new node to the cluster
-amorphctl join --node=new-node.example.com:5000
+### Agent-Level Encryption
 
-# Remove a node from the cluster
-amorphctl leave --node=old-node.example.com:5000
+An agent's secrets — private keys, sensitive data — are stored in the mesh but encrypted with the agent's own derived key. The node hosting the agent's zone stores this data but cannot read it. Only the authenticated agent can decrypt it.
 
-# Rebalance zones across nodes
-amorphctl rebalance
-```
+    ~.keys.public                   # in the mesh, readable by anyone
+    ~.keys.private                  # in the mesh, encrypted with agent's derived key
+    ~.secrets                       # in the mesh, encrypted with agent's derived key
 
-#### Zone Administration
+This creates two layers of encryption: mesh-level encryption protects data in transit between nodes, while agent-level encryption protects secrets at rest from the hosting node itself.
 
-```bash
-# List all zones and their assignments
-amorphctl zones list
+### Recovery
 
-# Force a zone split
-amorphctl zones split world.agent.kalevo
+If an agent loses access to their authentication factors (lost device, forgotten passphrase), a recovery mechanism based on Shamir's Secret Sharing allows account restoration without a central authority.
 
-# Migrate a zone to a different node
-amorphctl zones migrate world.market --to=node3.example.com:5000
+When an agent creates their identity, they designate trusted recovery agents and a threshold:
 
-# Check zone health and replica status
-amorphctl zones health
-```
+    ~.recovery:
+        agents = [~.world.agent.miratu, ~.world.agent.senabo, ~.world.agent.tokeli]
+        threshold = 2       # any 2 of 3 must agree
 
-#### Backup and Recovery
+Each recovery agent receives a shard of a recovery key. No single agent holds enough to recover the account alone.
 
-```bash
-# Create a cluster-wide backup
-amorphctl backup create --target=/backup/path
+**Recovery flow:**
 
-# Restore from backup
-amorphctl restore --source=/backup/path
+1. The agent connects to any node and requests recovery for their identity.
+2. The node looks up the recovery configuration from the mesh.
+3. The agent contacts their trusted agents through out-of-band means (phone, in person).
+4. Each trusted agent who agrees submits their shard.
+5. Once the threshold is met, the recovery key is reconstructed.
+6. The recovery key decrypts `~.keys.private`.
+7. The agent sets up new authentication factors (new passphrase, new device).
+8. The old derived key is invalidated, secrets are re-encrypted with the new one.
+9. Recovery shards are regenerated and redistributed to trusted agents.
 
-# Verify backup integrity
-amorphctl backup verify /backup/path
-```
+The human element is the verification — when a recovery agent receives a request, they must decide through their own judgment whether it is legitimate. The system cannot and should not automate this.
 
-#### Monitoring and Metrics
+#### Small Mesh Limitations
 
-```bash
-# Real-time performance metrics
-amorphctl metrics
+Recovery resilience scales with mesh size:
 
-# Generate health report
-amorphctl health-check
+- **One node:** The node is the sole recovery agent. If it is lost and the agent loses access, recovery is not possible. This matches the inherent fragility of a single-node deployment.
+- **Two nodes:** Each can serve as recovery agent for the other. Better, but simultaneous loss of both is unrecoverable.
+- **Three+ nodes:** Full Shamir's Secret Sharing with meaningful thresholds. The system grows more resilient as the mesh grows.
 
-# Export metrics for external monitoring
-amorphctl metrics export --format=prometheus
-```
+### Protocol
 
-### Integration
+#### Wire Format
 
-The three components work together to provide a complete database system:
+All mesh communication uses a compact binary protocol. Each message has a fixed header followed by a variable-length self-describing payload.
 
-- **Service** provides the core functionality and data management
-- **Client** enables users to interact with their data
-- **Control** allows administrators to manage the deployment
+    message:
+        version             (1 byte — protocol version)
+        type                (1 byte — message type)
+        sequence            (4 bytes — request/response correlation)
+        payload_length      (4 bytes)
+        payload             (variable)
+        checksum            (4 bytes)
 
-Each component can be deployed independently:
-- Services run on database nodes in the mesh
-- Clients can run anywhere and connect remotely
-- Control can be used from administrative workstations
+Total overhead: 14 bytes per message.
 
-This separation enables flexible deployment architectures, from single-node development setups to large-scale distributed production clusters.
+The payload consists of tagged fields that can be parsed without knowing every field type. Unknown tags are skipped, allowing older nodes to handle messages from newer protocol versions gracefully.
+
+    tagged field:
+        tag                 (2 bytes — field identifier)
+        length              (4 bytes)
+        data                (variable)
+
+#### Message Types
+
+**Connection establishment:**
+
+| Type | Name | Purpose |
+|------|------|---------|
+| 0x01 | `KEY_EXCHANGE` | Diffie-Hellman parameters, post-quantum upgrade |
+| 0x02 | `IDENTITY_REQUEST` | New agent requests an identity |
+| 0x03 | `IDENTITY_GRANT` | Identity and keys issued to new agent |
+| 0x04 | `AUTH_CHALLENGE` | Encrypted challenge for authentication |
+| 0x05 | `AUTH_RESPONSE` | Decrypted challenge proving identity |
+| 0x06 | `PEER_EXCHANGE` | Share list of known nodes |
+
+**Data operations:**
+
+| Type | Name | Purpose |
+|------|------|---------|
+| 0x10 | `READ` | Request data at a path |
+| 0x11 | `READ_RESPONSE` | Return requested data |
+| 0x12 | `WRITE` | Write a value to a path |
+| 0x13 | `WRITE_ACK` | Acknowledge a write |
+| 0x14 | `PURGE` | Permanently erase instances |
+| 0x15 | `PURGE_ACK` | Acknowledge a purge |
+
+**Mesh coordination:**
+
+| Type | Name | Purpose |
+|------|------|---------|
+| 0x20 | `HEARTBEAT` | Alive signal, clock sync, gossip payload |
+| 0x21 | `REPLICATE` | Zone authority pushes changes to replicas |
+| 0x22 | `ZONE_SPLIT` | Announce new zone boundaries |
+| 0x23 | `ZONE_TRANSFER` | Bulk data for zone migration |
+| 0x24 | `MAINTENANCE_ENTER` | Node entering maintenance mode |
+| 0x25 | `MAINTENANCE_EXIT` | Node rejoining after maintenance |
+
+**Recovery:**
+
+| Type | Name | Purpose |
+|------|------|---------|
+| 0x30 | `RECOVERY_SHARD` | Submit a Shamir recovery shard |
+
+Types 0x40–0xFF are reserved for future use. Unknown message types are logged and ignored.
+
+#### Heartbeat
+
+The heartbeat is the primary vehicle for mesh synchronization. It fires every third of a second and carries multiple concerns in a single message:
+
+- **Alive signal** — the sender is operational
+- **Clock value** — for clock synchronization across the mesh
+- **Gossip payload** — membership changes, zone boundary updates, node health
+
+Each node heartbeats to a small set of direct peers — zone cluster peers (the authority and replicas for zones this node participates in) and a handful of gossip peers for broader mesh awareness. This keeps per-node connection count bounded regardless of mesh size.
+
+**Zone cluster heartbeats** are direct and immediate — writes replicate to replicas within one heartbeat tick. This is the hot path for data consistency.
+
+**Gossip heartbeats** propagate mesh-wide information (new nodes, departed nodes, zone splits) through neighbors. This information may take several ticks to reach the entire mesh, which is acceptable for metadata that changes infrequently.
+
+#### Routing
+
+Any node can calculate which node owns a zone by hashing the path onto the consistent hash ring. When a node receives a request for data it does not own, it forwards the request to the calculated authority. The response returns along the same path. The client does not need to know the mesh topology.
+
+For read requests, the node may route to the nearest replica rather than the authority, reducing latency and distributing read load.
+
+#### Extensibility
+
+The protocol is designed for forward compatibility:
+
+- The version byte allows protocol evolution across major changes.
+- Unknown message types are ignored gracefully.
+- Unknown tagged fields in payloads are skipped.
+- New message types and field tags can be added without breaking existing nodes.
