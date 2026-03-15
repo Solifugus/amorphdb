@@ -38,6 +38,8 @@ Before we begin, let's understand AmorphDB's fundamental concepts:
 - **Hierarchical**: Data is organized as a tree of attributes
 - **Reactive**: Code can automatically respond to data changes
 - **Distributed**: Data scales across multiple nodes seamlessly
+- **Multi-Mesh**: Bridge connections enable secure cross-mesh data access
+- **Mobile Agents**: Identities that allow participation in multiple meshes
 
 ### Installation
 
@@ -94,6 +96,23 @@ amorph> my.first_value
 ```
 
 Congratulations! You've just stored your first temporal value.
+
+### Creating Your First Mesh (Optional)
+
+By default, AmorphDB starts in standalone mode. You can create a named mesh for distributed operation:
+
+```bash
+# Check current status (will show "Standalone")
+./bin/amorphctl status
+
+# Create a named mesh
+./bin/amorphctl create-mesh "tutorial-mesh"
+
+# Check status again (will show "Mesh Founder")
+./bin/amorphctl status
+```
+
+Your data remains accessible - AmorphDB preserves everything when transitioning from standalone to mesh mode.
 
 ---
 
@@ -1008,37 +1027,131 @@ level_up(player1, {strength: 2, vitality: 1})
 
 ## 7. Distributed Systems
 
-AmorphDB is designed for distributed operation. Let's learn how to work with multiple nodes and distributed data.
+AmorphDB is designed for distributed operation with support for named meshes and bridge connections between multiple meshes. Let's learn how to work with multiple nodes, distributed data, and cross-mesh operations.
 
-### Understanding the Mesh
+### Understanding Meshes and Bridges
 
-AmorphDB operates as a peer-to-peer mesh where:
-- Each node stores portions of the global data tree
-- Zones define which node is responsible for which data
-- Consistent hashing automatically distributes load
-- Replication provides fault tolerance
+AmorphDB operates with several key concepts:
+- **Named Meshes**: Groups of nodes that share data and form a distributed system
+- **Standalone Nodes**: Single nodes that can later join or create meshes
+- **Bridge Connections**: Links between different meshes for cross-mesh data access
+- **Mobile Agents**: Identities that allow nodes to participate in multiple meshes
+- **Zones**: Automatic data distribution within a mesh for load balancing
 
-### Setting Up a Multi-Node System
+### Starting with Standalone Nodes
 
-#### Node 1 (Primary)
+Every AmorphDB node starts in standalone mode:
 
 ```bash
-# Start first node
+# Start a standalone node
 ./amorphd --port=5000 --data-dir=/data/node1
+
+# Check status - node is standalone
+./amorphctl status
 ```
 
-#### Node 2 (Join mesh)
+### Creating Your First Mesh
+
+Convert a standalone node into a mesh founder:
 
 ```bash
-# Start second node and join the mesh
-./amorphd --port=5001 --data-dir=/data/node2 --join=localhost:5000
+# Create a named mesh
+./amorphctl create-mesh "my-company-mesh"
+
+# Check status - node is now a mesh founder
+./amorphctl status
 ```
 
-#### Node 3 (Join mesh)
+### Adding Nodes to a Mesh
+
+Join additional nodes to your mesh:
 
 ```bash
-# Start third node
-./amorphd --port=5002 --data-dir=/data/node3 --join=localhost:5000
+# Start second node (standalone)
+./amorphd --port=5001 --data-dir=/data/node2
+
+# Join the existing mesh (discovers name automatically)
+./amorphctl --port=5001 join localhost:5000
+
+# Start third node and join
+./amorphd --port=5002 --data-dir=/data/node3
+./amorphctl --port=5002 join localhost:5000
+```
+
+### Working with Mesh Data
+
+```mbl
+# Connect to any node in the mesh
+amorph --node=localhost:5000
+
+# Data is automatically distributed and replicated
+world.shared.config.version = "1.0.0"
+world.shared.templates.user_welcome = "Welcome to our mesh!"
+
+# Agent-specific data for this node
+world.agent.my_node_id.cache.local_data = "Node-specific information"
+
+# The mesh handles routing and replication automatically
+config_version = world.shared.config.version  # Available on all nodes
+```
+
+### Bridge Connections: Connecting Multiple Meshes
+
+AmorphDB supports bridge connections between different meshes, allowing secure cross-mesh data access:
+
+#### Setting Up Bridge Connections
+
+```bash
+# From a node in mesh A, connect to mesh B
+./amorphctl bridge partner-mesh.example.com:8080
+
+# This creates a mobile agent identity in the partner mesh
+# and establishes authenticated connection
+```
+
+#### Cross-Mesh Data Access
+
+Once a bridge is established, you can access data in partner meshes using the `my.meshname.*` pattern:
+
+```mbl
+# Connect to your local mesh
+amorph --node=localhost:5000
+
+# Access data in partner mesh through bridge
+partner_config = my.partner-mesh.world.shared.config.version
+partner_users = my.partner-mesh.world.shared.users
+
+# Write data to partner mesh (appears under your bridge identity)
+my.partner-mesh.projects.joint_project.status = "active"
+my.partner-mesh.projects.joint_project.owner = "my-company-mesh"
+
+# The data appears in partner mesh as:
+# world.agent.{your-bridge-identity}.projects.joint_project.*
+```
+
+#### Multi-Mesh Data Synchronization
+
+```mbl
+# Procedure to sync configuration across multiple meshes
+procedure sync_config_across_meshes():
+    local_config = world.shared.config
+    local_version = local_config.version
+
+    # List of partner meshes
+    partner_meshes = ["partner-mesh", "test-mesh", "staging-mesh"]
+
+    for mesh_name in partner_meshes:
+        # Get partner's config version
+        partner_path = "my." & mesh_name & ".world.shared.config.version"
+
+        if exists(partner_path):
+            partner_version = get(partner_path)
+
+            if local_version > partner_version:
+                # Update partner with our config
+                config_path = "my." & mesh_name & ".world.shared.config"
+                set(config_path, local_config)
+                output("Updated " & mesh_name & " config to v" & local_version)
 ```
 
 ### Working with Distributed Data
@@ -1047,27 +1160,71 @@ AmorphDB operates as a peer-to-peer mesh where:
 # Connect to the mesh
 amorph --node=localhost:5000
 
-# Data is automatically distributed based on path
-my.data.west_coast.customers = "Stored on node handling west coast data"
-my.data.east_coast.customers = "May be stored on a different node"
+# Data is automatically distributed based on path and zones
+world.shared.west_coast.customers = "Stored on node handling west coast data"
+world.shared.east_coast.customers = "May be stored on a different node"
 
 # The mesh handles routing automatically
-west_customers = my.data.west_coast.customers
-east_customers = my.data.east_coast.customers
+west_customers = world.shared.west_coast.customers
+east_customers = world.shared.east_coast.customers
+
+# Access data from standalone mode (preserved during mesh join)
+my.standalone.local.users = "Data from before joining mesh"
+```
+
+### Mesh Management Commands
+
+AmorphDB provides command-line tools for mesh management:
+
+```bash
+# Check current mesh status
+./amorphctl status
+
+# List mesh members
+./amorphctl mesh members
+
+# View bridge connections
+./amorphctl bridge list
+
+# Check bridge health
+./amorphctl bridge status partner-mesh
+
+# Create new mesh (if standalone)
+./amorphctl create-mesh "my-new-mesh"
+
+# Leave current mesh (return to standalone)
+./amorphctl detach
+
+# Disconnect specific bridge
+./amorphctl detach partner-mesh
 ```
 
 ### Zone Management
 
+Zones automatically distribute data across mesh nodes:
+
 ```mbl
-# Check which zones exist
-zones = world.cluster.zones
+# Check which zones exist in current mesh
+zones = world.shared.cluster.zones
 
-# View zone assignments
-for zone in zones:
-    output("Zone: " & zone.path & " -> Node: " & zone.authority)
+# View zone assignments (read-only information)
+for zone_id in zones:
+    zone_info = world.shared.cluster.zones[zone_id]
+    output("Zone " & zone_id & ": " & zone_info.responsible_node)
 
-# Force a zone split (administrative operation)
-# This would typically be done via amorphctl
+# Zone splits and rebalancing happen automatically
+# But you can view the process:
+procedure show_zone_distribution():
+    nodes = world.shared.cluster.nodes
+    zones = world.shared.cluster.zones
+
+    for node_id in nodes:
+        node_zones = []
+        for zone_id in zones:
+            if world.shared.cluster.zones[zone_id].responsible_node == node_id:
+                node_zones..append(zone_id)
+
+        output("Node " & node_id & " manages " & size(node_zones) & " zones")
 ```
 
 ### Cross-Zone Operations
@@ -1085,70 +1242,120 @@ for node in my.global_config.database_settings.replicas:
     output("Replica: " & node)
 ```
 
-### Practice Exercise 6: Multi-Region Application
+### Practice Exercise 6: Multi-Mesh Enterprise Application
 
-Create a globally distributed application:
+Create a distributed application that spans multiple meshes with bridge connections:
 
 ```mbl
-# Regional data centers
-my.infrastructure.regions.us_west.datacenter = "San Francisco"
-my.infrastructure.regions.us_west.capacity = 1000
-my.infrastructure.regions.us_west.load = 67.5
+# Set up local mesh (corporate-mesh) infrastructure
+world.shared.infrastructure.datacenter = "Corporate HQ"
+world.shared.infrastructure.capacity = 1000
+world.shared.infrastructure.region = "us_west"
 
-my.infrastructure.regions.us_east.datacenter = "New York"
-my.infrastructure.regions.us_east.capacity = 800
-my.infrastructure.regions.us_east.load = 82.1
+# Connect to partner meshes via bridges
+# Assume bridges are already established to "partner-mesh" and "vendor-mesh"
 
-my.infrastructure.regions.europe.datacenter = "Frankfurt"
-my.infrastructure.regions.europe.capacity = 600
-my.infrastructure.regions.europe.load = 45.3
+# Procedure to gather data from all connected meshes
+procedure get_global_status():
+    status = new()
+    status.timestamp = @now
+    status.local_mesh = "corporate-mesh"
 
-# Global load balancer that distributes based on capacity
-watch global_load_balancer(my.infrastructure.regions.*.load):
-    for region in my.infrastructure.regions:
-        load = my.infrastructure.regions[region].load
-        capacity = my.infrastructure.regions[region].capacity
+    # Local mesh status
+    status.meshes.corporate = {
+        datacenter: world.shared.infrastructure.datacenter,
+        load: world.shared.metrics.current_load,
+        uptime: world.shared.status.uptime
+    }
 
-        if load > 90:
-            # High load - redirect traffic
-            my.traffic.routing[region] = "reduced"
-            my.alerts..append({
-                region: region,
-                message: "High load in " & region & " - traffic reduced",
+    # Partner mesh status (via bridge)
+    if exists("my.partner-mesh.world.shared.status"):
+        status.meshes.partner = my.partner-mesh.world.shared.status
+
+    # Vendor mesh status (via bridge)
+    if exists("my.vendor-mesh.world.shared.status"):
+        status.meshes.vendor = my.vendor-mesh.world.shared.status
+
+    return status
+
+# Cross-mesh project management
+procedure create_joint_project(project_name, partner_mesh):
+    project_id = uuid()
+
+    # Create project locally
+    world.shared.projects[project_id] = {
+        name: project_name,
+        owner: "corporate-mesh",
+        partners: [partner_mesh],
+        created: @now,
+        status: "active"
+    }
+
+    # Share project info with partner
+    partner_project_path = "my." & partner_mesh & ".shared.projects.joint." & project_id
+    set(partner_project_path, {
+        name: project_name,
+        shared_by: "corporate-mesh",
+        created: @now,
+        access_level: "collaborator"
+    })
+
+    output("Joint project " & project_name & " created with " & partner_mesh)
+    return project_id
+
+# Multi-mesh data synchronization watcher
+watch sync_critical_config(world.shared.config.security.*):
+    security_config = world.shared.config.security
+
+    # Sync to all partner meshes
+    partner_meshes = ["partner-mesh", "vendor-mesh"]
+
+    for mesh_name in partner_meshes:
+        try:
+            sync_path = "my." & mesh_name & ".shared.security_updates"
+            set(sync_path, {
+                config: security_config,
+                updated_by: "corporate-mesh",
                 timestamp: @now
             })
-        elif load < 50:
-            # Low load - can accept more traffic
-            my.traffic.routing[region] = "preferred"
+            output("Synced security config to " & mesh_name)
+        catch error:
+            output("Failed to sync to " & mesh_name & ": " & error)
 
-# User session routing
-procedure create_user_session(user_id, preferred_region):
-    # Choose best region based on load and preference
-    best_region = preferred_region
+# Test the multi-mesh system
+global_status = get_global_status()
+output("Global status collected from " & size(global_status.meshes) & " meshes")
 
-    if my.traffic.routing[preferred_region] ?= "reduced":
-        # Find alternative region
-        for region in my.infrastructure.regions:
-            if my.traffic.routing[region] != "reduced":
-                best_region = region
-                break
+# Create a joint project
+project_id = create_joint_project("Enterprise Integration", "partner-mesh")
 
-    # Create session
-    session_id = uuid()
-    my.user_sessions[session_id].user_id = user_id
-    my.user_sessions[session_id].region = best_region
-    my.user_sessions[session_id].created = @now
+# Update security config (triggers sync)
+world.shared.config.security.password_policy = "enhanced"
 
-    output("Session " & session_id & " created in " & best_region & " for user " & user_id)
+# Monitor bridge health
+procedure monitor_bridges():
+    bridges = ["partner-mesh", "vendor-mesh"]
 
-    return session_id
+    for bridge_name in bridges:
+        # Test bridge connectivity
+        test_path = "my." & bridge_name & ".world.shared.status.ping"
 
-# Test the system
-create_user_session("user123", "us_west")
-create_user_session("user456", "europe")
+        try:
+            set(test_path, @now)
+            bridge_response = get(test_path)
 
-# Simulate high load
-my.infrastructure.regions.us_east.load = 95  # Triggers load balancer
+            if bridge_response:
+                output("Bridge to " & bridge_name & " is healthy")
+                world.shared.bridge_status[bridge_name] = "healthy"
+            else:
+                output("Bridge to " & bridge_name & " unresponsive")
+                world.shared.bridge_status[bridge_name] = "warning"
+        catch error:
+            output("Bridge to " & bridge_name & " failed: " & error)
+            world.shared.bridge_status[bridge_name] = "error"
+
+# Run bridge monitoring
+monitor_bridges()
 ```
 
 ---

@@ -1,0 +1,62 @@
+# AmorphDB Production Configuration
+# Production-ready configuration with security and monitoring
+
+data:
+  storage_dir: "/var/lib/amorphdb"
+  backup_dir: "/var/backup/amorphdb"
+  compression: true
+  encryption: true
+
+network:
+  port: 8080
+  local_socket_path: "/var/run/amorphdb.sock"
+  max_connections: 1000
+  tls_cert: "/etc/amorphdb/tls/server.crt"
+  tls_key: "/etc/amorphdb/tls/server.key"
+  bind_address: "0.0.0.0"
+
+mesh:
+  name: "production-mesh"
+  identity: "prod-node-01"
+  heartbeat_interval: "5s"
+  gossip_interval: "10s"
+  zone_rebalance_threshold: 0.2
+
+logging:
+  level: "warn"
+  file: "/var/log/amorphdb/amorphdb.log"
+  max_size: "100MB"
+  max_backups: 10
+  compress: true
+  structured: true
+  audit_file: "/var/log/amorphdb/audit.log"
+
+security:
+  enable_auth: true
+  auth_method: "certificate"
+  cert_dir: "/etc/amorphdb/auth"
+  session_timeout: "24h"
+
+performance:
+  memory_limit: "8GB"
+  cache_size: "2GB"
+  worker_threads: 8
+  gc_interval: "1h"
+
+monitoring:
+  metrics_port: 9090
+  health_check_port: 9091
+  enable_profiling: false
+
+backup:
+  interval: "6h"
+  retention: "30d"
+  remote_storage: "s3://amorphdb-backups/"
+
+# Production tuning
+tuning:
+  max_message_size: "10MB"
+  buffer_size: "64KB"
+  timeout_connect: "10s"
+  timeout_read: "30s"
+  timeout_write: "30s"

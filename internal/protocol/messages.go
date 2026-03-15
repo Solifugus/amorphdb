@@ -31,6 +31,20 @@ const (
 	COMPACT       = 0x24
 	COMPACT_ACK   = 0x25
 
+	// Mesh management operations
+	CREATE_MESH       = 0x26
+	CREATE_MESH_ACK   = 0x27
+	MESH_STATUS       = 0x28
+	MESH_STATUS_RESPONSE = 0x29
+	DISCOVER_MESH     = 0x2A
+	DISCOVER_MESH_RESPONSE = 0x2B
+	JOIN_MESH         = 0x2C
+	JOIN_MESH_ACK     = 0x2D
+	CREATE_BRIDGE     = 0x2E
+	CREATE_BRIDGE_ACK = 0x2F
+	DETACH            = 0x40
+	DETACH_ACK        = 0x41
+
 	// Mesh networking operations
 	KEY_EXCHANGE     = 0x30
 	KEY_EXCHANGE_ACK = 0x31
@@ -238,14 +252,131 @@ type ZoneAssignMessage struct {
 
 // ZoneTransferMessage represents bulk zone data transfer
 type ZoneTransferMessage struct {
-	ZoneID   string // Zone identifier
-	Data     []byte // Serialized zone data
-	IsLast   bool   // Whether this is the final chunk
-	ChunkID  uint32 // Chunk sequence number
+	ZoneID    string // Zone identifier
+	NewOwner  string // Identity of the new zone owner
+	Timestamp int64  // When the transfer was initiated
+	Data      []byte // Serialized zone data
+	IsLast    bool   // Whether this is the final chunk
+	ChunkID   uint32 // Chunk sequence number
 }
 
 // ErrorMessage represents an error response
 type ErrorMessage struct {
 	Code    uint32 // Error code
 	Message string // Human-readable error message
+}
+
+// CreateMeshMessage represents a request to create a new mesh
+type CreateMeshMessage struct {
+	Name string // Mesh name to create
+}
+
+// CreateMeshAckMessage represents acknowledgment of mesh creation
+type CreateMeshAckMessage struct {
+	Success     bool   // Whether mesh creation succeeded
+	Message     string // Human-readable message
+	MeshName    string // Created mesh name
+	NodeID      string // Node identity ID
+	IsFounder   bool   // Whether this node is the founder
+}
+
+// MeshStatusMessage represents a request for mesh status
+type MeshStatusMessage struct {
+	// No payload - simple status request
+}
+
+// MeshStatusResponseMessage represents mesh status information
+type MeshStatusResponseMessage struct {
+	MeshName      string                        // Current mesh name
+	Status        string                        // Mesh status
+	IsFounder     bool                          // Whether this node is founder
+	NodeIdentity  string                        // Node identity ID
+	MemberCount   int                           // Number of mesh members
+	ZoneCount     int                           // Number of zones
+	FoundedAt     *int64                        // When mesh was founded (founder only)
+	Bridges       map[string]BridgeStatusInfo   // Bridge connections
+}
+
+// BridgeStatusInfo represents bridge connection status
+type BridgeStatusInfo struct {
+	Address     string // Bridge target address
+	Status      string // Bridge status
+	Identity    string // Bridge identity ID
+	ConnectedAt *int64 // When bridge was connected
+}
+
+// DiscoverMeshMessage represents a request to discover mesh information
+type DiscoverMeshMessage struct {
+	// No payload - simple discovery request
+}
+
+// DiscoverMeshResponseMessage represents mesh discovery information
+type DiscoverMeshResponseMessage struct {
+	MeshName        string // Name of the mesh
+	FounderIdentity string // Identity of the founder
+	MemberCount     int    // Number of current members
+	ZoneCount       int    // Number of zones
+	RequiresAuth    bool   // Whether authentication is required
+	FoundedAt       int64  // When the mesh was founded
+}
+
+// JoinMeshMessage represents a request to join a mesh
+type JoinMeshMessage struct {
+	NodeIdentity string // Identity of the joining node
+	MeshName     string // Name of mesh to join (from discovery)
+}
+
+// JoinMeshAckMessage represents the response to a join request
+type JoinMeshAckMessage struct {
+	Success      bool   // Whether join was successful
+	Message      string // Status/error message
+	AssignedZone string // Zone assigned to the new member
+	MemberCount  int    // Updated member count
+}
+
+// CreateBridgeMessage represents a request to create a bridge to another mesh
+type CreateBridgeMessage struct {
+	TargetAddress string // Address of target mesh to bridge to
+	NodeIdentity  string // Identity of the bridge node
+}
+
+// CreateBridgeAckMessage represents the response to a bridge creation request
+type CreateBridgeAckMessage struct {
+	Success         bool   // Whether bridge creation was successful
+	Message         string // Status/error message
+	TargetMeshName  string // Name of the target mesh
+	BridgeIdentity  string // Identity assigned in the target mesh
+	BridgeStatus    string // Current bridge connection status
+}
+
+// DetachMessage represents a request to detach from a mesh or bridge
+type DetachMessage struct {
+	MeshName string // Mesh name to detach from (empty = primary mesh)
+}
+
+// DetachAckMessage represents the response to a detach request
+type DetachAckMessage struct {
+	Success        bool   // Whether detach was successful
+	Message        string // Status/error message
+	DetachType     string // "primary_mesh" or "bridge"
+	MeshName       string // Name of mesh detached from
+	PreviousRole   string // Previous role ("founder" or "member")
+	BridgeIdentity string // Bridge identity (for bridge detach)
+	ZonesMigrated  int    // Number of zones migrated to other nodes
+	DataPreserved  bool   // Whether data was preserved
+	DisconnectedAt int64  // When detach completed
+}
+
+// DepartureMessage represents an announcement of node departure
+type DepartureMessage struct {
+	NodeID    string // Identity of departing node
+	Timestamp int64  // When departure was initiated
+	Reason    string // Reason for departure
+}
+
+// BridgeClosureMessage represents notification of bridge closure
+type BridgeClosureMessage struct {
+	BridgeIdentity string // Identity of the closing bridge
+	SourceMesh     string // Mesh that owned the bridge
+	Timestamp      int64  // When closure was initiated
 }

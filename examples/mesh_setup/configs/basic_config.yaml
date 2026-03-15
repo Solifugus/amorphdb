@@ -1,0 +1,22 @@
+# AmorphDB Basic Configuration
+# Minimal working configuration for standalone or mesh operation
+
+data:
+  storage_dir: "/var/lib/amorphdb"
+
+network:
+  port: 8080
+  local_socket_path: "/var/run/amorphdb.sock"
+  max_connections: 100
+
+mesh:
+  name: ""                    # Empty for standalone, set for mesh
+  identity: "node-basic"      # Node identifier
+
+logging:
+  level: "info"
+  file: "/var/log/amorphdb.log"
+
+# Security disabled for basic setup
+security:
+  enable_auth: false

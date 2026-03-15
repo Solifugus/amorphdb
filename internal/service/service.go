@@ -25,6 +25,9 @@ type Service struct {
 	filterManager    *security.FilterManager       // Response filtering
 	watcherEngine    *watcher.WatcherEngine        // Reactive programming
 
+	// Mesh management
+	meshService      *MeshService                 // Mesh operations
+
 	// Network configuration
 	localSocket      net.Listener          // UNIX domain socket
 	networkSocket    net.Listener          // TCP socket (port 5000)
@@ -51,6 +54,8 @@ type Config struct {
 	LocalSocketPath string // UNIX socket path
 	NetworkPort     int    // TCP port
 	NodeIdentity    string // Node identifier
+	MeshName        string // Mesh name (empty = standalone)
+	ConfigPath      string // Configuration file path
 }
 
 // DefaultConfig returns default service configuration
@@ -63,6 +68,8 @@ func DefaultConfig() Config {
 		LocalSocketPath: filepath.Join(amorphDir, "socket"),
 		NetworkPort:     5000,
 		NodeIdentity:    generateNodeIdentity(),
+		MeshName:        "", // Empty = standalone mode
+		ConfigPath:      filepath.Join(amorphDir, "config.yaml"),
 	}
 }
 
@@ -95,6 +102,10 @@ func New(config Config) (*Service, error) {
 	// Initialize watcher engine
 	watcherEngine := watcher.NewWatcherEngine(extendedTree, 1000)
 
+	// Initialize mesh service (simplified for now)
+	// TODO: Proper mesh configuration integration
+	meshService := &MeshService{} // Placeholder
+
 	// Create service instance
 	service := &Service{
 		tree:            extendedTree,
@@ -102,6 +113,7 @@ func New(config Config) (*Service, error) {
 		stampManager:    stampManager,
 		filterManager:   filterManager,
 		watcherEngine:   watcherEngine,
+		meshService:     meshService,
 		localSocketPath: config.LocalSocketPath,
 		networkPort:     config.NetworkPort,
 		connections:     make(map[string]*Connection),

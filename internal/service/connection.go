@@ -156,6 +156,14 @@ func (c *Connection) handleMessage(msg *protocol.Message) *protocol.Message {
 		return c.handleStop(msg)
 	case protocol.COMPACT:
 		return c.handleCompact(msg)
+	case protocol.CREATE_MESH:
+		return c.handleCreateMesh(msg)
+	case protocol.MESH_STATUS:
+		return c.handleMeshStatus(msg)
+	case protocol.JOIN_MESH:
+		return c.handleJoinMesh(msg)
+	case protocol.CREATE_BRIDGE:
+		return c.handleCreateBridge(msg)
 	default:
 		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Unknown message type: 0x%02x", msg.Type))
 	}
@@ -363,4 +371,64 @@ func (c *Connection) sendResponse(msg *protocol.Message) error {
 
 	_, err = c.writer.Write(data)
 	return err
+}
+
+// handleCreateMesh processes CREATE_MESH messages
+func (c *Connection) handleCreateMesh(msg *protocol.Message) *protocol.Message {
+	// Only allow mesh operations from local connections
+	if !c.isLocal {
+		return c.createErrorResponse(msg.Sequence, 403, "Mesh operations only available via local socket")
+	}
+
+	responseData, err := c.service.meshService.CreateMesh(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Mesh creation failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.CREATE_MESH_ACK, msg.Sequence, responseData)
+}
+
+// handleMeshStatus processes MESH_STATUS messages
+func (c *Connection) handleMeshStatus(msg *protocol.Message) *protocol.Message {
+	// Only allow mesh operations from local connections
+	if !c.isLocal {
+		return c.createErrorResponse(msg.Sequence, 403, "Mesh operations only available via local socket")
+	}
+
+	responseData, err := c.service.meshService.GetMeshStatus(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Mesh status failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.MESH_STATUS_RESPONSE, msg.Sequence, responseData)
+}
+
+// handleJoinMesh processes JOIN_MESH messages
+func (c *Connection) handleJoinMesh(msg *protocol.Message) *protocol.Message {
+	// Only allow mesh operations from local connections
+	if !c.isLocal {
+		return c.createErrorResponse(msg.Sequence, 403, "Mesh operations only available via local socket")
+	}
+
+	responseData, err := c.service.meshService.JoinMesh(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Mesh join failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.JOIN_MESH_ACK, msg.Sequence, responseData)
+}
+
+// handleCreateBridge processes CREATE_BRIDGE messages
+func (c *Connection) handleCreateBridge(msg *protocol.Message) *protocol.Message {
+	// Only allow bridge operations from local connections
+	if !c.isLocal {
+		return c.createErrorResponse(msg.Sequence, 403, "Bridge operations only available via local socket")
+	}
+
+	responseData, err := c.service.meshService.CreateBridge(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Bridge creation failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.CREATE_BRIDGE_ACK, msg.Sequence, responseData)
 }

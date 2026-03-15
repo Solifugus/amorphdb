@@ -1,0 +1,320 @@
+# Multi-Mesh Queries MBL Script
+# Demonstrates advanced cross-mesh query patterns and data aggregation
+
+# Procedure to query data across all connected meshes
+procedure query_all_meshes(query_path) {
+    results = new()
+    results.timestamp = now()
+    results.local_mesh = world.shared.identity.mesh_name
+
+    # Query local mesh first
+    try {
+        local_result = get(query_path)
+        results.meshes[results.local_mesh] = local_result
+        log("Local query successful: " + query_path)
+    } catch error {
+        log("Local query failed: " + error)
+        results.meshes[results.local_mesh] = null
+    }
+
+    # Query all bridge meshes
+    bridges = world.shared.config.bridges
+
+    for bridge_name in keys(bridges) {
+        try {
+            bridge_query_path = "my." + bridge_name + "." + query_path
+            bridge_result = get(bridge_query_path)
+            results.meshes[bridge_name] = bridge_result
+            log("Bridge query successful: " + bridge_name + " -> " + query_path)
+        } catch error {
+            log("Bridge query failed: " + bridge_name + " -> " + error)
+            results.meshes[bridge_name] = null
+        }
+    }
+
+    return results
+}
+
+# Procedure to aggregate metrics across meshes
+procedure aggregate_mesh_metrics() {
+    aggregated = new()
+    aggregated.timestamp = now()
+
+    # Initialize counters
+    total_nodes = 0
+    total_memory = 0
+    total_operations = 0
+    active_meshes = 0
+
+    # Collect local metrics
+    try {
+        local_metrics = world.shared.metrics
+        if exists("local_metrics.node_count") {
+            total_nodes = total_nodes + local_metrics.node_count
+            active_meshes = active_meshes + 1
+        }
+        if exists("local_metrics.memory_usage") {
+            total_memory = total_memory + local_metrics.memory_usage
+        }
+        if exists("local_metrics.operations_per_second") {
+            total_operations = total_operations + local_metrics.operations_per_second
+        }
+        aggregated.local = local_metrics
+    } catch error {
+        log("Failed to collect local metrics: " + error)
+    }
+
+    # Collect metrics from bridge meshes
+    bridges = world.shared.config.bridges
+
+    for bridge_name in keys(bridges) {
+        try {
+            bridge_metrics = get("my." + bridge_name + ".world.shared.metrics")
+
+            if exists("bridge_metrics.node_count") {
+                total_nodes = total_nodes + bridge_metrics.node_count
+                active_meshes = active_meshes + 1
+            }
+            if exists("bridge_metrics.memory_usage") {
+                total_memory = total_memory + bridge_metrics.memory_usage
+            }
+            if exists("bridge_metrics.operations_per_second") {
+                total_operations = total_operations + bridge_metrics.operations_per_second
+            }
+
+            aggregated.bridges[bridge_name] = bridge_metrics
+
+        } catch error {
+            log("Failed to collect metrics from " + bridge_name + ": " + error)
+        }
+    }
+
+    # Calculate aggregate statistics
+    aggregated.totals.node_count = total_nodes
+    aggregated.totals.memory_usage = total_memory
+    aggregated.totals.operations_per_second = total_operations
+    aggregated.totals.active_meshes = active_meshes
+
+    if active_meshes > 0 {
+        aggregated.averages.memory_per_mesh = total_memory / active_meshes
+        aggregated.averages.nodes_per_mesh = total_nodes / active_meshes
+        aggregated.averages.ops_per_mesh = total_operations / active_meshes
+    }
+
+    return aggregated
+}
+
+# Procedure to find data across meshes by pattern
+procedure find_data_pattern(pattern) {
+    matches = new()
+    matches.pattern = pattern
+    matches.timestamp = now()
+
+    # Search local mesh
+    local_matches = []
+    try {
+        # This would use a pattern matching function if available
+        # For now, we'll check common locations
+        common_paths = [
+            "world.shared." + pattern,
+            "world.agent.*." + pattern,
+            "local." + pattern
+        ]
+
+        for path in common_paths {
+            if exists(path) {
+                local_matches.append(path)
+            }
+        }
+
+        matches.local = local_matches
+    } catch error {
+        log("Local pattern search failed: " + error)
+    }
+
+    # Search bridge meshes
+    bridges = world.shared.config.bridges
+
+    for bridge_name in keys(bridges) {
+        bridge_matches = []
+        try {
+            # Check common patterns in bridge mesh
+            bridge_paths = [
+                "my." + bridge_name + ".world.shared." + pattern,
+                "my." + bridge_name + ".world.agent.*." + pattern
+            ]
+
+            for path in bridge_paths {
+                if exists(path) {
+                    bridge_matches.append(path)
+                }
+            }
+
+            matches.bridges[bridge_name] = bridge_matches
+
+        } catch error {
+            log("Bridge pattern search failed for " + bridge_name + ": " + error)
+        }
+    }
+
+    return matches
+}
+
+# Procedure to synchronize user data across meshes
+procedure sync_user_data(user_id) {
+    log("Syncing user data for: " + user_id)
+
+    # Get local user data
+    local_user_path = "world.users." + user_id
+
+    if not exists(local_user_path) {
+        log("User " + user_id + " not found locally")
+        return false
+    }
+
+    local_user = get(local_user_path)
+    local_timestamp = get(local_user_path + ".last_modified") or 0
+
+    # Check each bridge mesh for this user
+    bridges = world.shared.config.bridges
+
+    for bridge_name in keys(bridges) {
+        try {
+            bridge_user_path = "my." + bridge_name + ".world.users." + user_id
+
+            if exists(bridge_user_path) {
+                bridge_user = get(bridge_user_path)
+                bridge_timestamp = get(bridge_user_path + ".last_modified") or 0
+
+                # Sync based on timestamps
+                if local_timestamp > bridge_timestamp {
+                    log("Updating user data in " + bridge_name)
+                    set(bridge_user_path, local_user)
+                    set(bridge_user_path + ".last_modified", local_timestamp)
+
+                } else if bridge_timestamp > local_timestamp {
+                    log("Updating local user data from " + bridge_name)
+                    set(local_user_path, bridge_user)
+                    set(local_user_path + ".last_modified", bridge_timestamp)
+                } else {
+                    log("User data already synchronized with " + bridge_name)
+                }
+            } else {
+                log("Creating user in " + bridge_name)
+                set(bridge_user_path, local_user)
+                set(bridge_user_path + ".last_modified", local_timestamp)
+            }
+
+        } catch error {
+            log("Failed to sync user with " + bridge_name + ": " + error)
+        }
+    }
+
+    return true
+}
+
+# Procedure to create cross-mesh analytics dashboard
+procedure create_analytics_dashboard() {
+    dashboard = new()
+    dashboard.generated = now()
+
+    # Gather comprehensive metrics
+    dashboard.metrics = aggregate_mesh_metrics()
+
+    # Get configuration summary
+    dashboard.configuration.local_mesh = world.shared.identity.mesh_name
+    dashboard.configuration.bridges = keys(world.shared.config.bridges)
+    dashboard.configuration.bridge_count = size(dashboard.configuration.bridges)
+
+    # Health status across meshes
+    dashboard.health = new()
+
+    for bridge_name in dashboard.configuration.bridges {
+        try {
+            bridge_status = get("my." + bridge_name + ".world.shared.status")
+            dashboard.health[bridge_name] = {
+                status: bridge_status.status or "unknown",
+                uptime: bridge_status.uptime or 0,
+                last_heartbeat: bridge_status.last_heartbeat or 0
+            }
+        } catch error {
+            dashboard.health[bridge_name] = {
+                status: "error",
+                error: error,
+                last_check: now()
+            }
+        }
+    }
+
+    # Activity summary
+    dashboard.activity = new()
+
+    # Query recent activity across all meshes
+    activity_results = query_all_meshes("world.shared.activity.recent")
+    for mesh_name in keys(activity_results.meshes) {
+        if activity_results.meshes[mesh_name] != null {
+            dashboard.activity[mesh_name] = activity_results.meshes[mesh_name]
+        }
+    }
+
+    # Store dashboard
+    world.analytics.dashboard = dashboard
+
+    return dashboard
+}
+
+# Watcher to monitor cross-mesh data consistency
+watch world.users.* {
+    # Extract user ID from the path
+    user_id = path_component(path, 2)
+
+    if user_id != null {
+        log("User data changed for: " + user_id)
+
+        # Trigger cross-mesh sync
+        sync_user_data(user_id)
+    }
+}
+
+# Main execution: Demonstrate multi-mesh queries
+log("Starting multi-mesh query demonstrations...")
+
+# Example 1: Query configuration across all meshes
+config_results = query_all_meshes("world.shared.config.version")
+log("Configuration versions across meshes:")
+for mesh in keys(config_results.meshes) {
+    version = config_results.meshes[mesh]
+    log("  " + mesh + ": " + (version or "unavailable"))
+}
+
+# Example 2: Aggregate performance metrics
+metrics = aggregate_mesh_metrics()
+log("Aggregated metrics:")
+log("  Total nodes: " + metrics.totals.node_count)
+log("  Total memory: " + metrics.totals.memory_usage + " MB")
+log("  Total operations/sec: " + metrics.totals.operations_per_second)
+log("  Active meshes: " + metrics.totals.active_meshes)
+
+# Example 3: Search for specific data patterns
+pattern_results = find_data_pattern("config")
+log("Found configuration data in:")
+for mesh in keys(pattern_results.bridges) {
+    if size(pattern_results.bridges[mesh]) > 0 {
+        log("  " + mesh + ": " + size(pattern_results.bridges[mesh]) + " matches")
+    }
+}
+
+# Example 4: Create analytics dashboard
+dashboard = create_analytics_dashboard()
+log("Analytics dashboard created with " + size(dashboard.health) + " mesh health status")
+
+# Store query examples for future use
+world.examples.multi_mesh_queries = {
+    last_run: now(),
+    config_query: config_results,
+    metrics_aggregation: metrics,
+    pattern_search: pattern_results,
+    dashboard: dashboard
+}
+
+log("Multi-mesh query demonstrations completed")

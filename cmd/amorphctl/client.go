@@ -231,3 +231,40 @@ func encodeStopMessage(msg *protocol.StopMessage) ([]byte, error) {
 	}
 	return []byte{0}, nil
 }
+
+// SendCommand sends a mesh management command to the service
+func (c *ControlClient) SendCommand(command string, payload []byte) ([]byte, error) {
+	var msgType uint8
+	switch command {
+	case "create-mesh":
+		msgType = protocol.CREATE_MESH
+	case "mesh-status":
+		msgType = protocol.MESH_STATUS
+	case "join-mesh":
+		msgType = protocol.JOIN_MESH
+	case "create-bridge":
+		msgType = protocol.CREATE_BRIDGE
+	case "detach":
+		msgType = protocol.DETACH
+	default:
+		return nil, fmt.Errorf("unknown command: %s", command)
+	}
+
+	response, err := c.sendRequest(msgType, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if response.Type == protocol.ERROR {
+		errorMsg, _ := protocol.DecodeErrorMessage(response.Payload)
+		return nil, fmt.Errorf("server error %d: %s", errorMsg.Code, errorMsg.Message)
+	}
+
+	// Verify response type matches expected
+	expectedResponseType := msgType + 1 // Response types are typically command type + 1
+	if response.Type != expectedResponseType {
+		return nil, fmt.Errorf("unexpected response type: 0x%02x (expected 0x%02x)", response.Type, expectedResponseType)
+	}
+
+	return response.Payload, nil
+}

@@ -1,0 +1,52 @@
+# AmorphDB Multi-Mesh Configuration
+# Configuration for nodes with multiple bridge connections
+
+data:
+  storage_dir: "/var/lib/amorphdb"
+
+network:
+  port: 8080
+  local_socket_path: "/var/run/amorphdb.sock"
+  max_connections: 500
+
+mesh:
+  name: "hub-mesh"
+  identity: "hub-node-001"
+
+  # Bridge connections to other meshes
+  bridges:
+    corporate-mesh: "10.1.0.100:8080"
+    partner-mesh: "192.168.100.50:8080"
+    test-mesh: "172.16.1.10:8080"
+
+logging:
+  level: "info"
+  file: "/var/log/amorphdb.log"
+
+security:
+  enable_auth: true
+  auth_method: "mobile_agent"
+
+  # Mobile agent configuration for bridge authentication
+  mobile_agent:
+    passphrase_file: "/etc/amorphdb/bridge_passphrase"
+    device_secret_file: "/etc/amorphdb/device_secret"
+
+bridge:
+  # Bridge-specific configuration
+  connection_timeout: "30s"
+  reconnect_interval: "60s"
+  max_retries: 5
+
+  # Cache configuration for bridge data
+  cache:
+    size: "100MB"
+    ttl: "5m"
+
+  # Authentication refresh interval
+  auth_refresh: "1h"
+
+# Monitor bridge connections
+monitoring:
+  bridge_health_check: "30s"
+  bridge_latency_threshold: "100ms"

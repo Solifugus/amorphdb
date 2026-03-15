@@ -17,6 +17,12 @@ func main() {
 
 	command := os.Args[1]
 
+	// Show help without requiring service connection
+	if command == "help" || command == "--help" || command == "-h" {
+		showHelp()
+		return
+	}
+
 	// Get local socket path
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -48,8 +54,30 @@ func main() {
 			os.Exit(1)
 		}
 		err = handleZonesList(client)
-	case "help", "--help", "-h":
-		showHelp()
+	case "create-mesh":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "Usage: %s create-mesh <name>\n", os.Args[0])
+			os.Exit(1)
+		}
+		err = handleCreateMesh(client, os.Args[2])
+	case "join":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "Usage: %s join <address>\n", os.Args[0])
+			os.Exit(1)
+		}
+		err = handleJoin(client, os.Args[2])
+	case "bridge":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "Usage: %s bridge <address>\n", os.Args[0])
+			os.Exit(1)
+		}
+		err = handleBridge(client, os.Args[2])
+	case "detach":
+		meshName := ""
+		if len(os.Args) >= 3 {
+			meshName = os.Args[2]
+		}
+		err = handleDetach(client, meshName)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		fmt.Fprintf(os.Stderr, "Run '%s help' for usage information.\n", os.Args[0])
@@ -108,6 +136,27 @@ func handleZonesList(client *ControlClient) error {
 	return nil
 }
 
+func handleCreateMesh(client *ControlClient, meshName string) error {
+	// Create mesh command using the new implementation
+	meshCommand := NewMeshCommand(client)
+	return meshCommand.CreateMesh(meshName)
+}
+
+func handleJoin(client *ControlClient, address string) error {
+	joinCommand := NewJoinCommand(client)
+	return joinCommand.JoinMesh(address)
+}
+
+func handleBridge(client *ControlClient, address string) error {
+	bridgeCommand := NewBridgeCommand(client)
+	return bridgeCommand.CreateBridge(address)
+}
+
+func handleDetach(client *ControlClient, meshName string) error {
+	detachCommand := NewDetachCommand(client)
+	return detachCommand.DetachFromMesh(meshName)
+}
+
 func formatDuration(seconds int64) string {
 	duration := time.Duration(seconds) * time.Second
 	days := int(duration.Hours()) / 24
@@ -155,16 +204,24 @@ func showHelp() {
 	fmt.Printf("  %s <command>\n", os.Args[0])
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  status        Show service status and statistics")
-	fmt.Println("  stop          Gracefully stop the AmorphDB service")
-	fmt.Println("  compact       Trigger data defragmentation")
-	fmt.Println("  zones list    List zone assignments (placeholder for Step 10)")
-	fmt.Println("  help          Show this help message")
+	fmt.Println("  status            Show service status and statistics")
+	fmt.Println("  stop              Gracefully stop the AmorphDB service")
+	fmt.Println("  compact           Trigger data defragmentation")
+	fmt.Println("  zones list        List zone assignments (placeholder for Step 10)")
+	fmt.Println("  create-mesh <name>  Create a new mesh with the given name")
+	fmt.Println("  join <address>    Join an existing mesh at the given address")
+	fmt.Println("  bridge <address>  Create a bridge to another mesh")
+	fmt.Println("  detach [mesh]     Detach from mesh (or primary mesh if no name given)")
+	fmt.Println("  help              Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Printf("  %s status     # Show current service status\n", os.Args[0])
-	fmt.Printf("  %s stop       # Stop the service gracefully\n", os.Args[0])
-	fmt.Printf("  %s compact    # Compact and defragment data\n", os.Args[0])
+	fmt.Printf("  %s status              # Show current service status\n", os.Args[0])
+	fmt.Printf("  %s stop                # Stop the service gracefully\n", os.Args[0])
+	fmt.Printf("  %s compact             # Compact and defragment data\n", os.Args[0])
+	fmt.Printf("  %s create-mesh mynet   # Create a new mesh named 'mynet'\n", os.Args[0])
+	fmt.Printf("  %s join 192.168.1.10   # Join mesh at address\n", os.Args[0])
+	fmt.Printf("  %s bridge 10.0.0.5     # Bridge to another mesh\n", os.Args[0])
+	fmt.Printf("  %s detach              # Leave current mesh\n", os.Args[0])
 	fmt.Println()
 	fmt.Println("Note: All commands connect via local UNIX socket only for security.")
 	fmt.Println("The AmorphDB service (amorphd) must be running.")

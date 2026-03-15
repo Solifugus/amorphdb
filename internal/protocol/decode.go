@@ -537,3 +537,447 @@ func skipField(reader *bytes.Reader, tag uint8) error {
 		return err
 	}
 }
+
+// DecodeCreateMeshMessage deserializes a CreateMeshMessage
+func DecodeCreateMeshMessage(payload []byte) (*CreateMeshMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &CreateMeshMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Mesh name
+			name, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode mesh name: %w", err)
+			}
+			msg.Name = name
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeCreateMeshAckMessage deserializes a CreateMeshAckMessage
+func DecodeCreateMeshAckMessage(payload []byte) (*CreateMeshAckMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &CreateMeshAckMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Success
+			success, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = success != 0
+
+		case 0x02: // Message
+			message, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode message: %w", err)
+			}
+			msg.Message = message
+
+		case 0x03: // Mesh name
+			meshName, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode mesh name: %w", err)
+			}
+			msg.MeshName = meshName
+
+		case 0x04: // Node ID
+			nodeID, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode node ID: %w", err)
+			}
+			msg.NodeID = nodeID
+
+		case 0x05: // Is Founder
+			founder, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode is founder: %w", err)
+			}
+			msg.IsFounder = founder != 0
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeMeshStatusMessage deserializes a MeshStatusMessage (empty request)
+func DecodeMeshStatusMessage(payload []byte) (*MeshStatusMessage, error) {
+	// MeshStatusMessage has no fields, but we still need to handle any future extensions
+	reader := bytes.NewReader(payload)
+	msg := &MeshStatusMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		// Skip any unknown fields for forward compatibility
+		if err := skipField(reader, tag); err != nil {
+			return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeMeshStatusResponseMessage deserializes a MeshStatusResponseMessage
+func DecodeMeshStatusResponseMessage(payload []byte) (*MeshStatusResponseMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &MeshStatusResponseMessage{
+		Bridges: make(map[string]BridgeStatusInfo),
+	}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Mesh name
+			meshName, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode mesh name: %w", err)
+			}
+			msg.MeshName = meshName
+
+		case 0x02: // Status
+			status, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode status: %w", err)
+			}
+			msg.Status = status
+
+		case 0x03: // Is Founder
+			founder, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode is founder: %w", err)
+			}
+			msg.IsFounder = founder != 0
+
+		case 0x04: // Node Identity
+			identity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode node identity: %w", err)
+			}
+			msg.NodeIdentity = identity
+
+		case 0x05: // Member Count
+			var memberCount int32
+			if err := binary.Read(reader, binary.BigEndian, &memberCount); err != nil {
+				return nil, fmt.Errorf("failed to decode member count: %w", err)
+			}
+			msg.MemberCount = int(memberCount)
+
+		case 0x06: // Zone Count
+			var zoneCount int32
+			if err := binary.Read(reader, binary.BigEndian, &zoneCount); err != nil {
+				return nil, fmt.Errorf("failed to decode zone count: %w", err)
+			}
+			msg.ZoneCount = int(zoneCount)
+
+		case 0x07: // Founded At
+			var foundedAt int64
+			if err := binary.Read(reader, binary.BigEndian, &foundedAt); err != nil {
+				return nil, fmt.Errorf("failed to decode founded at: %w", err)
+			}
+			msg.FoundedAt = &foundedAt
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeDiscoverMeshMessage deserializes a DiscoverMeshMessage (empty request)
+func DecodeDiscoverMeshMessage(payload []byte) (*DiscoverMeshMessage, error) {
+	// DiscoverMeshMessage has no fields, but we still need to handle any future extensions
+	reader := bytes.NewReader(payload)
+	msg := &DiscoverMeshMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		// Skip any unknown fields for forward compatibility
+		if err := skipField(reader, tag); err != nil {
+			return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeDiscoverMeshResponseMessage deserializes a DiscoverMeshResponseMessage
+func DecodeDiscoverMeshResponseMessage(payload []byte) (*DiscoverMeshResponseMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &DiscoverMeshResponseMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Mesh name
+			meshName, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode mesh name: %w", err)
+			}
+			msg.MeshName = meshName
+
+		case 0x02: // Founder identity
+			founderIdentity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode founder identity: %w", err)
+			}
+			msg.FounderIdentity = founderIdentity
+
+		case 0x03: // Member count
+			var memberCount int32
+			if err := binary.Read(reader, binary.BigEndian, &memberCount); err != nil {
+				return nil, fmt.Errorf("failed to decode member count: %w", err)
+			}
+			msg.MemberCount = int(memberCount)
+
+		case 0x04: // Zone count
+			var zoneCount int32
+			if err := binary.Read(reader, binary.BigEndian, &zoneCount); err != nil {
+				return nil, fmt.Errorf("failed to decode zone count: %w", err)
+			}
+			msg.ZoneCount = int(zoneCount)
+
+		case 0x05: // Requires auth
+			requiresAuth, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode requires auth: %w", err)
+			}
+			msg.RequiresAuth = requiresAuth != 0
+
+		case 0x06: // Founded at
+			var foundedAt int64
+			if err := binary.Read(reader, binary.BigEndian, &foundedAt); err != nil {
+				return nil, fmt.Errorf("failed to decode founded at: %w", err)
+			}
+			msg.FoundedAt = foundedAt
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeJoinMeshMessage deserializes a JoinMeshMessage
+func DecodeJoinMeshMessage(payload []byte) (*JoinMeshMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &JoinMeshMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Node identity
+			nodeIdentity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode node identity: %w", err)
+			}
+			msg.NodeIdentity = nodeIdentity
+
+		case 0x02: // Mesh name
+			meshName, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode mesh name: %w", err)
+			}
+			msg.MeshName = meshName
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeJoinMeshAckMessage deserializes a JoinMeshAckMessage
+func DecodeJoinMeshAckMessage(payload []byte) (*JoinMeshAckMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &JoinMeshAckMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Success
+			success, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = success != 0
+
+		case 0x02: // Message
+			message, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode message: %w", err)
+			}
+			msg.Message = message
+
+		case 0x03: // Assigned zone
+			assignedZone, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode assigned zone: %w", err)
+			}
+			msg.AssignedZone = assignedZone
+
+		case 0x04: // Member count
+			var memberCount int32
+			if err := binary.Read(reader, binary.BigEndian, &memberCount); err != nil {
+				return nil, fmt.Errorf("failed to decode member count: %w", err)
+			}
+			msg.MemberCount = int(memberCount)
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeCreateBridgeMessage deserializes a CreateBridgeMessage
+func DecodeCreateBridgeMessage(payload []byte) (*CreateBridgeMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &CreateBridgeMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Target address
+			targetAddress, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode target address: %w", err)
+			}
+			msg.TargetAddress = targetAddress
+
+		case 0x02: // Node identity
+			nodeIdentity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode node identity: %w", err)
+			}
+			msg.NodeIdentity = nodeIdentity
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeCreateBridgeAckMessage deserializes a CreateBridgeAckMessage
+func DecodeCreateBridgeAckMessage(payload []byte) (*CreateBridgeAckMessage, error) {
+	reader := bytes.NewReader(payload)
+	msg := &CreateBridgeAckMessage{}
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Success
+			success, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = success != 0
+
+		case 0x02: // Message
+			message, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode message: %w", err)
+			}
+			msg.Message = message
+
+		case 0x03: // Target mesh name
+			targetMeshName, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode target mesh name: %w", err)
+			}
+			msg.TargetMeshName = targetMeshName
+
+		case 0x04: // Bridge identity
+			bridgeIdentity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode bridge identity: %w", err)
+			}
+			msg.BridgeIdentity = bridgeIdentity
+
+		case 0x05: // Bridge status
+			bridgeStatus, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode bridge status: %w", err)
+			}
+			msg.BridgeStatus = bridgeStatus
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}

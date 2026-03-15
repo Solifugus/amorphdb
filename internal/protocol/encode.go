@@ -405,3 +405,305 @@ func encodeInt32(tag uint8, val int32) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// EncodeCreateMeshMessage serializes a CreateMeshMessage
+func EncodeCreateMeshMessage(msg *CreateMeshMessage) ([]byte, error) {
+	// Tag 0x01: Mesh name
+	return encodeString(0x01, msg.Name)
+}
+
+// EncodeCreateMeshAckMessage serializes a CreateMeshAckMessage
+func EncodeCreateMeshAckMessage(msg *CreateMeshAckMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Success
+	successData, err := encodeBool(0x01, msg.Success)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode success: %w", err)
+	}
+	buf.Write(successData)
+
+	// Tag 0x02: Message
+	messageData, err := encodeString(0x02, msg.Message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode message: %w", err)
+	}
+	buf.Write(messageData)
+
+	// Tag 0x03: Mesh name (optional)
+	if msg.MeshName != "" {
+		meshNameData, err := encodeString(0x03, msg.MeshName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode mesh name: %w", err)
+		}
+		buf.Write(meshNameData)
+	}
+
+	// Tag 0x04: Node ID (optional)
+	if msg.NodeID != "" {
+		nodeIDData, err := encodeString(0x04, msg.NodeID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode node ID: %w", err)
+		}
+		buf.Write(nodeIDData)
+	}
+
+	// Tag 0x05: Is Founder
+	founderData, err := encodeBool(0x05, msg.IsFounder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode is founder: %w", err)
+	}
+	buf.Write(founderData)
+
+	return buf.Bytes(), nil
+}
+
+// EncodeMeshStatusMessage serializes a MeshStatusMessage (empty request)
+func EncodeMeshStatusMessage(msg *MeshStatusMessage) ([]byte, error) {
+	// MeshStatusMessage has no fields, return empty payload
+	return []byte{}, nil
+}
+
+// EncodeMeshStatusResponseMessage serializes a MeshStatusResponseMessage
+func EncodeMeshStatusResponseMessage(msg *MeshStatusResponseMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Mesh name
+	meshNameData, err := encodeString(0x01, msg.MeshName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode mesh name: %w", err)
+	}
+	buf.Write(meshNameData)
+
+	// Tag 0x02: Status
+	statusData, err := encodeString(0x02, msg.Status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode status: %w", err)
+	}
+	buf.Write(statusData)
+
+	// Tag 0x03: Is Founder
+	founderData, err := encodeBool(0x03, msg.IsFounder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode is founder: %w", err)
+	}
+	buf.Write(founderData)
+
+	// Tag 0x04: Node Identity
+	identityData, err := encodeString(0x04, msg.NodeIdentity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode node identity: %w", err)
+	}
+	buf.Write(identityData)
+
+	// Tag 0x05: Member Count
+	memberData, err := encodeInt32(0x05, int32(msg.MemberCount))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode member count: %w", err)
+	}
+	buf.Write(memberData)
+
+	// Tag 0x06: Zone Count
+	zoneData, err := encodeInt32(0x06, int32(msg.ZoneCount))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode zone count: %w", err)
+	}
+	buf.Write(zoneData)
+
+	// Tag 0x07: Founded At (optional)
+	if msg.FoundedAt != nil {
+		foundedData, err := encodeInt64(0x07, *msg.FoundedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode founded at: %w", err)
+		}
+		buf.Write(foundedData)
+	}
+
+	// Note: Bridges (map) would require more complex encoding
+	// For simplicity, we'll skip bridge encoding for now
+	// In a full implementation, we'd need a map encoding helper
+
+	return buf.Bytes(), nil
+}
+
+// EncodeDiscoverMeshMessage serializes a DiscoverMeshMessage (empty request)
+func EncodeDiscoverMeshMessage(msg *DiscoverMeshMessage) ([]byte, error) {
+	// DiscoverMeshMessage has no fields, return empty payload
+	return []byte{}, nil
+}
+
+// EncodeDiscoverMeshResponseMessage serializes a DiscoverMeshResponseMessage
+func EncodeDiscoverMeshResponseMessage(msg *DiscoverMeshResponseMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Mesh name
+	meshNameData, err := encodeString(0x01, msg.MeshName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode mesh name: %w", err)
+	}
+	buf.Write(meshNameData)
+
+	// Tag 0x02: Founder identity
+	founderData, err := encodeString(0x02, msg.FounderIdentity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode founder identity: %w", err)
+	}
+	buf.Write(founderData)
+
+	// Tag 0x03: Member count
+	memberData, err := encodeInt32(0x03, int32(msg.MemberCount))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode member count: %w", err)
+	}
+	buf.Write(memberData)
+
+	// Tag 0x04: Zone count
+	zoneData, err := encodeInt32(0x04, int32(msg.ZoneCount))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode zone count: %w", err)
+	}
+	buf.Write(zoneData)
+
+	// Tag 0x05: Requires auth
+	authData, err := encodeBool(0x05, msg.RequiresAuth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode requires auth: %w", err)
+	}
+	buf.Write(authData)
+
+	// Tag 0x06: Founded at
+	foundedData, err := encodeInt64(0x06, msg.FoundedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode founded at: %w", err)
+	}
+	buf.Write(foundedData)
+
+	return buf.Bytes(), nil
+}
+
+// EncodeJoinMeshMessage serializes a JoinMeshMessage
+func EncodeJoinMeshMessage(msg *JoinMeshMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Node identity
+	identityData, err := encodeString(0x01, msg.NodeIdentity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode node identity: %w", err)
+	}
+	buf.Write(identityData)
+
+	// Tag 0x02: Mesh name
+	meshNameData, err := encodeString(0x02, msg.MeshName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode mesh name: %w", err)
+	}
+	buf.Write(meshNameData)
+
+	return buf.Bytes(), nil
+}
+
+// EncodeJoinMeshAckMessage serializes a JoinMeshAckMessage
+func EncodeJoinMeshAckMessage(msg *JoinMeshAckMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Success
+	successData, err := encodeBool(0x01, msg.Success)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode success: %w", err)
+	}
+	buf.Write(successData)
+
+	// Tag 0x02: Message
+	messageData, err := encodeString(0x02, msg.Message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode message: %w", err)
+	}
+	buf.Write(messageData)
+
+	// Tag 0x03: Assigned zone (optional)
+	if msg.AssignedZone != "" {
+		zoneData, err := encodeString(0x03, msg.AssignedZone)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode assigned zone: %w", err)
+		}
+		buf.Write(zoneData)
+	}
+
+	// Tag 0x04: Member count
+	memberData, err := encodeInt32(0x04, int32(msg.MemberCount))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode member count: %w", err)
+	}
+	buf.Write(memberData)
+
+	return buf.Bytes(), nil
+}
+
+// EncodeCreateBridgeMessage serializes a CreateBridgeMessage
+func EncodeCreateBridgeMessage(msg *CreateBridgeMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Target address
+	addressData, err := encodeString(0x01, msg.TargetAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode target address: %w", err)
+	}
+	buf.Write(addressData)
+
+	// Tag 0x02: Node identity
+	identityData, err := encodeString(0x02, msg.NodeIdentity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode node identity: %w", err)
+	}
+	buf.Write(identityData)
+
+	return buf.Bytes(), nil
+}
+
+// EncodeCreateBridgeAckMessage serializes a CreateBridgeAckMessage
+func EncodeCreateBridgeAckMessage(msg *CreateBridgeAckMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Success
+	successData, err := encodeBool(0x01, msg.Success)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode success: %w", err)
+	}
+	buf.Write(successData)
+
+	// Tag 0x02: Message
+	messageData, err := encodeString(0x02, msg.Message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode message: %w", err)
+	}
+	buf.Write(messageData)
+
+	// Tag 0x03: Target mesh name (optional)
+	if msg.TargetMeshName != "" {
+		meshNameData, err := encodeString(0x03, msg.TargetMeshName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode target mesh name: %w", err)
+		}
+		buf.Write(meshNameData)
+	}
+
+	// Tag 0x04: Bridge identity (optional)
+	if msg.BridgeIdentity != "" {
+		identityData, err := encodeString(0x04, msg.BridgeIdentity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode bridge identity: %w", err)
+		}
+		buf.Write(identityData)
+	}
+
+	// Tag 0x05: Bridge status (optional)
+	if msg.BridgeStatus != "" {
+		statusData, err := encodeString(0x05, msg.BridgeStatus)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode bridge status: %w", err)
+		}
+		buf.Write(statusData)
+	}
+
+	return buf.Bytes(), nil
+}
