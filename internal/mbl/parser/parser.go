@@ -312,6 +312,8 @@ func (p *Parser) parseStatement() Statement {
 		return p.parseForStatement()
 	case lexer.CONSIDER:
 		return p.parseConsiderStatement()
+	case lexer.WATCH:
+		return p.parseWatchStatement()
 	case lexer.RETURN:
 		return p.parseReturnStatement()
 	case lexer.NEW:
@@ -326,6 +328,8 @@ func (p *Parser) parseStatement() Statement {
 				return p.parseAssignmentStatement()
 			} else if p.isProcedureDefinition() {
 				return p.parseProcedureStatement()
+			} else if p.isWatchStatement() {
+				return p.parseWatchStatement()
 			}
 		}
 		// Fall back to expression statement
@@ -347,8 +351,12 @@ func (p *Parser) isSimpleAssignment() bool {
 		return true
 	}
 
-	// Complex case: modifier syntax (x:(copy) = ...)
+	// Complex case: modifier syntax (x:(copy) = ...) but not watch statements
 	if p.peekToken.Type == lexer.DEFINE {
+		// Check if this is a watch statement first
+		if p.lexer.ContainsPattern("watch") {
+			return false // Let watch statement parser handle this
+		}
 		return true
 	}
 
@@ -420,6 +428,18 @@ func (p *Parser) isProcedureDefinition() bool {
 
 	// Now we can properly check if the remaining input contains "):" pattern
 	return p.lexer.ContainsPattern("):")
+}
+
+// isWatchStatement checks if the current statement is a watch statement
+func (p *Parser) isWatchStatement() bool {
+	// Watch statements have the pattern: name: watch(...)
+	// Check for identifier followed by DEFINE then WATCH
+	if p.currentToken.Type != lexer.IDENT || p.peekToken.Type != lexer.DEFINE {
+		return false
+	}
+
+	// Use simple pattern check for watch keyword after colon
+	return p.lexer.ContainsPattern("watch")
 }
 
 // parseAssignmentStatement parses variable assignments
@@ -688,6 +708,120 @@ func (p *Parser) parseReturnStatement() *ReturnStatement {
 	if p.peekToken.Type == lexer.NEWLINE {
 		p.nextToken()
 	}
+
+	return stmt
+}
+
+// parseWatchStatement parses watch statements
+func (p *Parser) parseWatchStatement() Statement {
+	stmt := &WatchStatement{Token: p.currentToken}
+
+	// Check if we're parsing from WATCH token (old style) or from identifier (new style)
+	if p.currentToken.Type == lexer.WATCH {
+		// Old style: just a standalone watch token
+		// For now, return a simple expression statement to maintain compatibility
+		return p.parseExpressionStatement()
+	}
+
+	// New style: name: watch(...) syntax
+	// Parse the name (identifier before the colon)
+	stmt.Name = p.currentToken.Literal
+
+	// Expect DEFINE ":"
+	if !p.expectPeek(lexer.DEFINE) {
+		return nil
+	}
+
+	// Expect WATCH keyword
+	if !p.expectPeek(lexer.WATCH) {
+		return nil
+	}
+
+	stmt.Token = p.currentToken // Set token to WATCH
+
+	// Check if this is an append watcher
+	if p.peekToken.Type == lexer.APPEND {
+		p.nextToken() // consume APPEND token
+		stmt.IsAppend = true
+
+		// Expect opening parenthesis
+		if !p.expectPeek(lexer.LPAREN) {
+			return nil
+		}
+
+		// Parse the path expression (including any bracket filters)
+		p.nextToken()
+		pathExpr := p.parseExpression(LOWEST)
+
+		// Extract filters from BracketFilterExpression if present
+		if bracketExpr, ok := pathExpr.(*BracketFilterExpression); ok {
+			stmt.Paths = []Expression{bracketExpr.Left}
+			stmt.Filters = bracketExpr.Filters
+		} else {
+			stmt.Paths = []Expression{pathExpr}
+		}
+
+		// Expect closing parenthesis
+		if !p.expectPeek(lexer.RPAREN) {
+			return nil
+		}
+
+		// Expect AS keyword
+		if !p.expectPeek(lexer.AS) {
+			return nil
+		}
+
+		// Expect binding name
+		if !p.expectPeek(lexer.IDENT) {
+			return nil
+		}
+
+		stmt.BindingName = p.currentToken.Literal
+
+	} else {
+		// Regular watcher: watch(path)
+		stmt.IsAppend = false
+
+		// Expect opening parenthesis
+		if !p.expectPeek(lexer.LPAREN) {
+			return nil
+		}
+
+		// Parse comma-separated path expressions
+		p.nextToken()
+		stmt.Paths = []Expression{}
+		stmt.Paths = append(stmt.Paths, p.parseExpression(LOWEST))
+
+		// Handle additional comma-separated paths
+		for p.peekToken.Type == lexer.COMMA {
+			p.nextToken() // consume COMMA
+			p.nextToken() // move to next expression
+			stmt.Paths = append(stmt.Paths, p.parseExpression(LOWEST))
+		}
+
+		// Expect closing parenthesis
+		if !p.expectPeek(lexer.RPAREN) {
+			return nil
+		}
+	}
+
+	// Expect DEFINE ":" for the body
+	if !p.expectPeek(lexer.DEFINE) {
+		return nil
+	}
+
+	// Skip NEWLINE tokens before INDENT
+	for p.peekToken.Type == lexer.NEWLINE {
+		p.nextToken()
+	}
+
+	// Expect INDENT for the body
+	if !p.expectPeek(lexer.INDENT) {
+		return nil
+	}
+
+	// Parse the watcher body
+	stmt.Body = p.parseBlockStatement()
 
 	return stmt
 }

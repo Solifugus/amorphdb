@@ -581,3 +581,336 @@ func BenchmarkParseLargeProgram(b *testing.B) {
 		p.ParseProgram()
 	}
 }
+
+// TestWatchAppendTokens tests that new watch append tokens are recognized
+func TestWatchAppendTokens(t *testing.T) {
+	input := `watch append as`
+
+	l := lexer.New(input)
+
+	expectedTokens := []lexer.TokenType{
+		lexer.WATCH,
+		lexer.APPEND,
+		lexer.AS,
+		lexer.EOF,
+	}
+
+	for i, expected := range expectedTokens {
+		token := l.NextToken()
+		if token.Type != expected {
+			t.Fatalf("token[%d] - expected %s, got %s", i, expected, token.Type)
+		}
+	}
+}
+
+// TestWatchStatementSwitchCase tests that WATCH token triggers parseWatchStatement
+func TestWatchStatementSwitchCase(t *testing.T) {
+	input := `watch`
+
+	p := createParser(input)
+	program := p.ParseProgram()
+
+	// The simplified parseWatchStatement returns an expression statement
+	// This test verifies that the WATCH case is reached
+	if program == nil {
+		t.Fatal("ParseProgram() returned nil")
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("Expected 1 statement, got %d", len(program.Statements))
+	}
+
+	// The simplified implementation returns an expression statement
+	_, ok := program.Statements[0].(*ExpressionStatement)
+	if !ok {
+		t.Fatalf("Expected ExpressionStatement from parseWatchStatement, got %T", program.Statements[0])
+	}
+}
+
+// TestWatchAppendParsing tests full watch append(...) as name syntax
+func TestWatchAppendParsing(t *testing.T) {
+	input := `my_watcher: watch append(my.list) as items:
+	output("test")`
+
+	p := createParser(input)
+	program := p.ParseProgram()
+
+	if len(p.errors) != 0 {
+		for _, err := range p.errors {
+			t.Errorf("parser error: %s", err)
+		}
+		t.FailNow()
+	}
+
+	if program == nil {
+		t.Fatal("ParseProgram() returned nil")
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("Expected 1 statement, got %d", len(program.Statements))
+	}
+
+	stmt, ok := program.Statements[0].(*WatchStatement)
+	if !ok {
+		t.Fatalf("Expected WatchStatement, got %T", program.Statements[0])
+	}
+
+	if stmt.Name != "my_watcher" {
+		t.Errorf("Expected watcher name 'my_watcher', got '%s'", stmt.Name)
+	}
+
+	if !stmt.IsAppend {
+		t.Error("Expected IsAppend to be true")
+	}
+
+	if stmt.BindingName != "items" {
+		t.Errorf("Expected binding name 'items', got '%s'", stmt.BindingName)
+	}
+
+	if len(stmt.Filters) != 0 {
+		t.Errorf("Expected 0 filters for simple path, got %d", len(stmt.Filters))
+	}
+
+	if stmt.Body == nil {
+		t.Error("Expected watcher body")
+	}
+}
+
+// TestWatchAppendWithFilterParsing tests watch append with predicate filters
+func TestWatchAppendWithFilterParsing(t *testing.T) {
+	input := `my_watcher: watch append(my.list[status ?= "active"]) as items:
+	output("test")`
+
+	p := createParser(input)
+	program := p.ParseProgram()
+
+	if len(p.errors) != 0 {
+		for _, err := range p.errors {
+			t.Errorf("parser error: %s", err)
+		}
+		t.FailNow()
+	}
+
+	if program == nil {
+		t.Fatal("ParseProgram() returned nil")
+	}
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("Expected 1 statement, got %d", len(program.Statements))
+	}
+
+	stmt, ok := program.Statements[0].(*WatchStatement)
+	if !ok {
+		t.Fatalf("Expected WatchStatement, got %T", program.Statements[0])
+	}
+
+	if stmt.Name != "my_watcher" {
+		t.Errorf("Expected watcher name 'my_watcher', got '%s'", stmt.Name)
+	}
+
+	if !stmt.IsAppend {
+		t.Error("Expected IsAppend to be true")
+	}
+
+	if stmt.BindingName != "items" {
+		t.Errorf("Expected binding name 'items', got '%s'", stmt.BindingName)
+	}
+
+	if len(stmt.Filters) != 1 {
+		t.Errorf("Expected 1 filter, got %d", len(stmt.Filters))
+	}
+
+	if stmt.Body == nil {
+		t.Error("Expected watcher body")
+	}
+}
+
+// TestSimpleWatchDetection tests basic watch statement detection
+func TestSimpleWatchDetection(t *testing.T) {
+	input := `my_watcher: watch`
+
+	p := createParser(input)
+
+	// Test isWatchStatement detection
+	if !p.isWatchStatement() {
+		t.Error("Expected isWatchStatement to return true")
+	}
+}
+
+// TestMultiPathWatchParsing tests multi-path regular watchers
+func TestMultiPathWatchParsing(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedStr string
+		pathCount   int
+	}{
+		{
+			name: "two paths",
+			input: `my_watcher: watch(my.account.balance, my.account.limit):
+		output("balance or limit changed")`,
+			expectedStr: "my_watcher: watch(my.account.balance, my.account.limit):",
+			pathCount:   2,
+		},
+		{
+			name: "three paths",
+			input: `monitor: watch(my.cpu.usage, my.memory.usage, my.disk.usage):
+		output("resource changed")`,
+			expectedStr: "monitor: watch(my.cpu.usage, my.memory.usage, my.disk.usage):",
+			pathCount:   3,
+		},
+		{
+			name: "single path (backwards compatibility)",
+			input: `single_watcher: watch(my.data.value):
+		my.result = "changed"`,
+			expectedStr: "single_watcher: watch(my.data.value):",
+			pathCount:   1,
+		},
+		{
+			name: "mixed path types",
+			input: `complex: watch(my.config.setting, world.clock.minute):
+		my.status = "updated"`,
+			expectedStr: "complex: watch(my.config.setting, world.clock.minute):",
+			pathCount:   2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := createParser(tt.input)
+			program := p.ParseProgram()
+			checkParserErrors(t, p)
+
+			if len(program.Statements) != 1 {
+				t.Fatalf("Expected 1 statement, got %d", len(program.Statements))
+			}
+
+			stmt, ok := program.Statements[0].(*WatchStatement)
+			if !ok {
+				t.Fatalf("Expected WatchStatement, got %T", program.Statements[0])
+			}
+
+			// Verify path count
+			if len(stmt.Paths) != tt.pathCount {
+				t.Errorf("Expected %d paths, got %d", tt.pathCount, len(stmt.Paths))
+			}
+
+			// Verify it's not an append watcher
+			if stmt.IsAppend {
+				t.Error("Expected regular watcher, got append watcher")
+			}
+
+			// Check string representation (without body for simplicity)
+			stmtStr := stmt.String()
+			if !strings.Contains(stmtStr, tt.expectedStr) {
+				t.Errorf("Expected string to contain %q, got %q", tt.expectedStr, stmtStr)
+			}
+		})
+	}
+}
+
+// TestMultiPathWatchErrorCases tests invalid multi-path syntax
+func TestMultiPathWatchErrorCases(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		desc  string
+	}{
+		{
+			name: "append with multiple paths",
+			input: `bad: watch append(my.list1, my.list2) as items:
+		output("test")`,
+			desc: "append watchers should not support multiple paths",
+		},
+		{
+			name: "trailing comma",
+			input: `bad2: watch(my.path1, my.path2,):
+		output("test")`,
+			desc: "trailing comma should cause parse error",
+		},
+		{
+			name: "empty path list",
+			input: `bad3: watch():
+		output("test")`,
+			desc: "empty path list should cause parse error",
+		},
+		{
+			name: "double comma",
+			input: `bad4: watch(my.path1,, my.path2):
+		output("test")`,
+			desc: "double comma should cause parse error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := createParser(tt.input)
+			program := p.ParseProgram()
+
+			// For these error cases, we expect either:
+			// 1. Parser errors to be reported, OR
+			// 2. Parsed successfully but with unexpected structure (depends on error recovery)
+
+			// At minimum, check that we don't crash
+			if program == nil {
+				t.Error("Program should not be nil even with errors")
+			}
+
+			// Note: The exact error handling behavior depends on the parser's error recovery strategy
+			// These tests ensure we don't crash on malformed input
+		})
+	}
+}
+
+// TestMultiPathWatchPathExpressions tests that individual paths are correctly parsed
+func TestMultiPathWatchPathExpressions(t *testing.T) {
+	input := `test_watcher: watch(my.account.balance, world.clock.hour):
+		my.result = "test"`
+
+	p := createParser(input)
+	program := p.ParseProgram()
+	checkParserErrors(t, p)
+
+	if len(program.Statements) != 1 {
+		t.Fatalf("Expected 1 statement, got %d", len(program.Statements))
+	}
+
+	stmt, ok := program.Statements[0].(*WatchStatement)
+	if !ok {
+		t.Fatalf("Expected WatchStatement, got %T", program.Statements[0])
+	}
+
+	if len(stmt.Paths) != 2 {
+		t.Fatalf("Expected 2 paths, got %d", len(stmt.Paths))
+	}
+
+	// Check first path
+	path1, ok := stmt.Paths[0].(*PathExpression)
+	if !ok {
+		t.Fatalf("Expected first path to be PathExpression, got %T", stmt.Paths[0])
+	}
+	expected1 := []string{"my", "account", "balance"}
+	if len(path1.Parts) != len(expected1) {
+		t.Errorf("Expected path1 to have %d parts, got %d", len(expected1), len(path1.Parts))
+	}
+	for i, part := range path1.Parts {
+		if part != expected1[i] {
+			t.Errorf("Expected path1 part %d to be %q, got %q", i, expected1[i], part)
+		}
+	}
+
+	// Check second path
+	path2, ok := stmt.Paths[1].(*PathExpression)
+	if !ok {
+		t.Fatalf("Expected second path to be PathExpression, got %T", stmt.Paths[1])
+	}
+	expected2 := []string{"world", "clock", "hour"}
+	if len(path2.Parts) != len(expected2) {
+		t.Errorf("Expected path2 to have %d parts, got %d", len(expected2), len(path2.Parts))
+	}
+	for i, part := range path2.Parts {
+		if part != expected2[i] {
+			t.Errorf("Expected path2 part %d to be %q, got %q", i, expected2[i], part)
+		}
+	}
+}

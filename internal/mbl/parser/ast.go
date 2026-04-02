@@ -440,6 +440,65 @@ func (rs *ReturnStatement) String() string {
 func (rs *ReturnStatement) TokenLiteral() string { return rs.Token.Literal }
 func (rs *ReturnStatement) Position() (int, int) { return rs.Token.Line, rs.Token.Column }
 
+// WatchStatement represents watch statements with optional append trigger
+type WatchStatement struct {
+	Token       lexer.Token      // The WATCH token
+	Name        string           // Watcher identifier (left side of :)
+	IsAppend    bool             // Whether this is an append watcher
+	Paths       []Expression     // The paths being watched (MULTIPLE for regular, single for append)
+	Filters     []Expression     // Optional predicate filters for append watchers
+	BindingName string           // Variable name for 'as name' binding (append watchers only)
+	Body        *BlockStatement  // The watcher body
+}
+
+func (ws *WatchStatement) statementNode() {}
+
+func (ws *WatchStatement) String() string {
+	var out strings.Builder
+	out.WriteString(ws.Name)
+	out.WriteString(": watch")
+
+	if ws.IsAppend {
+		// Append watchers use single path (first in Paths array)
+		out.WriteString(" append(")
+		if len(ws.Paths) > 0 {
+			out.WriteString(ws.Paths[0].String())
+		}
+		if len(ws.Filters) > 0 {
+			out.WriteString("[")
+			for i, filter := range ws.Filters {
+				if i > 0 {
+					out.WriteString(", ")
+				}
+				out.WriteString(filter.String())
+			}
+			out.WriteString("]")
+		}
+		out.WriteString(")")
+		if ws.BindingName != "" {
+			out.WriteString(" as ")
+			out.WriteString(ws.BindingName)
+		}
+	} else {
+		// Regular watchers support multiple comma-separated paths
+		out.WriteString("(")
+		for i, path := range ws.Paths {
+			if i > 0 {
+				out.WriteString(", ")
+			}
+			out.WriteString(path.String())
+		}
+		out.WriteString(")")
+	}
+
+	out.WriteString(": ")
+	out.WriteString(ws.Body.String())
+	return out.String()
+}
+
+func (ws *WatchStatement) TokenLiteral() string { return ws.Token.Literal }
+func (ws *WatchStatement) Position() (int, int) { return ws.Token.Line, ws.Token.Column }
+
 // ExpressionStatement represents standalone expressions
 type ExpressionStatement struct {
 	Token      lexer.Token // First token of the expression

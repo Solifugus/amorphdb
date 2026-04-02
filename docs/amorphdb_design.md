@@ -499,6 +499,8 @@ my.automation.balance_check: watch(my.account.balance, my.account.limit):
         my.account.status = (quietly) "overlimit"
 ```
 
+**Note:** The syntax `name: watch(...)` is the standard form — the watcher name comes first, followed by a colon, then the watch declaration with its body. This creates a named watcher that can be referenced, enabled/disabled, and inspected like any other value in the hierarchy.
+
 A watcher is a value in the hierarchy like any other. It is operated by the node responsible for the zone where it lives. Its sub-attributes form its persistent local data scope.
 
 #### Watcher Attributes
@@ -526,6 +528,133 @@ for w in my.automation:
 ```
 
 All changes to `@enabled`, `@watching`, or `@code` take effect on the next mesh heartbeat. Because watchers are data in the hierarchy, permissions apply naturally — you cannot disable or modify another agent's watcher unless you have `@write` permission on it.
+
+#### Multi-Path Watchers
+
+Watchers can monitor multiple paths simultaneously using comma-separated syntax. The watcher triggers when **any** of the watched paths changes (OR semantics):
+
+```
+my.automation.account_monitor: watch(my.account.balance, my.account.limit):
+    if my.account.balance > my.account.limit:
+        my.account.status = (quietly) "overlimit"
+        my.alerts.send("Account overlimit: " & my.account.balance)
+```
+
+This is equivalent to having separate watchers for each path, but more efficient and allows coordinated logic.
+
+**Real-World Examples:**
+
+System resource monitoring:
+```
+my.monitoring.resource_watcher: watch(my.cpu.usage, my.memory.usage, my.disk.usage):
+    if my.cpu.usage > 90:
+        my.alerts.send("High CPU: " & my.cpu.usage & "%")
+    if my.memory.usage > 95:
+        my.alerts.send("High memory: " & my.memory.usage & "%")
+    if my.disk.usage > 85:
+        my.alerts.send("Low disk space: " & (100 - my.disk.usage) & "% remaining")
+```
+
+Configuration and time-based automation:
+```
+my.automation.backup_scheduler: watch(my.config.backup_enabled, world.clock.hour):
+    if my.config.backup_enabled and world.clock.hour ?= 2:
+        my.computer.execute("backup-script.sh")
+        my.logs.backup = world.clock.now & ": Backup completed"
+```
+
+Multi-account balance tracking:
+```
+my.automation.balance_monitor: watch(my.checking.balance, my.savings.balance, my.credit.balance):
+    total = my.checking.balance + my.savings.balance - my.credit.balance
+    my.finance.net_worth = total
+    if total < 1000:
+        my.alerts.send("Low total balance: $" & total)
+```
+
+**Syntax Notes:**
+- Use comma-separated paths: `watch(path1, path2, path3)`
+- All paths must be valid expressions (no trailing commas)
+- Triggers when ANY path changes (not all paths)
+- Single-path syntax remains unchanged: `watch(single.path)`
+- Append watchers remain single-path only: `watch append(single.list) as items`
+
+#### Append Watchers
+
+A watcher can trigger specifically on items appended to a list during the current tick using the `append` keyword:
+
+```
+my.automation.new_orders: watch append(my.orders) as orders:
+    for order in orders:
+        my.computer.output("New order: " & order.id)
+```
+
+**Syntax:**
+- The keyword is `append` inside the `watch(...)` call
+- The `as name` binding is required — it binds the list of newly arrived items to a local variable for the watcher body
+- `name` is chosen by the programmer — it is not a keyword
+- The bound variable is an in-memory list of references to the nodes that were appended during this tick, in arrival order
+- It follows exactly the same scoping rules as any other local variable — it exists only for the duration of the watcher's execution and is not written to the mesh
+- The list always contains everything that arrived in the tick — even if only one item arrived, it is a single-element list. The watcher body can take the last element if it only wants the latest
+
+**Predicate Filter:**
+The predicate filter inside `append(...)` is optional. If present, only appended items matching the predicate are included in the bound list, and the watcher only fires if at least one match exists:
+
+```
+my.automation.urgent_orders: watch append(my.orders[priority ?= "urgent"]) as urgent:
+    for order in urgent:
+        my.alerts.send("Urgent order received: " & order.id)
+```
+
+This follows the same binding pattern as `for item in list`. The list itself is just a local variable populated by the runtime.
+
+**Real-World Examples:**
+
+HTTP request processing:
+```
+my.services.handlers.balance: watch append(
+    my.computer.network.requests[
+        domain ?= "api.example.com",
+        method ?= "GET",
+        path ?= "/api/balance"
+    ]
+) as new_requests:
+    for req in new_requests:
+        balance = world.agent[req.query.agent].account.balance
+        req.respond(200, balance)
+        req.processed = (quietly) true
+```
+
+Multi-domain API handling:
+```
+my.services.handlers.status: watch append(
+    my.computer.network.requests[
+        method ?= "GET",
+        path ?= "/status"
+    ]
+) as new_requests:
+    for req in new_requests:
+        if req.domain ?= "api.example.com":
+            req.respond(200, my.computer.network.to_json(world.services.status))
+        else if req.domain ?= "admin.corp.internal":
+            req.respond(200, my.computer.network.to_json(my.admin.status))
+        else:
+            req.respond(404, "Not found")
+        req.processed = (quietly) true
+```
+
+Order processing with inventory checking:
+```
+my.automation.order_processor: watch append(my.orders[status ?= "pending"]) as new_orders:
+    for order in new_orders:
+        if my.inventory[order.product_id].quantity >= order.quantity:
+            order.status = "confirmed"
+            my.inventory[order.product_id].quantity = my.inventory[order.product_id].quantity - order.quantity
+            my.notifications.send(order.customer_email, "Order confirmed: " & order.id)
+        else:
+            order.status = "backordered"
+            my.notifications.send(order.customer_email, "Order backordered: " & order.id)
+```
 
 #### Quiet Assignment
 
@@ -1371,5 +1500,69 @@ The protocol is designed to support future extensions:
 - Version negotiation allows mixed-version meshes during upgrades
 - Optional features can be negotiated per connection
 - Bridge protocol extensions support multi-mesh scenarios
+
+---
+
+## Future Enhancements
+
+### Windows Platform Support
+
+**Current Status:** AmorphDB is designed for Unix-like systems (Linux, macOS) and uses platform-specific features that limit Windows compatibility.
+
+#### Compatibility Challenges
+
+**Unix Domain Sockets:** The current implementation uses Unix domain sockets for local IPC between `amorph` clients and the `amorphd` daemon. Windows uses a different named pipe mechanism for equivalent functionality.
+
+**File System Assumptions:** Configuration and code assumes Unix-style paths:
+- Data directories: `/var/lib/amorphdb`
+- Socket paths: `/var/run/amorphdb.sock`
+- Log files: `/var/log/amorphdb/`
+- Configuration: `/etc/amorphdb/`
+
+**Service Integration:** Current installation assumes systemd service management, which is not available on Windows.
+
+#### Potential Solutions
+
+**Option 1: Network-Only Windows Mode**
+- Disable Unix domain sockets on Windows
+- Use TCP-only communication (localhost:8080)
+- Implement Windows-appropriate default paths
+- Maintain functional parity with slightly different UX
+
+**Option 2: Full Windows Native Support**
+- Implement Named Pipe support for local IPC
+- Create Windows-specific path abstractions
+- Add Windows Service integration
+- Platform-specific installation packages
+
+**Option 3: Project Branching Strategy**
+- Fork AmorphDB for Windows-specific implementation
+- Maintain feature parity between Unix and Windows branches
+- Allow platform-specific optimizations and integrations
+- Coordinate releases and feature development
+
+#### Implementation Considerations
+
+**Cross-Platform Abstraction:** Creating an IPC abstraction layer would allow the same business logic to run over Unix sockets on Unix systems and Named Pipes on Windows.
+
+**Configuration Management:** Platform-specific default configurations would handle path differences transparently while maintaining consistent functionality.
+
+**Testing Strategy:** Windows support would require platform-specific testing infrastructure and validation of all mesh bridge functionality in Windows environments.
+
+**Distribution Impact:** Windows binaries could be included in the existing cross-platform binary distribution strategy with appropriate documentation about platform differences.
+
+#### Recommendation
+
+A **project branching approach** is recommended for Windows support:
+
+1. **Branch Creation:** Create a Windows-specific branch with platform adaptations
+2. **Feature Coordination:** Maintain core feature parity through coordinated development
+3. **Platform Optimization:** Allow platform-specific optimizations (Windows Services, Unix systemd)
+4. **Distribution Strategy:** Include Windows binaries in unified release packages
+5. **Long-term Maintenance:** Evaluate demand and consolidation opportunities
+
+This approach allows Windows support without compromising the Unix-native design while providing flexibility for platform-specific enhancements and optimizations.
+
+**Timeline:** Windows support could be implemented as a separate development track, either in-house or through community contribution, without impacting the core Unix development roadmap.
 
 The mesh is designed to be long-lived and evolvable. Nodes can join and leave freely, and the system adapts to changing topology and requirements without central coordination.
