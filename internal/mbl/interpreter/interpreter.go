@@ -3,14 +3,18 @@ package interpreter
 
 import (
 	"crypto/rand"
+	"encoding/xml"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"math/big"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/solifugus/amorphdb/internal/ari"
 	"github.com/solifugus/amorphdb/internal/mbl/lexer"
 	"github.com/solifugus/amorphdb/internal/mbl/parser"
 	"github.com/solifugus/amorphdb/internal/storage"
@@ -277,9 +281,28 @@ func (i *Interpreter) evalStatement(node parser.Statement) interface{} {
 		return i.evalInstantiationStatement(node)
 	case *parser.BlockStatement:
 		return i.evalBlockStatement(node)
+	case *parser.EmbedDirectiveStatement:
+		return i.evalEmbedDirectiveStatement(node)
 	default:
 		return types.Unknown{Reason: fmt.Sprintf("unsupported statement type: %T", node)}
 	}
+}
+
+// evalEmbedDirectiveStatement evaluates embed directives like "embed my.stamp"
+func (i *Interpreter) evalEmbedDirectiveStatement(node *parser.EmbedDirectiveStatement) interface{} {
+	// For now, embed directives are stored as special metadata
+	// The actual embedding logic happens during record resolution
+	// TODO(spec): Implement full embed resolution in storage layer
+
+	// Evaluate the path to ensure it's valid
+	pathResult := i.evalExpression(node.Path)
+	if unknown, ok := pathResult.(types.Unknown); ok {
+		return unknown
+	}
+
+	// For now, embed directives don't produce a direct result
+	// They affect record resolution which happens at read time
+	return types.Nothing{}
 }
 
 // evalExpression evaluates an expression node
@@ -297,6 +320,8 @@ func (i *Interpreter) evalExpression(node parser.Expression) interface{} {
 		return i.evalCallExpression(node)
 	case *parser.BracketFilterExpression:
 		return i.evalBracketFilter(node)
+	case *parser.ProjectionExpression:
+		return i.evalProjectionExpression(node)
 	case *parser.RecordExpression:
 		return i.evalRecordExpression(node)
 	case *parser.ListExpression:
@@ -555,6 +580,9 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 		return unknown
 	}
 
+	// Ensure value is properly converted to MBL type
+	value = convertToMBLType(value)
+
 	// For simple variable names, store locally
 	if len(node.Name.Parts) == 1 && !i.isSpecialPath(node.Name.Parts[0]) {
 		i.scope.Set(node.Name.Parts[0], value)
@@ -563,6 +591,14 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 
 	// For paths, write to storage
 	path := i.resolvePath(node.Name.Parts)
+
+	// Auto-create intermediate nodes if they don't exist (Step 3: Recursive assignment)
+	if len(path) > 1 {
+		err := i.ensureIntermediatePath(path[:len(path)-1])
+		if err != nil {
+			return types.Unknown{Reason: fmt.Sprintf("failed to create intermediate path: %v", err)}
+		}
+	}
 
 	// Convert MBL type to storage.Value
 	storageValue, err := mblToStorage(value)
@@ -585,6 +621,50 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 // isSpecialPath checks if a path starts with special identifiers
 func (i *Interpreter) isSpecialPath(name string) bool {
 	return name == "my" || name == "world" || name == "~"
+}
+
+// ensureIntermediatePath ensures all intermediate nodes exist by creating empty records if needed
+func (i *Interpreter) ensureIntermediatePath(path []string) error {
+	if len(path) == 0 {
+		return nil
+	}
+
+	// Walk through each segment of the path, creating intermediate nodes as needed
+	for segmentCount := 1; segmentCount <= len(path); segmentCount++ {
+		intermediatePath := path[:segmentCount]
+
+		// Check if this intermediate path already exists
+		value, err := i.scope.tree.Read(intermediatePath)
+		if err == nil {
+			// Check if the value is Nothing (which means path doesn't exist in MockTree)
+			if value.TypeTag == types.TypeNothing {
+				// Path returns Nothing, treat as non-existent
+			} else {
+				// Path exists with actual value, continue to next segment
+				continue
+			}
+		}
+
+		// Path doesn't exist, create an empty record node
+		emptyRecord := types.Record{Fields: map[string]interface{}{}}
+
+		// Convert MBL type to storage.Value
+		storageValue, err := mblToStorage(emptyRecord)
+		if err != nil {
+			return fmt.Errorf("failed to convert empty record for intermediate path %v: %w", intermediatePath, err)
+		}
+
+		// Stage write for the intermediate path
+		result := i.stageWrite(intermediatePath, storageValue, i.scope.agent)
+		if result != nil {
+			if unknown, ok := result.(types.Unknown); ok {
+				return fmt.Errorf("failed to create intermediate path %v: %s", intermediatePath, unknown.Reason)
+			}
+			return fmt.Errorf("failed to create intermediate path %v", intermediatePath)
+		}
+	}
+
+	return nil
 }
 
 // evalBlockStatement evaluates a block of statements
@@ -897,12 +977,19 @@ func (i *Interpreter) evalCallExpression(node *parser.CallExpression) interface{
 		}
 	}
 
-	// Get function name - for now assume it's a PathExpression
+	// Get function name - handle both simple and complex paths
 	var functionName string
-	if pathExpr, ok := node.Function.(*parser.PathExpression); ok && len(pathExpr.Parts) == 1 {
-		functionName = pathExpr.Parts[0]
+	var functionPath []string
+	if pathExpr, ok := node.Function.(*parser.PathExpression); ok {
+		functionPath = pathExpr.Parts
+		if len(pathExpr.Parts) == 1 {
+			functionName = pathExpr.Parts[0]
+		} else {
+			// Handle complex paths like my.computer.files.import
+			functionName = strings.Join(pathExpr.Parts, ".")
+		}
 	} else {
-		return types.Unknown{Reason: "complex function expressions not yet supported"}
+		return types.Unknown{Reason: "function must be a path expression"}
 	}
 
 	// Check for built-in functions first
@@ -942,7 +1029,13 @@ func (i *Interpreter) evalCallExpression(node *parser.CallExpression) interface{
 		return i.evalNowFunction(args)
 	case "uuid":
 		return i.evalUuidFunction(args)
+	case "asset":
+		return i.evalAssetFunction(args)
 	default:
+		// Handle computer library procedures
+		if len(functionPath) >= 3 && functionPath[0] == "my" && functionPath[1] == "computer" {
+			return i.evalComputerLibraryProcedure(functionPath, args)
+		}
 		// Look up user-defined procedures
 		if value, found := i.scope.Get(functionName); found {
 			if procedure, ok := value.(*Procedure); ok {
@@ -1240,6 +1333,33 @@ func (i *Interpreter) evalUuidFunction(args []interface{}) interface{} {
 	return types.Text{Value: id.String()}
 }
 
+func (i *Interpreter) evalAssetFunction(args []interface{}) interface{} {
+	if len(args) != 2 {
+		return types.Unknown{Reason: "asset() requires exactly 2 arguments: asset(data, mime_type)"}
+	}
+
+	// Convert arguments to Text type
+	dataResult := types.CoerceToText(args[0])
+	if !dataResult.Ok {
+		return dataResult.Value // Return the Unknown error
+	}
+	data, _ := dataResult.Value.(types.Text)
+
+	mimeTypeResult := types.CoerceToText(args[1])
+	if !mimeTypeResult.Ok {
+		return mimeTypeResult.Value // Return the Unknown error
+	}
+	mimeType, _ := mimeTypeResult.Value.(types.Text)
+
+	// Create a record with .data and .mime_type fields
+	return types.Record{
+		Fields: map[string]interface{}{
+			"data":      data,
+			"mime_type": mimeType,
+		},
+	}
+}
+
 func (i *Interpreter) evalBracketFilter(node *parser.BracketFilterExpression) interface{} {
 	// Evaluate the base expression (should be a List or Record)
 	base := i.evalExpression(node.Left)
@@ -1344,6 +1464,37 @@ func (i *Interpreter) filterRecord(record types.Record, filters []parser.Express
 	return types.Record{Fields: filtered}
 }
 
+// evalProjectionExpression evaluates projection expressions like path{ name, age, job }
+func (i *Interpreter) evalProjectionExpression(node *parser.ProjectionExpression) interface{} {
+	// Evaluate the left expression (the path being projected)
+	base := i.evalExpression(node.Left)
+
+	if unknown, ok := base.(types.Unknown); ok {
+		return unknown
+	}
+
+	// Projections work on records - check if base is a record
+	record, ok := base.(types.Record)
+	if !ok {
+		return types.Unknown{Reason: fmt.Sprintf("cannot project from %T, projections require a record", base)}
+	}
+
+	// Create new record with only the specified fields
+	projectedFields := make(map[string]interface{})
+
+	for _, fieldName := range node.Fields {
+		if value, exists := record.Fields[fieldName]; exists {
+			// Ensure value is properly converted to MBL type
+			projectedFields[fieldName] = convertToMBLType(value)
+		} else {
+			// Field doesn't exist - include as Unknown (#not_found)
+			projectedFields[fieldName] = types.Unknown{Reason: "#not_found"}
+		}
+	}
+
+	return types.Record{Fields: projectedFields}
+}
+
 func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interface{} {
 	fields := make(map[string]interface{})
 
@@ -1426,6 +1577,8 @@ func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interf
 				if unknown, ok := value.(types.Unknown); ok {
 					return unknown
 				}
+				// Ensure value is properly converted to MBL type
+				value = convertToMBLType(value)
 			}
 
 			fields[key] = value
@@ -1457,6 +1610,8 @@ func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interf
 			if unknown, ok := value.(types.Unknown); ok {
 				return unknown
 			}
+			// Ensure value is properly converted to MBL type
+			value = convertToMBLType(value)
 
 			fields[key] = value
 		}
@@ -1786,6 +1941,601 @@ func convertToMBLType(value interface{}) interface{} {
 		return v
 	default:
 		// Unknown type, wrap as text
+		return types.Text{Value: fmt.Sprintf("%v", v)}
+	}
+}
+
+// evalComputerLibraryProcedure handles computer library procedures like my.computer.files.import
+func (i *Interpreter) evalComputerLibraryProcedure(path []string, args []interface{}) interface{} {
+	if len(path) < 3 {
+		return types.Unknown{Reason: "invalid computer library path"}
+	}
+
+	// path[0] = "my", path[1] = "computer", path[2] = sub-library
+	subLibrary := path[2]
+
+	switch subLibrary {
+	case "files":
+		return i.evalFilesLibraryProcedure(path[3:], args)
+	case "network":
+		return types.Unknown{Reason: "network sub-library not yet implemented"}
+	case "system":
+		return types.Unknown{Reason: "system sub-library not yet implemented"}
+	default:
+		return types.Unknown{Reason: fmt.Sprintf("unknown computer sub-library: %s", subLibrary)}
+	}
+}
+
+// evalFilesLibraryProcedure handles my.computer.files.* procedures
+func (i *Interpreter) evalFilesLibraryProcedure(path []string, args []interface{}) interface{} {
+	if len(path) == 0 {
+		return types.Unknown{Reason: "incomplete files library path"}
+	}
+
+	procedure := path[0]
+
+	switch procedure {
+	case "import":
+		return i.evalFilesImport(args)
+	case "export":
+		return i.evalFilesExport(args)
+	case "import_fixed_width":
+		return i.evalFilesImportFixedWidth(args)
+	case "read":
+		return i.evalFilesRead(args)
+	case "write":
+		return i.evalFilesWrite(args)
+	case "exists":
+		return i.evalFilesExists(args)
+	case "delete":
+		return i.evalFilesDelete(args)
+	case "list":
+		return i.evalFilesList(args)
+	case "info":
+		return i.evalFilesInfo(args)
+	default:
+		return types.Unknown{Reason: fmt.Sprintf("unknown files procedure: %s", procedure)}
+	}
+}
+
+// evalFilesImport implements my.computer.files.import(path, format, options)
+func (i *Interpreter) evalFilesImport(args []interface{}) interface{} {
+	if len(args) < 2 {
+		return types.Unknown{Reason: "import requires at least 2 arguments: path and format"}
+	}
+
+	// Extract path
+	pathResult := types.CoerceToText(args[0])
+	if !pathResult.Ok {
+		return types.Unknown{Reason: "import path must be text"}
+	}
+	path := pathResult.Value.(types.Text).Value
+
+	// Extract format
+	formatResult := types.CoerceToText(args[1])
+	if !formatResult.Ok {
+		return types.Unknown{Reason: "import format must be text"}
+	}
+	format := formatResult.Value.(types.Text).Value
+
+	// Extract options if provided
+	var options types.Record
+	if len(args) >= 3 {
+		if record, ok := args[2].(types.Record); ok {
+			options = record
+		} else {
+			return types.Unknown{Reason: "import options must be a record"}
+		}
+	} else {
+		options = types.Record{Fields: make(map[string]interface{})}
+	}
+
+	switch format {
+	case "xml":
+		return i.evalXMLImport(path, options)
+	case "json":
+		return types.Unknown{Reason: "JSON import not yet implemented"}
+	case "csv":
+		return types.Unknown{Reason: "CSV import not yet implemented"}
+	case "tsv":
+		return types.Unknown{Reason: "TSV import not yet implemented"}
+	case "toml":
+		return types.Unknown{Reason: "TOML import not yet implemented"}
+	case "xlsx":
+		return types.Unknown{Reason: "Excel import not yet implemented - reserved for future implementation"}
+	default:
+		return types.Unknown{Reason: fmt.Sprintf("unsupported import format: %s", format)}
+	}
+}
+
+// evalFilesExport implements my.computer.files.export(node, path, format, options)
+func (i *Interpreter) evalFilesExport(args []interface{}) interface{} {
+	if len(args) < 3 {
+		return types.Unknown{Reason: "export requires at least 3 arguments: node, path, and format"}
+	}
+
+	// Extract node (the data to export)
+	node := args[0]
+
+	// Extract path
+	pathResult := types.CoerceToText(args[1])
+	if !pathResult.Ok {
+		return types.Unknown{Reason: "export path must be text"}
+	}
+	path := pathResult.Value.(types.Text).Value
+
+	// Extract format
+	formatResult := types.CoerceToText(args[2])
+	if !formatResult.Ok {
+		return types.Unknown{Reason: "export format must be text"}
+	}
+	format := formatResult.Value.(types.Text).Value
+
+	// Extract options if provided
+	var options types.Record
+	if len(args) >= 4 {
+		if record, ok := args[3].(types.Record); ok {
+			options = record
+		} else {
+			return types.Unknown{Reason: "export options must be a record"}
+		}
+	} else {
+		options = types.Record{Fields: make(map[string]interface{})}
+	}
+
+	switch format {
+	case "xml":
+		return i.evalXMLExport(node, path, options)
+	case "json":
+		return types.Unknown{Reason: "JSON export not yet implemented"}
+	case "csv":
+		return types.Unknown{Reason: "CSV export not yet implemented"}
+	case "tsv":
+		return types.Unknown{Reason: "TSV export not yet implemented"}
+	case "toml":
+		return types.Unknown{Reason: "TOML export not yet implemented"}
+	case "xlsx":
+		return types.Unknown{Reason: "Excel export not yet implemented - reserved for future implementation"}
+	default:
+		return types.Unknown{Reason: fmt.Sprintf("unsupported export format: %s", format)}
+	}
+}
+
+// Placeholder implementations for other files procedures
+func (i *Interpreter) evalFilesRead(args []interface{}) interface{} {
+	return types.Unknown{Reason: "files.read not yet implemented"}
+}
+
+func (i *Interpreter) evalFilesWrite(args []interface{}) interface{} {
+	return types.Unknown{Reason: "files.write not yet implemented"}
+}
+
+func (i *Interpreter) evalFilesExists(args []interface{}) interface{} {
+	return types.Unknown{Reason: "files.exists not yet implemented"}
+}
+
+func (i *Interpreter) evalFilesDelete(args []interface{}) interface{} {
+	return types.Unknown{Reason: "files.delete not yet implemented"}
+}
+
+func (i *Interpreter) evalFilesList(args []interface{}) interface{} {
+	return types.Unknown{Reason: "files.list not yet implemented"}
+}
+
+func (i *Interpreter) evalFilesInfo(args []interface{}) interface{} {
+	return types.Unknown{Reason: "files.info not yet implemented"}
+}
+
+// evalXMLImport imports XML file and converts to AmorphDB record structure
+func (i *Interpreter) evalXMLImport(path string, options types.Record) interface{} {
+	// Read the XML file
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("failed to read file %s: %v", path, err)}
+	}
+
+	// Parse XML into a generic structure
+	var xmlData map[string]interface{}
+	err = xml.Unmarshal(data, &xmlData)
+	if err != nil {
+		// Try a more flexible approach with tokens
+		return i.parseXMLWithTokens(data, options)
+	}
+
+	// Convert to AmorphDB structure
+	return i.convertXMLToRecord(xmlData)
+}
+
+// parseXMLWithTokens parses XML using token-based approach for more flexibility
+func (i *Interpreter) parseXMLWithTokens(data []byte, options types.Record) interface{} {
+	decoder := xml.NewDecoder(strings.NewReader(string(data)))
+
+	// Build the tree structure
+	root, err := i.buildXMLTree(decoder)
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("failed to parse XML: %v", err)}
+	}
+
+	return root
+}
+
+// XMLNode represents a node in the XML tree
+type XMLNode struct {
+	Name       xml.Name
+	Attributes map[string]string
+	Text       string
+	Children   []*XMLNode
+}
+
+// buildXMLTree builds a tree structure from XML tokens
+func (i *Interpreter) buildXMLTree(decoder *xml.Decoder) (interface{}, error) {
+	var root *XMLNode
+	var stack []*XMLNode
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break // End of document or error
+		}
+
+		switch t := token.(type) {
+		case xml.StartElement:
+			node := &XMLNode{
+				Name:       t.Name,
+				Attributes: make(map[string]string),
+				Children:   make([]*XMLNode, 0),
+			}
+
+			// Process attributes
+			for _, attr := range t.Attr {
+				node.Attributes[attr.Name.Local] = attr.Value
+			}
+
+			// Add to parent or set as root
+			if len(stack) > 0 {
+				parent := stack[len(stack)-1]
+				parent.Children = append(parent.Children, node)
+			} else {
+				root = node
+			}
+
+			// Push to stack
+			stack = append(stack, node)
+
+		case xml.CharData:
+			if len(stack) > 0 {
+				current := stack[len(stack)-1]
+				text := strings.TrimSpace(string(t))
+				if text != "" {
+					current.Text = text
+				}
+			}
+
+		case xml.EndElement:
+			// Pop from stack
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	if root == nil {
+		return types.Unknown{Reason: "no root element found in XML"}, nil
+	}
+
+	return i.xmlNodeToRecord(root), nil
+}
+
+// xmlNodeToRecord converts XMLNode to AmorphDB record
+func (i *Interpreter) xmlNodeToRecord(node *XMLNode) interface{} {
+	fields := make(map[string]interface{})
+
+	// Add attributes as fields
+	for name, value := range node.Attributes {
+		fields[name] = types.Text{Value: value}
+	}
+
+	// Add text content if present
+	if node.Text != "" {
+		fields["_text"] = types.Text{Value: node.Text}
+	}
+
+	// Process child elements
+	childGroups := make(map[string][]*XMLNode)
+	for _, child := range node.Children {
+		name := child.Name.Local
+		childGroups[name] = append(childGroups[name], child)
+	}
+
+	// Convert child groups to fields or lists
+	for name, children := range childGroups {
+		if len(children) == 1 {
+			// Single child becomes a field
+			fields[name] = i.xmlNodeToRecord(children[0])
+		} else {
+			// Multiple children become a list
+			elements := make([]interface{}, len(children))
+			for idx, child := range children {
+				elements[idx] = i.xmlNodeToRecord(child)
+			}
+			fields[name] = types.List{Elements: elements}
+		}
+	}
+
+	return types.Record{Fields: fields}
+}
+
+// convertXMLToRecord converts generic XML data to AmorphDB record (fallback)
+func (i *Interpreter) convertXMLToRecord(data map[string]interface{}) interface{} {
+	fields := make(map[string]interface{})
+
+	for key, value := range data {
+		switch v := value.(type) {
+		case string:
+			fields[key] = types.Text{Value: v}
+		case map[string]interface{}:
+			fields[key] = i.convertXMLToRecord(v)
+		case []interface{}:
+			elements := make([]interface{}, len(v))
+			for idx, item := range v {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					elements[idx] = i.convertXMLToRecord(itemMap)
+				} else {
+					elements[idx] = types.Text{Value: fmt.Sprintf("%v", item)}
+				}
+			}
+			fields[key] = types.List{Elements: elements}
+		default:
+			fields[key] = types.Text{Value: fmt.Sprintf("%v", v)}
+		}
+	}
+
+	return types.Record{Fields: fields}
+}
+
+// evalXMLExport exports AmorphDB record to XML file
+func (i *Interpreter) evalXMLExport(node interface{}, path string, options types.Record) interface{} {
+	// Convert AmorphDB node to XML
+	xmlContent, err := i.recordToXML(node, options)
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("failed to convert to XML: %v", err)}
+	}
+
+	// Add XML header
+	if pretty, exists := options.Fields["pretty"]; exists {
+		if prettyBool, ok := pretty.(types.Boolean); ok && prettyBool.Value {
+			xmlContent = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlContent
+		}
+	} else {
+		// Default to pretty formatting
+		xmlContent = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlContent
+	}
+
+	// Write to file
+	err = ioutil.WriteFile(path, []byte(xmlContent), 0644)
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("failed to write file %s: %v", path, err)}
+	}
+
+	// Return success time
+	return types.Time{Timestamp: time.Now(), Precision: types.PrecisionSecond}
+}
+
+// recordToXML converts AmorphDB record to XML string
+func (i *Interpreter) recordToXML(node interface{}, options types.Record) (string, error) {
+	record, ok := node.(types.Record)
+	if !ok {
+		return "", fmt.Errorf("can only export records to XML, got %T", node)
+	}
+
+	// Determine which fields should be attributes vs elements
+	var attributeFields map[string]bool
+	if attrs, exists := options.Fields["attributes"]; exists {
+		if attrList, ok := attrs.(types.List); ok {
+			attributeFields = make(map[string]bool)
+			for _, attr := range attrList.Elements {
+				if attrText, ok := attr.(types.Text); ok {
+					attributeFields[attrText.Value] = true
+				}
+			}
+		}
+	}
+
+	// Build XML string
+	var result strings.Builder
+
+	// For now, use a default root element name
+	rootName := "root"
+	if name, exists := options.Fields["root_element"]; exists {
+		if nameText, ok := name.(types.Text); ok {
+			rootName = nameText.Value
+		}
+	}
+
+	result.WriteString(fmt.Sprintf("<%s", rootName))
+
+	// Add attributes
+	if attributeFields != nil {
+		for field, value := range record.Fields {
+			if attributeFields[field] {
+				if textValue, ok := value.(types.Text); ok {
+					result.WriteString(fmt.Sprintf(" %s=\"%s\"", field, textValue.Value))
+				}
+			}
+		}
+	}
+
+	result.WriteString(">")
+
+	// Add child elements
+	for field, value := range record.Fields {
+		if attributeFields != nil && attributeFields[field] {
+			continue // Skip fields that are attributes
+		}
+
+		if field == "_text" {
+			// Special handling for text content
+			if textValue, ok := value.(types.Text); ok {
+				result.WriteString(textValue.Value)
+			}
+			continue
+		}
+
+		// Convert field to XML element
+		fieldXML, err := i.fieldToXMLElement(field, value, options)
+		if err != nil {
+			return "", err
+		}
+		result.WriteString(fieldXML)
+	}
+
+	result.WriteString(fmt.Sprintf("</%s>", rootName))
+
+	return result.String(), nil
+}
+
+// fieldToXMLElement converts a field to an XML element
+func (i *Interpreter) fieldToXMLElement(name string, value interface{}, options types.Record) (string, error) {
+	switch v := value.(type) {
+	case types.Text:
+		return fmt.Sprintf("<%s>%s</%s>", name, v.Value, name), nil
+	case types.Number:
+		return fmt.Sprintf("<%s>%g</%s>", name, v.Value, name), nil
+	case types.Boolean:
+		return fmt.Sprintf("<%s>%t</%s>", name, v.Value, name), nil
+	case types.Record:
+		// Nested record becomes nested element
+		nestedXML, err := i.recordToXML(v, options)
+		if err != nil {
+			return "", err
+		}
+		// Replace root element name with field name
+		// This is simplified - a more robust implementation would use XML parsing
+		nestedXML = strings.Replace(nestedXML, "<root", fmt.Sprintf("<%s", name), 1)
+		nestedXML = strings.Replace(nestedXML, "</root>", fmt.Sprintf("</%s>", name), 1)
+		return nestedXML, nil
+	case types.List:
+		// List becomes multiple elements with the same name
+		var result strings.Builder
+		for _, element := range v.Elements {
+			elementXML, err := i.fieldToXMLElement(name, element, options)
+			if err != nil {
+				return "", err
+			}
+			result.WriteString(elementXML)
+		}
+		return result.String(), nil
+	case types.Unknown:
+		// Skip Unknown values
+		return "", nil
+	default:
+		return fmt.Sprintf("<%s>%v</%s>", name, v, name), nil
+	}
+}
+
+// evalFilesImportFixedWidth implements my.computer.files.import_fixed_width(path, ari_spec, options)
+func (i *Interpreter) evalFilesImportFixedWidth(args []interface{}) interface{} {
+	if len(args) < 2 {
+		return types.Unknown{Reason: "import_fixed_width requires at least 2 arguments: path and ari_spec"}
+	}
+
+	// Extract path
+	pathResult := types.CoerceToText(args[0])
+	if !pathResult.Ok {
+		return types.Unknown{Reason: "import_fixed_width path must be text"}
+	}
+	path := pathResult.Value.(types.Text).Value
+
+	// Extract ARI spec
+	ariSpecResult := types.CoerceToText(args[1])
+	if !ariSpecResult.Ok {
+		return types.Unknown{Reason: "import_fixed_width ari_spec must be text"}
+	}
+	ariSpecText := ariSpecResult.Value.(types.Text).Value
+
+	// Extract options if provided (reserved for future use)
+	if len(args) >= 3 {
+		if _, ok := args[2].(types.Record); !ok {
+			return types.Unknown{Reason: "import_fixed_width options must be a record"}
+		}
+		// TODO: Add options support when needed
+	}
+
+	// Check if file exists and get size for safety
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("file not found or not accessible: %s", path)}
+	}
+
+	// Check file size limit (10MB max to prevent OOM)
+	maxSize := int64(10 * 1024 * 1024)
+	if fileInfo.Size() > maxSize {
+		return types.Unknown{Reason: fmt.Sprintf("#file_too_large: file size %d exceeds maximum %d bytes", fileInfo.Size(), maxSize)}
+	}
+
+	// Parse ARI specification
+	ariLexer := ari.NewLexer(ariSpecText)
+	ariParser := ari.NewParser(ariLexer)
+	ariSpec := ariParser.ParseARISpec()
+
+	if len(ariParser.Errors()) > 0 {
+		return types.Unknown{Reason: fmt.Sprintf("ARI specification parsing errors: %v", ariParser.Errors())}
+	}
+
+	// Open file for processing
+	file, err := os.Open(path)
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("failed to open file: %v", err)}
+	}
+	defer file.Close()
+
+	// Process file with ARI engine
+	engine := ari.NewEngine(ariSpec)
+	result, err := engine.ProcessFile(file, fileInfo.Size())
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("ARI processing failed: %v", err)}
+	}
+
+	// Convert result to MBL types
+	return i.convertARIResult(result)
+}
+
+// convertARIResult converts ARI engine results to MBL types
+func (i *Interpreter) convertARIResult(result interface{}) interface{} {
+	switch v := result.(type) {
+	case nil:
+		return types.Unknown{Reason: "#not_found"}
+	case string:
+		return types.Text{Value: v}
+	case int:
+		return types.Number{Value: float64(v)}
+	case float64:
+		return types.Number{Value: v}
+	case bool:
+		return types.Boolean{Value: v}
+	case map[string]interface{}:
+		// Convert map to MBL Record
+		record := types.Record{Fields: make(map[string]interface{})}
+		for key, value := range v {
+			record.Fields[key] = i.convertARIResult(value)
+		}
+		return record
+	case []interface{}:
+		// Convert slice to MBL List
+		elements := make([]interface{}, len(v))
+		for idx, element := range v {
+			elements[idx] = i.convertARIResult(element)
+		}
+		return types.List{Elements: elements}
+	case []map[string]interface{}:
+		// Convert slice of maps to MBL List
+		elements := make([]interface{}, len(v))
+		for idx, element := range v {
+			elements[idx] = i.convertARIResult(element)
+		}
+		return types.List{Elements: elements}
+	default:
+		// Fallback for unknown types
 		return types.Text{Value: fmt.Sprintf("%v", v)}
 	}
 }
