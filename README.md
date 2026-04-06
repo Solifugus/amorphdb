@@ -1,206 +1,187 @@
 # AmorphDB
 
-A distributed temporal tree-graph database with reactive programming capabilities.
+A temporal tree-graph database written in Go. Every value has a history — assignment records a change rather than overwriting what came before.
 
-[![Go Version](https://img.shields.io/badge/go-1.21+-blue.svg)](https://golang.org)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-45%2F45-brightgreen.svg)](docs/PHASE3_EXECUTION_STATUS.md)
+## What It Is
 
-## Overview
+AmorphDB organizes data as a hierarchy of attributes, each holding a chain of timestamped instances. The full evolution of any piece of data is queryable at any point in time.
 
-AmorphDB is a revolutionary temporal database with native multi-mesh bridge architecture that preserves complete data history through an append-only design. Unlike traditional databases that overwrite data, AmorphDB records every change with full provenance while enabling secure cross-mesh data collaboration through bridge connections, powerful temporal queries, and comprehensive audit trails.
+The system is accessed through **MBL (Modern Business Language)**, a notation designed around scope resolution and path traversal. Types are deliberately high-level — a number is always the largest float the processor supports, a picture is always full RGBA at 16-bit depth.
 
-### Key Features
+AmorphDB operates as a decentralized mesh. Every node is a peer. There is no central coordinator.
 
-- **Temporal-First Design**: Complete history preservation with point-in-time queries
-- **Distributed Mesh Architecture**: Peer-to-peer network with no single points of failure
-- **Multi-Mesh Bridge Connections**: Secure cross-mesh data access with mobile agent identities
-- **Named Mesh Management**: Create, join, and manage distributed mesh networks
-- **Modern Business Language (MBL)**: Domain-specific language for hierarchical temporal data
-- **Reactive Programming**: Automated computation through watchers and procedures
-- **Enterprise Security**: Post-quantum encryption, multi-factor authentication
-- **Zero-Trust Architecture**: Comprehensive permissions, filters, and audit trails
-- **Type System**: Uniform, high-level data types (Text, Number, Time, Money, Picture, etc.)
+### Core Ideas
 
-## Architecture
-
-AmorphDB consists of three core storage structures:
-- **Attributes**: Named or numbered entries that form the tree structure
-- **Instances**: Temporal records that form chains of value changes
-- **Values**: Immutable, content-addressed data blobs
-
-## Quick Start
-
-### Basic Setup
-
-```bash
-# Build AmorphDB
-go build ./cmd/amorphd ./cmd/amorph ./cmd/amorphctl
-
-# Start standalone node
-./amorphd
-
-# Connect with client
-./amorph
-```
-
-### Create Your First Mesh
-
-```bash
-# Create a named mesh
-./amorphctl create-mesh "my-company-mesh"
-
-# Check status
-./amorphctl status
-
-# Add more nodes to the mesh
-./amorphctl join <existing-node-address>
-```
-
-### Bridge to Other Meshes
-
-```bash
-# Connect to partner mesh
-./amorphctl bridge partner-mesh.example.com:8080
-
-# Access cross-mesh data
-./amorph
-> my.partner-mesh.shared.config.version
-```
-
-For complete tutorials and examples, see the [documentation](#documentation).
+- **Temporal by default.** `my.x = 5` followed by `my.x = 10` produces two instances, both preserved. Queries can retrieve any historical value.
+- **Reactive programming.** Watchers fire automatically when data changes. Multi-path watchers, append watchers with predicates, and heartbeat atomicity with staged writes.
+- **Hierarchical data model.** Three storage structures — attributes (the tree), instances (temporal chains), and values (content-addressed, deduplicated).
+- **Mesh distribution.** Nodes form a peer-to-peer mesh with heartbeat, gossip, and bridge connections between separate meshes.
+- **Capability-based security.** Five permission types (`@read`, `@write`, `@expand`, `@grant`, `@purge`) with cascade inheritance, stamps for metadata provenance, and filters for client-side data hiding.
 
 ## Components
 
-- **amorphd**: Service daemon
-- **amorph**: Client REPL and script runner
-- **amorphctl**: Administrative control tool
+| Binary | Purpose |
+|--------|---------|
+| `amorphd` | Service daemon — storage, mesh networking, MBL execution |
+| `amorph` | Client REPL and script runner |
+| `amorphctl` | Administrative tool — mesh management, status, compaction |
 
-## Development Status
-
-**Status**: **100% PRODUCTION READY WITH MESH BRIDGES** - All systems complete and validated 🎯
-**Date**: 2026-03-14 (MESH BRIDGE IMPLEMENTATION COMPLETE)
-
-### ✅ **PRODUCTION READY COMPONENTS**
-
-**Core Functionality** (All integration tests passing):
-- ✅ **Service lifecycle** - Start/stop/restart with persistence
-- ✅ **Protocol operations** - Complete wire protocol (read/write/status)
-- ✅ **Storage engine** - Temporal tree-graph with type system
-- ✅ **Permission system** - Basic access control working
-- ✅ **MBL interpreter** - Complete language implementation
-- ✅ **Distributed mesh** - Multi-node coordination and replication
-- ✅ **Named mesh creation** - Explicit mesh management and discovery
-- ✅ **Bridge connections** - Cross-mesh data access with mobile agents
-- ✅ **Multi-mesh operations** - Bridge authentication and data synchronization
-
-**ACHIEVEMENT**: Complete production functionality with mesh bridge architecture
-
-### ⚠️ **REMAINING CONCERNS**
-
-**CRITICAL - Must resolve before production deployment:**
-
-#### 1. **Stress Test Data Integrity** ✅ **RESOLVED 2026-03-12**
-- **Issue**: Under 1000+ concurrent writes, 50/50 validation errors occurred
-- **Root Cause**: Test bug - validation reading wrong paths, not AmorphDB corruption
-- **Solution**: Fixed path reconstruction logic in stress test validation
-- **Result**: **1000+ concurrent writes now work flawlessly** ✅
-  - 1000/1000 writes successful (100%) ✅
-  - 0 write errors ✅
-  - 10,204 writes/second throughput ✅
-  - Data integrity validation passes ✅
-
-#### 2. **Temporal Query Edge Cases** ✅ **RESOLVED 2026-03-12**
-- **Issue**: "no instance found at timestamp" errors in historical queries
-- **Root Cause**: Timestamp precision mismatch - storage uses microseconds, test uses seconds
-- **Solution**: Fixed test to use `time.Now().UnixMicro()` instead of `time.Now().Unix()`
-- **Result**: **Temporal queries now fully operational** ✅
-  - TestStep12_1_StorageIntegration passes ✅
-  - "Temporal queries working correctly" ✅
-  - Historical data access reliable ✅
-  - Design compliance verified ✅
-
-#### 3. **Protocol Number Precision** 📊 LOW PRIORITY
-- **Issue**: Decimal precision lost in protocol encoding (42.5 → 42)
-- **Impact**: Potential data loss for financial/scientific applications
-- **Root Cause**: Protocol layer encoding/decoding precision handling
-- **Workaround**: Core types.Number serialization works correctly
-- **Next Steps**: Review protocol message encoding for floating-point numbers
-
-## Documentation
-
-### 📋 **Core Documentation**
-- **Technical Specification**: [`docs/amorphdb_design.md`](docs/amorphdb_design.md) - Authoritative system design
-- **Complete Tutorial**: [`docs/AmorphDB_Tutorial.md`](docs/AmorphDB_Tutorial.md) - Comprehensive learning guide
-- **Executive Overview**: [`docs/AmorphDB_White_Paper.md`](docs/AmorphDB_White_Paper.md) - Business and strategic overview
-
-### 🌉 **Mesh Bridge Documentation**
-- **User Guide**: [`docs/mesh_management_guide.md`](docs/mesh_management_guide.md) - Practical mesh operations
-- **Technical Architecture**: [`docs/bridge_architecture.md`](docs/bridge_architecture.md) - Bridge implementation details
-- **Development Plan**: [`docs/mesh_bridge_development_plan.md`](docs/mesh_bridge_development_plan.md) - Implementation roadmap
-
-### 🔧 **Examples and Scripts**
-- **Mesh Setup Examples**: [`examples/mesh_setup/`](examples/mesh_setup/) - Deployment scripts and configurations
-- **Bridge Workflows**: [`examples/bridge_workflows/`](examples/bridge_workflows/) - Multi-mesh operation examples
-
-### 📊 **Validation Reports**
-- **Edge Case Resolution**: [`docs/COMPREHENSIVE_VALIDATION_REPORT.md`](docs/COMPREHENSIVE_VALIDATION_REPORT.md) - Complete validation record
-
-### 🎯 **RECOMMENDATION**
-**AmorphDB is fully ready for enterprise production deployment with complete mesh bridge architecture** with maximum confidence. **ALL systems operational**: data integrity ✅, temporal queries ✅, distributed coordination ✅, named mesh creation ✅, bridge connections ✅, and cross-mesh data access ✅. **Complete integration test validation** with comprehensive documentation and examples.
-
-## Getting Started
-
-1. **Quick Start**: Follow the [Quick Start](#quick-start) section above
-2. **Complete Tutorial**: Work through [`docs/AmorphDB_Tutorial.md`](docs/AmorphDB_Tutorial.md)
-3. **Mesh Operations**: See [`docs/mesh_management_guide.md`](docs/mesh_management_guide.md)
-4. **Bridge Setup**: Use examples in [`examples/bridge_workflows/`](examples/bridge_workflows/)
-
-For complete design specifications, see [`docs/amorphdb_design.md`](docs/amorphdb_design.md).
-
-## Build
+## Quick Start
 
 ```bash
+# Build
 go build ./cmd/amorphd
 go build ./cmd/amorph
 go build ./cmd/amorphctl
+
+# Start a standalone node
+amorphd
+
+# Connect with the client
+amorph
+
+# Basic operations in the REPL
+AmorphDB> my.name = "Alice"
+AmorphDB> my.name
+"Alice"  (@2026-04-05 14:22:01 by kalevo)
 ```
 
-## Test
+### Mesh Operations
+
+```bash
+# Create a named mesh
+amorphctl create-mesh "production"
+
+# Join an existing mesh
+amorphctl join node2.company.com:5830
+
+# Bridge to a partner mesh
+amorphctl bridge partner-db.example.com:5830
+```
+
+## MBL Examples
+
+```mbl
+# Records and temporal history
+my.account.balance = 100
+my.account.balance = 250
+my.account.balance[@2026-01-01]          # query historical value
+
+# Record literals
+my.person = { name: "Matthew", age: 55, job: "Engineer" }
+my.person{ name, age }                   # projection: select fields
+
+# Bracket queries
+my.employees[active = true]{ name, salary }
+my.orders[@ > @2026-03-01, @ < @2026-04-01]   # temporal range
+
+# Procedures with persistent state
+my.counters.visits: procedure():
+    .count = .count + 1
+    return .count
+
+# Reactive watchers
+my.automation.balance_check: watch(my.account.balance, my.account.limit):
+    if my.account.balance > my.account.limit:
+        my.account.status = (quietly) "overlimit"
+
+# Append watchers for event processing
+my.automation.new_orders: watch append(my.orders[status ?= "pending"]) as orders:
+    for order in orders:
+        my.computer.output("New order: " & order.id)
+
+# Exception handling
+catch:
+    risky_operation()
+else unknown:
+    my.computer.output("Failed: " & unknown)
+```
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [`docs/amorphdb_design.md`](docs/amorphdb_design.md) | Authoritative specification — language, storage, mesh, security |
+| [`docs/amorphdb_computer_library.md`](docs/amorphdb_computer_library.md) | `my.computer.*` library — network, files, system |
+| [`docs/AmorphDB_Tutorial.md`](docs/AmorphDB_Tutorial.md) | Learning guide |
+| [`docs/mesh_management_guide.md`](docs/mesh_management_guide.md) | Mesh operations |
+| [`docs/bridge_architecture.md`](docs/bridge_architecture.md) | Bridge implementation details |
+| [`docs/AmorphDB_Remaining_Work.md`](docs/AmorphDB_Remaining_Work.md) | Known gaps and remaining work |
+
+## Development Status
+
+AmorphDB's core systems are implemented and tested. A comprehensive 250-test
+plan validated the storage engine, type system, MBL language pipeline (lexer,
+parser, interpreter), watcher/procedure system, stamps, filters, permissions,
+protocol, mesh networking, and security.
+
+### What Works
+
+- Storage engine with temporal history, deduplication, and concurrent access
+- Complete MBL language — lexer, parser, interpreter with 15+ built-in functions
+- Reactive watchers (value-change, multi-path, append with predicates)
+- Heartbeat atomicity with staged writes and rollback on unhandled Unknown
+- Record literals, projections, catch/else exception handling
+- Stamps, filters, and capability-based permissions
+- Mesh formation, heartbeat, gossip, bridge connections
+- Client-server communication via EXECUTE protocol
+- Post-quantum encryption and challenge-response authentication
+
+### What's In Progress
+
+See [`docs/AmorphDB_Remaining_Work.md`](docs/AmorphDB_Remaining_Work.md) for
+the full prioritized list. Key items:
+
+- Projection reading from expanded storage paths
+- `my.computer.output` / `my.computer.input` I/O procedures
+- Same-line definitions and recursive assignment (🚧)
+- Wildcard projections (🚧)
+- Agent-level encryption and key rotation
+- Subscription-based data distribution (replacing zone model)
+- Multi-node integration tests
+
+### Known Issues
+
+- 12 packages have pre-existing test failures (none from the test plan work).
+  See remaining work doc for details.
+- Protocol number precision: decimal values may lose precision in encoding.
+
+## Testing
 
 ```bash
 # Run all tests
 go test ./...
 
-# Run integration tests specifically
-go test ./test/integration/...
-
-# Run tests with verbose output
-go test ./test/integration/... -v
+# Run specific section tests
+go test ./internal/storage/... -v
+go test ./internal/mbl/... -v
+go test ./internal/watcher/... -v
+go test ./internal/security/... -v
 ```
 
-### Production Readiness Testing
+## Project Structure
 
-Current integration test status (7/9 passing):
-- ✅ `TestCoreSystemIntegration` - Core system lifecycle
-- ✅ `TestStorageEngineIntegration` - Storage functionality
-- ✅ `TestProtocolIntegration` - Wire protocol
-- ✅ `TestSingleNodeLifecycle` - Service lifecycle
-- ✅ `TestBasicProtocolOperations` - Basic operations
-- ✅ `TestServiceStatus` - Status queries
-- ✅ `TestDirectInterpreterAccess` - API access
-- ✅ `TestStep12_4_StressAndChaos` - **RESOLVED**: All stress testing validated
-- ✅ `TestStep12_1_StorageIntegration` - **RESOLVED**: Temporal queries operational
+```
+amorphdb/
+├── cmd/
+│   ├── amorphd/          # Service daemon
+│   ├── amorph/           # Client REPL
+│   └── amorphctl/        # Admin tool
+├── internal/
+│   ├── storage/          # Storage engine
+│   ├── types/            # Type system
+│   ├── mbl/              # MBL language (lexer, parser, interpreter)
+│   ├── watcher/          # Reactive watcher engine
+│   ├── mesh/             # Mesh networking
+│   ├── security/         # Security and permissions
+│   ├── protocol/         # Wire protocol
+│   ├── service/          # Daemon service layer
+│   └── config/           # Configuration
+├── docs/                 # Specifications and guides
+├── test/                 # Integration tests
+└── examples/             # MBL scripts and mesh setup
+```
 
-### 🏆 **ACHIEVEMENT SUMMARY**
+## License
 
-**COMPLETE SYSTEM READY**: All components implemented and validated. AmorphDB has achieved **100% production readiness with full mesh bridge architecture**:
-- **Core Database Engine**: Complete temporal tree-graph database ✅
-- **Distributed Mesh System**: Multi-node coordination and replication ✅
-- **Named Mesh Management**: Create, join, and manage mesh networks ✅
-- **Bridge Architecture**: Cross-mesh connections with mobile agents ✅
-- **Complete Documentation**: User guides, technical docs, and examples ✅
-- **Integration Testing**: Comprehensive end-to-end validation ✅
-- **Enterprise Ready**: Maximum confidence for production deployment ✅
-
-**UNPRECEDENTED CAPABILITY**: First temporal database with native multi-mesh bridge architecture for secure cross-organizational data collaboration.
+MIT
