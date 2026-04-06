@@ -80,6 +80,25 @@ func (s *Scope) Get(name string) (interface{}, bool) {
 	return types.Unknown{Reason: fmt.Sprintf("undefined variable '%s'", name)}, false
 }
 
+// Update updates a variable in the scope where it already exists, or creates it locally if not found
+func (s *Scope) Update(name string, value interface{}) {
+	if _, found := s.local[name]; found {
+		// Variable exists in local scope, update it
+		s.local[name] = value
+		return
+	}
+	if s.parent != nil {
+		// Check if variable exists in parent scope
+		if _, found := s.parent.Get(name); found {
+			// Variable exists in parent scope, update it there
+			s.parent.Update(name, value)
+			return
+		}
+	}
+	// Variable doesn't exist anywhere, create it locally
+	s.local[name] = value
+}
+
 // Interpreter executes MBL programs against the storage engine
 type Interpreter struct {
 	scope        *Scope
@@ -123,14 +142,15 @@ func (i *Interpreter) Interpret(program *parser.Program) (interface{}, error) {
 	for _, statement := range program.Statements {
 		result = i.evalStatement(statement)
 
-		// Check for unhandled Unknown that should trigger rollback
-		if unknown, ok := result.(types.Unknown); ok && i.shouldRollback(unknown) {
-			i.discardBuffer()
-			return result, nil
-		}
-
 		// Note: Unknown values are valid results in MBL, representing resilient computation
 		// They should not halt execution unless they represent critical errors
+		// Rollback only occurs if the final result is an unhandled Unknown
+	}
+
+	// Check if final result should trigger rollback
+	if unknown, ok := result.(types.Unknown); ok && i.shouldRollback(unknown) {
+		i.discardBuffer()
+		return result, nil
 	}
 
 	// Flush staged writes on normal completion
@@ -145,6 +165,15 @@ func (i *Interpreter) Interpret(program *parser.Program) (interface{}, error) {
 // Errors returns accumulated interpretation errors
 func (i *Interpreter) Errors() []string {
 	return i.errors
+}
+
+// GetWrittenPaths returns the list of paths that have been written in the current commit buffer
+func (i *Interpreter) GetWrittenPaths() [][]string {
+	var paths [][]string
+	for _, write := range i.commitBuffer.writes {
+		paths = append(paths, write.path)
+	}
+	return paths
 }
 
 // EvaluateExpression parses and evaluates a single MBL expression
@@ -251,11 +280,64 @@ func (i *Interpreter) discardBuffer() {
 	i.commitBuffer.writes = i.commitBuffer.writes[:0]
 }
 
+// getStagedWrite checks if a path has a staged write in the commit buffer
+func (i *Interpreter) getStagedWrite(path []string) *storage.Value {
+	// Check writes in reverse order (most recent first)
+	for idx := len(i.commitBuffer.writes) - 1; idx >= 0; idx-- {
+		write := i.commitBuffer.writes[idx]
+		if pathsEqual(write.path, path) {
+			return &write.value
+		}
+	}
+	return nil
+}
+
+// pathsEqual compares two path slices for equality
+func pathsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // shouldRollback determines if an Unknown should trigger buffer rollback
 func (i *Interpreter) shouldRollback(unknown types.Unknown) bool {
-	// For now, rollback only on buffer overflow or critical errors
-	// TODO: Implement proper rollback semantics based on Unknown reason
-	return unknown.Reason == "commit buffer exceeded"
+	// Per heartbeat atomicity spec: rollback occurs when an Unknown
+	// propagates out unhandled. For MBL, any Unknown that escapes
+	// as the final result represents an unhandled error condition.
+	// This includes both system errors and unhandled business logic errors.
+
+	reason := unknown.Reason
+
+	// System/infrastructure errors always trigger rollback
+	if strings.Contains(reason, "commit buffer exceeded") ||
+	   strings.Contains(reason, "commit failed") ||
+	   strings.Contains(reason, "failed to read path") ||
+	   strings.Contains(reason, "failed to write path") ||
+	   strings.Contains(reason, "storage error") ||
+	   strings.Contains(reason, "parse error") ||
+	   strings.Contains(reason, "interpreter error") {
+		return true
+	}
+
+	// Unhandled function calls and similar runtime errors should trigger rollback
+	// when they escape as the final result (not when assigned/handled)
+	if strings.Contains(reason, "unknown function") ||
+	   strings.Contains(reason, "undefined_function") ||
+	   strings.Contains(reason, "unsupported statement type") ||
+	   strings.Contains(reason, "unsupported expression type") {
+		return true
+	}
+
+	// Pure data/type errors should NOT trigger rollback (resilient computation)
+	// Examples: undefined variable, field not found, division by zero, offline
+	// These are expected in resilient computation and should not rollback transactions
+	return false
 }
 
 // evalStatement evaluates a statement node
@@ -283,6 +365,8 @@ func (i *Interpreter) evalStatement(node parser.Statement) interface{} {
 		return i.evalBlockStatement(node)
 	case *parser.EmbedDirectiveStatement:
 		return i.evalEmbedDirectiveStatement(node)
+	case *parser.CatchStatement:
+		return i.evalCatchStatement(node)
 	default:
 		return types.Unknown{Reason: fmt.Sprintf("unsupported statement type: %T", node)}
 	}
@@ -303,6 +387,41 @@ func (i *Interpreter) evalEmbedDirectiveStatement(node *parser.EmbedDirectiveSta
 	// For now, embed directives don't produce a direct result
 	// They affect record resolution which happens at read time
 	return types.Nothing{}
+}
+
+// evalCatchStatement evaluates catch-else exception handling statements
+func (i *Interpreter) evalCatchStatement(node *parser.CatchStatement) interface{} {
+	// Execute the try body
+	result := i.evalBlockStatement(node.TryBody)
+
+	// If result is normal (not Unknown or Queued), return it directly
+	if unknown, ok := result.(types.Unknown); !ok {
+		if queued, ok := result.(types.Queued); !ok {
+			return result
+		} else {
+			// Handle Queued result - find matching else queued clause
+			for _, clause := range node.ElseClauses {
+				if clause.ErrorType == "queued" {
+					// Set queued value in scope for the handler to access
+					i.scope.Set("queued", queued)
+					return i.evalBlockStatement(clause.Body)
+				}
+			}
+			// No else queued handler found, return the Queued value
+			return queued
+		}
+	} else {
+		// Handle Unknown result - find matching else unknown clause
+		for _, clause := range node.ElseClauses {
+			if clause.ErrorType == "unknown" {
+				// Set unknown value in scope for the handler to access
+				i.scope.Set("unknown", unknown)
+				return i.evalBlockStatement(clause.Body)
+			}
+		}
+		// No else unknown handler found, return the Unknown value
+		return unknown
+	}
 }
 
 // evalExpression evaluates an expression node
@@ -326,6 +445,8 @@ func (i *Interpreter) evalExpression(node parser.Expression) interface{} {
 		return i.evalRecordExpression(node)
 	case *parser.ListExpression:
 		return i.evalListExpression(node)
+	case *parser.CollectionOperationExpression:
+		return i.evalCollectionOperationExpression(node)
 	default:
 		return types.Unknown{Reason: fmt.Sprintf("unsupported expression type: %T", node)}
 	}
@@ -376,12 +497,23 @@ func (i *Interpreter) evalLiteral(node *parser.LiteralExpression) interface{} {
 		return types.Unknown{Reason: fmt.Sprintf("invalid money literal: %s", literal)}
 	}
 
+	// Queued literals (prefixed with ?)
+	if strings.HasPrefix(literal, "?") {
+		reason := strings.TrimPrefix(literal, "?")
+		if reason == "" {
+			reason = "unknown"
+		}
+		return types.Queued{Info: reason}
+	}
+
 	// Special values
 	switch literal {
 	case "Nothing":
 		return types.Nothing{}
 	case "Unknown":
 		return types.Unknown{Reason: "explicit Unknown"}
+	case "Queued":
+		return types.Queued{Info: "explicit Queued"}
 	case "Anything":
 		return types.Anything{}
 	default:
@@ -411,6 +543,16 @@ func (i *Interpreter) evalPath(node *parser.PathExpression) interface{} {
 
 	// Resolve special path roots
 	path := i.resolvePath(node.Parts)
+
+	// Check staging buffer first for uncommitted writes
+	if stagedValue := i.getStagedWrite(path); stagedValue != nil {
+		// Convert storage.Value to MBL type
+		mblValue, err := storageToMBL(*stagedValue)
+		if err != nil {
+			return types.Unknown{Reason: fmt.Sprintf("failed to convert staged value: %v", err)}
+		}
+		return mblValue
+	}
 
 	// Read from storage
 	storageValue, err := i.scope.tree.Read(path)
@@ -498,6 +640,8 @@ func (i *Interpreter) evalBinaryExpression(node *parser.BinaryExpression) interf
 		return types.Divide(left, right)
 	case "%":
 		return types.Modulo(left, right)
+	case "^":
+		return types.Power(left, right)
 
 	// Concatenation
 	case "&":
@@ -583,9 +727,9 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 	// Ensure value is properly converted to MBL type
 	value = convertToMBLType(value)
 
-	// For simple variable names, store locally
+	// For simple variable names, update in the scope where they exist
 	if len(node.Name.Parts) == 1 && !i.isSpecialPath(node.Name.Parts[0]) {
-		i.scope.Set(node.Name.Parts[0], value)
+		i.scope.Update(node.Name.Parts[0], value)
 		return value
 	}
 
@@ -767,8 +911,13 @@ func (i *Interpreter) evalForStatement(node *parser.ForStatement) interface{} {
 
 	// Iterate over elements
 	for idx, element := range list.Elements {
-		// Set the loop variable
-		i.scope.Set(node.Variable, element)
+		// Set the loop variables
+		if len(node.Variables) >= 1 {
+			i.scope.Set(node.Variables[0], element) // First variable is the element
+		}
+		if len(node.Variables) >= 2 {
+			i.scope.Set(node.Variables[1], types.Number{Value: float64(idx)}) // Second variable is the index
+		}
 
 		// Execute the loop body
 		result = i.evalStatement(node.Body)
@@ -852,7 +1001,7 @@ func (i *Interpreter) evalProcedureStatement(node *parser.ProcedureStatement) in
 type Procedure struct {
 	Name       string
 	Parameters []string
-	Body       parser.Statement
+	Body       *parser.BlockStatement
 	Closure    *Scope // Captured scope for closures
 }
 
@@ -878,8 +1027,8 @@ func (p *Procedure) Call(interpreter *Interpreter, args []interface{}) interface
 	oldScope := interpreter.scope
 	interpreter.scope = procScope
 
-	// Execute procedure body
-	result := interpreter.evalStatement(p.Body)
+	// Execute procedure body as a block statement
+	result := interpreter.evalBlockStatement(p.Body)
 
 	// Restore original scope
 	interpreter.scope = oldScope
@@ -1022,6 +1171,17 @@ func (i *Interpreter) evalCallExpression(node *parser.CallExpression) interface{
 		return i.evalMaxFunction(args)
 	case "min":
 		return i.evalMinFunction(args)
+	case "round":
+		return i.evalRoundFunction(args)
+	// Text operations
+	case "substring":
+		return i.evalSubstringFunction(args)
+	case "find":
+		return i.evalFindFunction(args)
+	case "replace":
+		return i.evalReplaceFunction(args)
+	case "split":
+		return i.evalSplitFunction(args)
 	// Reset expression functions
 	case "random":
 		return i.evalRandomFunction(args)
@@ -1360,6 +1520,136 @@ func (i *Interpreter) evalAssetFunction(args []interface{}) interface{} {
 	}
 }
 
+// New math functions
+func (i *Interpreter) evalRoundFunction(args []interface{}) interface{} {
+	if len(args) != 1 {
+		return types.Unknown{Reason: "round() requires exactly 1 argument"}
+	}
+
+	numberResult := types.CoerceToNumber(args[0])
+	if !numberResult.Ok {
+		return numberResult.Value
+	}
+	number, _ := numberResult.Value.(types.Number)
+
+	return types.Number{Value: math.Round(number.Value)}
+}
+
+// New text functions
+func (i *Interpreter) evalSubstringFunction(args []interface{}) interface{} {
+	if len(args) != 3 {
+		return types.Unknown{Reason: "substring() requires exactly 3 arguments: substring(text, start, length)"}
+	}
+
+	// Convert all arguments to proper types
+	textResult := types.CoerceToText(args[0])
+	if !textResult.Ok {
+		return textResult.Value
+	}
+	text, _ := textResult.Value.(types.Text)
+
+	startResult := types.CoerceToNumber(args[1])
+	if !startResult.Ok {
+		return startResult.Value
+	}
+	start := int(startResult.Value.(types.Number).Value)
+
+	lengthResult := types.CoerceToNumber(args[2])
+	if !lengthResult.Ok {
+		return lengthResult.Value
+	}
+	length := int(lengthResult.Value.(types.Number).Value)
+
+	// Validate bounds
+	if start < 0 || length < 0 || start >= len(text.Value) {
+		return types.Unknown{Reason: fmt.Sprintf("invalid substring bounds: start=%d, length=%d for string of length %d", start, length, len(text.Value))}
+	}
+
+	end := start + length
+	if end > len(text.Value) {
+		end = len(text.Value)
+	}
+
+	return types.Text{Value: text.Value[start:end]}
+}
+
+func (i *Interpreter) evalFindFunction(args []interface{}) interface{} {
+	if len(args) != 2 {
+		return types.Unknown{Reason: "find() requires exactly 2 arguments: find(text, pattern)"}
+	}
+
+	textResult := types.CoerceToText(args[0])
+	if !textResult.Ok {
+		return textResult.Value
+	}
+	text, _ := textResult.Value.(types.Text)
+
+	patternResult := types.CoerceToText(args[1])
+	if !patternResult.Ok {
+		return patternResult.Value
+	}
+	pattern, _ := patternResult.Value.(types.Text)
+
+	index := strings.Index(text.Value, pattern.Value)
+	if index == -1 {
+		return types.Number{Value: -1} // Not found
+	}
+	return types.Number{Value: float64(index)}
+}
+
+func (i *Interpreter) evalReplaceFunction(args []interface{}) interface{} {
+	if len(args) != 3 {
+		return types.Unknown{Reason: "replace() requires exactly 3 arguments: replace(text, old, new)"}
+	}
+
+	textResult := types.CoerceToText(args[0])
+	if !textResult.Ok {
+		return textResult.Value
+	}
+	text, _ := textResult.Value.(types.Text)
+
+	oldResult := types.CoerceToText(args[1])
+	if !oldResult.Ok {
+		return oldResult.Value
+	}
+	old, _ := oldResult.Value.(types.Text)
+
+	newResult := types.CoerceToText(args[2])
+	if !newResult.Ok {
+		return newResult.Value
+	}
+	newStr, _ := newResult.Value.(types.Text)
+
+	result := strings.ReplaceAll(text.Value, old.Value, newStr.Value)
+	return types.Text{Value: result}
+}
+
+func (i *Interpreter) evalSplitFunction(args []interface{}) interface{} {
+	if len(args) != 2 {
+		return types.Unknown{Reason: "split() requires exactly 2 arguments: split(text, separator)"}
+	}
+
+	textResult := types.CoerceToText(args[0])
+	if !textResult.Ok {
+		return textResult.Value
+	}
+	text, _ := textResult.Value.(types.Text)
+
+	separatorResult := types.CoerceToText(args[1])
+	if !separatorResult.Ok {
+		return separatorResult.Value
+	}
+	separator, _ := separatorResult.Value.(types.Text)
+
+	parts := strings.Split(text.Value, separator.Value)
+	elements := make([]interface{}, len(parts))
+	for i, part := range parts {
+		elements[i] = types.Text{Value: part}
+	}
+
+	return types.List{Elements: elements}
+}
+
 func (i *Interpreter) evalBracketFilter(node *parser.BracketFilterExpression) interface{} {
 	// Evaluate the base expression (should be a List or Record)
 	base := i.evalExpression(node.Left)
@@ -1371,6 +1661,12 @@ func (i *Interpreter) evalBracketFilter(node *parser.BracketFilterExpression) in
 	// Handle different base types
 	switch baseValue := base.(type) {
 	case types.List:
+		// Check if this is a simple index lookup (single numeric filter)
+		if len(node.Filters) == 1 {
+			if indexResult := i.tryIndexLookup(baseValue, node.Filters[0]); indexResult != nil {
+				return indexResult
+			}
+		}
 		return i.filterList(baseValue, node.Filters)
 	case types.Record:
 		return i.filterRecord(baseValue, node.Filters)
@@ -1419,6 +1715,52 @@ func (i *Interpreter) filterList(list types.List, filters []parser.Expression) i
 	}
 
 	return types.List{Elements: filtered}
+}
+
+// tryIndexLookup attempts to perform index lookup for single numeric filters
+func (i *Interpreter) tryIndexLookup(list types.List, filter parser.Expression) interface{} {
+	// Check if the filter is a literal expression
+	literal, ok := filter.(*parser.LiteralExpression)
+	if !ok {
+		return nil // Not a literal, continue with filtering
+	}
+
+	// Check if it's a numeric literal
+	num, ok := literal.Value.(types.Number)
+	if !ok {
+		// Try to handle different numeric types
+		switch v := literal.Value.(type) {
+		case float64:
+			index := int(v)
+			if index < 0 || index >= len(list.Elements) {
+				return types.Unknown{Reason: fmt.Sprintf("list index %d out of bounds (length %d)", index, len(list.Elements))}
+			}
+			return list.Elements[index]
+		case int:
+			if v < 0 || v >= len(list.Elements) {
+				return types.Unknown{Reason: fmt.Sprintf("list index %d out of bounds (length %d)", v, len(list.Elements))}
+			}
+			return list.Elements[v]
+		case int64:
+			index := int(v)
+			if index < 0 || index >= len(list.Elements) {
+				return types.Unknown{Reason: fmt.Sprintf("list index %d out of bounds (length %d)", index, len(list.Elements))}
+			}
+			return list.Elements[index]
+		}
+		return nil // Not a number, continue with filtering
+	}
+
+	// Convert to integer index
+	index := int(num.Value)
+
+	// Check bounds
+	if index < 0 || index >= len(list.Elements) {
+		return types.Unknown{Reason: fmt.Sprintf("list index %d out of bounds (length %d)", index, len(list.Elements))}
+	}
+
+	// Return the element at the index
+	return list.Elements[index]
 }
 
 // filterRecord filters a record based on field conditions
@@ -1635,6 +1977,150 @@ func (i *Interpreter) evalListExpression(node *parser.ListExpression) interface{
 	}
 
 	return types.List{Elements: elements}
+}
+
+// evalCollectionOperationExpression evaluates collection operations like list..count, list..remove(1)
+func (i *Interpreter) evalCollectionOperationExpression(node *parser.CollectionOperationExpression) interface{} {
+	// Evaluate the object being operated on
+	object := i.evalExpression(node.Object)
+
+	// Check for Unknown propagation
+	if unknown, ok := object.(types.Unknown); ok {
+		return unknown
+	}
+
+	switch node.Method {
+	case "count":
+		return i.evalCollectionCount(object)
+	case "combine":
+		if len(node.Arguments) != 1 {
+			return types.Unknown{Reason: "combine operation requires exactly one argument (separator)"}
+		}
+		separator := i.evalExpression(node.Arguments[0])
+		if unknown, ok := separator.(types.Unknown); ok {
+			return unknown
+		}
+		return i.evalCollectionCombine(object, separator)
+	case "remove":
+		if len(node.Arguments) == 0 {
+			return types.Unknown{Reason: "remove operation requires at least one argument"}
+		}
+		var args []interface{}
+		for _, argExpr := range node.Arguments {
+			arg := i.evalExpression(argExpr)
+			if unknown, ok := arg.(types.Unknown); ok {
+				return unknown
+			}
+			args = append(args, arg)
+		}
+		return i.evalCollectionRemove(object, args)
+	default:
+		return types.Unknown{Reason: fmt.Sprintf("unsupported collection operation: %s", node.Method)}
+	}
+}
+
+// evalCollectionCount implements the ..count operation
+func (i *Interpreter) evalCollectionCount(object interface{}) interface{} {
+	switch obj := object.(type) {
+	case types.List:
+		return types.Number{Value: float64(len(obj.Elements))}
+	case types.Record:
+		return types.Number{Value: float64(len(obj.Fields))}
+	default:
+		return types.Unknown{Reason: fmt.Sprintf("cannot count elements of type %T", object)}
+	}
+}
+
+// evalCollectionCombine implements the ..combine(separator) operation
+func (i *Interpreter) evalCollectionCombine(object, separator interface{}) interface{} {
+	list, ok := object.(types.List)
+	if !ok {
+		return types.Unknown{Reason: fmt.Sprintf("combine operation only works on lists, not %T", object)}
+	}
+
+	sepText, ok := separator.(types.Text)
+	if !ok {
+		return types.Unknown{Reason: fmt.Sprintf("combine separator must be text, not %T", separator)}
+	}
+
+	var parts []string
+	for _, element := range list.Elements {
+		// Convert each element to text
+		textResult := types.CoerceToText(element)
+		if !textResult.Ok {
+			return textResult.Value // Return the error
+		}
+		parts = append(parts, textResult.Value.(types.Text).Value)
+	}
+
+	return types.Text{Value: strings.Join(parts, sepText.Value)}
+}
+
+// evalCollectionRemove implements the ..remove(...) operation
+func (i *Interpreter) evalCollectionRemove(object interface{}, args []interface{}) interface{} {
+	list, ok := object.(types.List)
+	if !ok {
+		return types.Unknown{Reason: fmt.Sprintf("remove operation only works on lists, not %T", object)}
+	}
+
+	if len(args) == 1 {
+		// Remove by index or value
+		if num, ok := args[0].(types.Number); ok {
+			index := int(num.Value)
+			// Only treat as index if it's a valid index AND the value at that index differs from the index value
+			if index >= 0 && index < len(list.Elements) {
+				// Check if the element at this index is different from the index value
+				// If they're the same, it's ambiguous, so prefer remove by value
+				elementAtIndex := list.Elements[index]
+				if elemNum, ok := elementAtIndex.(types.Number); ok && elemNum.Value == num.Value {
+					// Ambiguous case: the index and the value are the same, prefer remove by value
+					goto removeByValue
+				}
+				// Remove by index (unambiguous case)
+				newElements := make([]interface{}, 0, len(list.Elements)-1)
+				for i, elem := range list.Elements {
+					if i != index {
+						newElements = append(newElements, elem)
+					}
+				}
+				return types.List{Elements: newElements}
+			}
+		}
+
+	removeByValue:
+		// Remove by value
+		newElements := make([]interface{}, 0, len(list.Elements))
+		removed := false
+		for _, elem := range list.Elements {
+			if !removed && types.Equal(elem, args[0]) {
+				removed = true // Skip first occurrence
+			} else {
+				newElements = append(newElements, elem)
+			}
+		}
+		return types.List{Elements: newElements}
+	} else if len(args) == 2 {
+		// Remove range (start, end)
+		start, ok1 := args[0].(types.Number)
+		end, ok2 := args[1].(types.Number)
+		if !ok1 || !ok2 {
+			return types.Unknown{Reason: "remove range requires two numeric indices"}
+		}
+		startIdx := int(start.Value)
+		endIdx := int(end.Value)
+		if startIdx < 0 || endIdx < 0 || startIdx >= len(list.Elements) || endIdx >= len(list.Elements) || startIdx > endIdx {
+			return types.Unknown{Reason: fmt.Sprintf("invalid range [%d, %d] for list of length %d", startIdx, endIdx, len(list.Elements))}
+		}
+		newElements := make([]interface{}, 0, len(list.Elements)-(endIdx-startIdx+1))
+		for i, elem := range list.Elements {
+			if i < startIdx || i > endIdx {
+				newElements = append(newElements, elem)
+			}
+		}
+		return types.List{Elements: newElements}
+	} else {
+		return types.Unknown{Reason: "remove operation accepts 1 or 2 arguments"}
+	}
 }
 
 // Utility functions
@@ -1928,6 +2414,14 @@ func convertToMBLType(value interface{}) interface{} {
 	case float64:
 		return types.Number{Value: v}
 	case string:
+		// Check for Queued literals first
+		if strings.HasPrefix(v, "?") {
+			reason := strings.TrimPrefix(v, "?")
+			if reason == "" {
+				reason = "unknown"
+			}
+			return types.Queued{Info: reason}
+		}
 		// Remove quotes if they exist (in case parser stored raw token)
 		s := v
 		if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
