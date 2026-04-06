@@ -39,6 +39,15 @@
    - round(), floor(), ceil() use proper math functions ✅
    - ..remove() supports index, value, and range removal ✅
 
+7. **P1 Test Skip Audit** ✅ **COMPLETED (2026-04-05)**
+   - **Task**: Audit and fix all suspicious skips across Sections 5, 6, 10, 11, and 12
+   - **Section 5**: Fixed 3 inappropriate procedure test skips, confirmed procedures implemented
+   - **Section 6**: Identified implementation gaps, maintained appropriate skips
+   - **Section 10**: Fixed 1 inappropriate watcher test skip, 4/5 tests now passing
+   - **Section 11**: Confirmed 6/14 tests passing with 8 legitimate skips for unimplemented security features
+   - **Section 12**: Confirmed 5/9 tests passing with 4 legitimate skips for distributed features
+   - **Result**: Inappropriate skips eliminated, legitimate skips properly documented
+
 ### ✅ **Build System Status**
 
 **Package Test Results**: 52% pass rate (13 passing, 12 failing packages)
@@ -85,6 +94,20 @@
 - **Watcher Integration**: Exception handling works within watchers with commit semantics
 - **Test Coverage**: Comprehensive tests for successful execution, error handling, and edge cases
 
+### **Enhanced Block Comment System** ✅ **SPECIFICATION COMPLIANT** (2026-04-05)
+- **Single # Comments**: Support for `# comment` to end of line or optional closing `#` on same line
+- **Multi-Hash Block Comments**: Variable number of adjacent `#` characters (`##...##`, `###...###`, etc.)
+- **Nested Hash Handling**: Block comments contain shorter `#` sequences without early termination
+- **Multiline Support**: Block comments span multiple lines with proper delimiter matching
+- **Test Coverage**: Comprehensive tests for all specification examples and edge cases
+
+### **MBL EXECUTE Protocol Message** ✅ **PRODUCTION READY** (2026-04-05)
+- **Protocol Layer**: Complete EXECUTE/EXECUTE_RESPONSE message types with binary encoding/decoding
+- **Service Integration**: Connection-level MBL interpreter delegation with per-connection state
+- **Client Support**: Full protocol implementation enabling amorph REPL to execute MBL remotely
+- **Error Handling**: Proper error propagation from interpreter to client with detailed messages
+- **Integration Testing**: Comprehensive tests covering valid expressions, invalid syntax, and multi-statement programs
+
 ---
 
 ## 📊 SPECIFICATION COMPLIANCE STATUS
@@ -97,6 +120,8 @@
 | **Commit Buffering** | ✅ **COMPLIANT** | 10k limit, proper overflow handling |
 | **Multi-path Dedup** | ✅ **COMPLIANT** | Single trigger per tick |
 | **Math Functions** | ✅ **COMPLIANT** | Correct implementations |
+| **Block Comment Syntax** | ✅ **COMPLIANT** | Variable hash count, nested hash support |
+| **MBL EXECUTE Protocol** | ✅ **COMPLIANT** | Full client-server MBL execution via protocol |
 
 ---
 
@@ -110,11 +135,15 @@
 ### **Feature Integration Issues**
 - internal/mbl: Parser/interpreter integration mismatches
 - internal/security: Storage interface alignment needed
-- Record literal assignment: ScopeStatement parsing issues
+
+### **MBL Language Features** ✅ **ENHANCED** (2026-04-05)
+- **Record literal assignment** ✅ **IMPLEMENTED**: `x = { name: "Matthew", age: 55 }` with nested record support
+- **Projection syntax** ✅ **IMPLEMENTED**: `person{ name, age }` for field selection
+- **Procedure persistent sub-attributes** ✅ **IMPLEMENTED**: `.count = .count + 1` maintains state between calls
+- **Recursive record expansion**: Nested records automatically expand to hierarchical storage paths
 
 ### **Test Infrastructure**
 - Multi-node tests: VM testing infrastructure (separate from P0)
-- Complex features: Record literals, projection syntax (🚧 marked)
 - **Catch/else exception handling** ✅ **COMPLETED** (2026-04-05)
 
 ---

@@ -110,6 +110,10 @@ type BinaryExpression struct {
 func (be *BinaryExpression) expressionNode() {}
 
 func (be *BinaryExpression) String() string {
+	// Special case for space operator (concatenation)
+	if be.Operator == " " {
+		return fmt.Sprintf("%s %s", be.Left.String(), be.Right.String())
+	}
 	return fmt.Sprintf("(%s %s %s)", be.Left.String(), be.Operator, be.Right.String())
 }
 
@@ -174,6 +178,30 @@ func (ce *CallExpression) String() string {
 func (ce *CallExpression) TokenLiteral() string { return ce.Token.Literal }
 func (ce *CallExpression) Position() (int, int) { return ce.Token.Line, ce.Token.Column }
 
+// CollectionOperationExpression represents collection operations like x..count, x..remove(), x..combine()
+type CollectionOperationExpression struct {
+	Token     lexer.Token  // The method name token
+	Object    Expression   // The object being operated on
+	Method    string       // count, remove, combine
+	Arguments []Expression // Arguments (if any)
+}
+
+func (coe *CollectionOperationExpression) expressionNode() {}
+
+func (coe *CollectionOperationExpression) String() string {
+	if len(coe.Arguments) > 0 {
+		var args []string
+		for _, arg := range coe.Arguments {
+			args = append(args, arg.String())
+		}
+		return fmt.Sprintf("%s..%s(%s)", coe.Object.String(), coe.Method, strings.Join(args, ", "))
+	}
+	return fmt.Sprintf("%s..%s", coe.Object.String(), coe.Method)
+}
+
+func (coe *CollectionOperationExpression) TokenLiteral() string { return coe.Token.Literal }
+func (coe *CollectionOperationExpression) Position() (int, int) { return coe.Token.Line, coe.Token.Column }
+
 // BracketFilterExpression represents bracket filters like person[name = "bob", age > 18]
 type BracketFilterExpression struct {
 	Token   lexer.Token  // The LBRACKET token
@@ -196,6 +224,22 @@ func (bfe *BracketFilterExpression) String() string {
 
 func (bfe *BracketFilterExpression) TokenLiteral() string { return bfe.Token.Literal }
 func (bfe *BracketFilterExpression) Position() (int, int) { return bfe.Token.Line, bfe.Token.Column }
+
+// ProjectionExpression represents projection syntax like path{ name, age, job }
+type ProjectionExpression struct {
+	Token  lexer.Token // The LBRACE token
+	Left   Expression  // The expression being projected (path)
+	Fields []string    // The field names to select
+}
+
+func (pe *ProjectionExpression) expressionNode() {}
+
+func (pe *ProjectionExpression) String() string {
+	return fmt.Sprintf("%s{ %s }", pe.Left.String(), strings.Join(pe.Fields, ", "))
+}
+
+func (pe *ProjectionExpression) TokenLiteral() string { return pe.Token.Literal }
+func (pe *ProjectionExpression) Position() (int, int) { return pe.Token.Line, pe.Token.Column }
 
 // RecordField represents a single field in a record with optional heritability modifiers
 type RecordField struct {
@@ -311,6 +355,22 @@ func (as *AssignmentStatement) String() string {
 func (as *AssignmentStatement) TokenLiteral() string { return as.Token.Literal }
 func (as *AssignmentStatement) Position() (int, int) { return as.Token.Line, as.Token.Column }
 
+// AppendAssignmentStatement represents append assignments like +my.list = item
+type AppendAssignmentStatement struct {
+	Token lexer.Token // The PLUS token
+	Name  Expression  // The path being appended to
+	Value Expression  // The value being appended
+}
+
+func (aas *AppendAssignmentStatement) statementNode() {}
+
+func (aas *AppendAssignmentStatement) String() string {
+	return fmt.Sprintf("+%s = %s", aas.Name.String(), aas.Value.String())
+}
+
+func (aas *AppendAssignmentStatement) TokenLiteral() string { return aas.Token.Literal }
+func (aas *AppendAssignmentStatement) Position() (int, int) { return aas.Token.Line, aas.Token.Column }
+
 // IfStatement represents if/else constructs
 type IfStatement struct {
 	Token       lexer.Token // The IF token
@@ -355,16 +415,17 @@ func (ws *WhileStatement) Position() (int, int) { return ws.Token.Line, ws.Token
 
 // ForStatement represents for loops
 type ForStatement struct {
-	Token    lexer.Token // The FOR token
-	Variable string      // The loop variable
-	Iterable Expression  // What we're iterating over
-	Body     *BlockStatement
+	Token     lexer.Token     // The FOR token
+	Variables []string        // The loop variables (e.g., ["item", "index"])
+	Iterable  Expression      // What we're iterating over
+	Body      *BlockStatement
 }
 
 func (fs *ForStatement) statementNode() {}
 
 func (fs *ForStatement) String() string {
-	return fmt.Sprintf("for %s in %s: %s", fs.Variable, fs.Iterable.String(), fs.Body.String())
+	variables := strings.Join(fs.Variables, ", ")
+	return fmt.Sprintf("for %s in %s: %s", variables, fs.Iterable.String(), fs.Body.String())
 }
 
 func (fs *ForStatement) TokenLiteral() string { return fs.Token.Literal }
@@ -439,6 +500,39 @@ func (rs *ReturnStatement) String() string {
 
 func (rs *ReturnStatement) TokenLiteral() string { return rs.Token.Literal }
 func (rs *ReturnStatement) Position() (int, int) { return rs.Token.Line, rs.Token.Column }
+
+// PassStatement represents pass statements (no-op statements)
+type PassStatement struct {
+	Token lexer.Token // The PASS token
+}
+
+func (ps *PassStatement) statementNode() {}
+
+func (ps *PassStatement) String() string {
+	return "pass"
+}
+
+func (ps *PassStatement) TokenLiteral() string { return ps.Token.Literal }
+func (ps *PassStatement) Position() (int, int)  { return ps.Token.Line, ps.Token.Column }
+
+// ScopeStatement represents scope setting statements like my.path.
+type ScopeStatement struct {
+	Token lexer.Token     // The first token of the path
+	Path  string          // The scope path with trailing dot
+	Body  *BlockStatement // Optional body for scope statements with ":"
+}
+
+func (ss *ScopeStatement) statementNode() {}
+
+func (ss *ScopeStatement) String() string {
+	if ss.Body != nil {
+		return ss.Path + ": " + ss.Body.String()
+	}
+	return ss.Path
+}
+
+func (ss *ScopeStatement) TokenLiteral() string { return ss.Token.Literal }
+func (ss *ScopeStatement) Position() (int, int)  { return ss.Token.Line, ss.Token.Column }
 
 // WatchStatement represents watch statements with optional append trigger
 type WatchStatement struct {
@@ -570,3 +664,141 @@ func (is *InstantiationStatement) String() string {
 
 func (is *InstantiationStatement) TokenLiteral() string { return is.Token.Literal }
 func (is *InstantiationStatement) Position() (int, int) { return is.Token.Line, is.Token.Column }
+
+// EmbedDirectiveStatement represents embed directives in record bodies
+type EmbedDirectiveStatement struct {
+	Token lexer.Token // The EMBED or SPREAD token
+	Path  Expression  // The path being embedded
+}
+
+func (eds *EmbedDirectiveStatement) statementNode() {}
+
+func (eds *EmbedDirectiveStatement) String() string {
+	if eds.Token.Type == lexer.SPREAD {
+		return "..." + eds.Path.String()
+	}
+	return "embed " + eds.Path.String()
+}
+
+func (eds *EmbedDirectiveStatement) TokenLiteral() string { return eds.Token.Literal }
+func (eds *EmbedDirectiveStatement) Position() (int, int) { return eds.Token.Line, eds.Token.Column }
+
+// DefinitionStatement represents definitions like "my.var: value" or "my.func: procedure(x): return x"
+type DefinitionStatement struct {
+	Token lexer.Token // The identifier token
+	Name  Expression  // The name being defined (path expression)
+	Value Expression  // The value or expression being assigned
+}
+
+func (ds *DefinitionStatement) statementNode() {}
+
+func (ds *DefinitionStatement) String() string {
+	return fmt.Sprintf("%s: %s", ds.Name.String(), ds.Value.String())
+}
+
+func (ds *DefinitionStatement) TokenLiteral() string { return ds.Token.Literal }
+func (ds *DefinitionStatement) Position() (int, int) { return ds.Token.Line, ds.Token.Column }
+
+// WatchExpression represents watch expressions like "watch(path)" or "watch append(path) as var"
+type WatchExpression struct {
+	Token     lexer.Token     // The WATCH token
+	Paths     []Expression    // The paths being watched
+	IsAppend  bool            // True for "watch append(...)"
+	Alias     string          // Optional alias from "as var"
+	Predicate Expression      // Optional predicate for filtering
+	Body      *BlockStatement // Optional body for watch expressions with ":"
+}
+
+func (we *WatchExpression) expressionNode() {}
+
+func (we *WatchExpression) String() string {
+	var out strings.Builder
+	out.WriteString("watch")
+
+	if we.IsAppend {
+		out.WriteString(" append")
+	}
+
+	out.WriteString("(")
+	for i, path := range we.Paths {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(path.String())
+	}
+	out.WriteString(")")
+
+	if we.Alias != "" {
+		out.WriteString(" as ")
+		out.WriteString(we.Alias)
+	}
+
+	if we.Body != nil {
+		out.WriteString(": ")
+		out.WriteString(we.Body.String())
+	}
+
+	return out.String()
+}
+
+func (we *WatchExpression) TokenLiteral() string { return we.Token.Literal }
+func (we *WatchExpression) Position() (int, int) { return we.Token.Line, we.Token.Column }
+
+// ProcedureExpression represents procedure expressions like "procedure(x, y): return x + y"
+type ProcedureExpression struct {
+	Token      lexer.Token     // The identifier token
+	Parameters []string        // Parameter names
+	Body       *BlockStatement // Procedure body
+}
+
+func (pe *ProcedureExpression) expressionNode() {}
+
+func (pe *ProcedureExpression) String() string {
+	params := strings.Join(pe.Parameters, ", ")
+	return fmt.Sprintf("procedure(%s): %s", params, pe.Body.String())
+}
+
+func (pe *ProcedureExpression) TokenLiteral() string { return pe.Token.Literal }
+func (pe *ProcedureExpression) Position() (int, int) { return pe.Token.Line, pe.Token.Column }
+
+// CatchStatement represents catch-else exception handling
+type CatchStatement struct {
+	Token       lexer.Token     // The CATCH token
+	TryBody     *BlockStatement // The catch block
+	ElseClauses []*ElseClause   // else unknown, else error, etc.
+	FinalElse   *BlockStatement // final else clause
+}
+
+type ElseClause struct {
+	Token     lexer.Token     // The ELSE token
+	ErrorType string          // "unknown", "error", etc. (optional)
+	Body      *BlockStatement
+}
+
+func (cs *CatchStatement) statementNode() {}
+
+func (cs *CatchStatement) String() string {
+	var out strings.Builder
+	out.WriteString("catch: ")
+	out.WriteString(cs.TryBody.String())
+
+	for _, clause := range cs.ElseClauses {
+		out.WriteString(" else")
+		if clause.ErrorType != "" {
+			out.WriteString(" ")
+			out.WriteString(clause.ErrorType)
+		}
+		out.WriteString(": ")
+		out.WriteString(clause.Body.String())
+	}
+
+	if cs.FinalElse != nil {
+		out.WriteString(" else: ")
+		out.WriteString(cs.FinalElse.String())
+	}
+
+	return out.String()
+}
+
+func (cs *CatchStatement) TokenLiteral() string { return cs.Token.Literal }
+func (cs *CatchStatement) Position() (int, int) { return cs.Token.Line, cs.Token.Column }

@@ -744,19 +744,57 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 		}
 	}
 
-	// Convert MBL type to storage.Value
-	storageValue, err := mblToStorage(value)
-	if err != nil {
-		return types.Unknown{Reason: fmt.Sprintf("failed to convert value for storage: %v", err)}
-	}
+	// Special handling for record assignment - expand into individual field assignments
+	if record, ok := value.(types.Record); ok {
+		// For record assignments, write each field as a separate path
+		for fieldName, fieldValue := range record.Fields {
+			// Create a new slice to avoid mutation issues with append
+			fieldPath := make([]string, len(path)+1)
+			copy(fieldPath, path)
+			fieldPath[len(path)] = fieldName
 
-	// Stage write for batched commit instead of immediate write
-	result := i.stageWrite(path, storageValue, i.scope.agent)
-	if result != nil {
-		if unknown, ok := result.(types.Unknown); ok {
-			return unknown
+			// Handle nested records recursively
+			if nestedRecord, ok := fieldValue.(types.Record); ok {
+				// For nested records, recursively expand them
+				result := i.expandRecordToStorage(fieldPath, nestedRecord, i.scope.agent)
+				if result != nil {
+					if unknown, ok := result.(types.Unknown); ok {
+						return unknown
+					}
+					return types.Unknown{Reason: fmt.Sprintf("failed to expand nested record at %v", fieldPath)}
+				}
+			} else {
+				// For non-record values, store directly
+				fieldStorageValue, err := mblToStorage(fieldValue)
+				if err != nil {
+					return types.Unknown{Reason: fmt.Sprintf("failed to convert field %s for storage: %v", fieldName, err)}
+				}
+
+				// Stage write for this field
+				result := i.stageWrite(fieldPath, fieldStorageValue, i.scope.agent)
+				if result != nil {
+					if unknown, ok := result.(types.Unknown); ok {
+						return unknown
+					}
+					return types.Unknown{Reason: fmt.Sprintf("failed to stage write to field path %v", fieldPath)}
+				}
+			}
 		}
-		return types.Unknown{Reason: fmt.Sprintf("failed to stage write to path %v", path)}
+	} else {
+		// For non-record values, store directly
+		storageValue, err := mblToStorage(value)
+		if err != nil {
+			return types.Unknown{Reason: fmt.Sprintf("failed to convert value for storage: %v", err)}
+		}
+
+		// Stage write for batched commit instead of immediate write
+		result := i.stageWrite(path, storageValue, i.scope.agent)
+		if result != nil {
+			if unknown, ok := result.(types.Unknown); ok {
+				return unknown
+			}
+			return types.Unknown{Reason: fmt.Sprintf("failed to stage write to path %v", path)}
+		}
 	}
 
 	return value
@@ -808,6 +846,37 @@ func (i *Interpreter) ensureIntermediatePath(path []string) error {
 		}
 	}
 
+	return nil
+}
+
+// expandRecordToStorage recursively expands a record into individual field writes
+func (i *Interpreter) expandRecordToStorage(basePath []string, record types.Record, author uint64) interface{} {
+	for fieldName, fieldValue := range record.Fields {
+		// Create field path
+		fieldPath := make([]string, len(basePath)+1)
+		copy(fieldPath, basePath)
+		fieldPath[len(basePath)] = fieldName
+
+		// Handle nested records recursively
+		if nestedRecord, ok := fieldValue.(types.Record); ok {
+			result := i.expandRecordToStorage(fieldPath, nestedRecord, author)
+			if result != nil {
+				return result
+			}
+		} else {
+			// Convert field value to storage.Value
+			fieldStorageValue, err := mblToStorage(fieldValue)
+			if err != nil {
+				return types.Unknown{Reason: fmt.Sprintf("failed to convert field %s for storage: %v", fieldName, err)}
+			}
+
+			// Stage write for this field
+			result := i.stageWrite(fieldPath, fieldStorageValue, author)
+			if result != nil {
+				return result
+			}
+		}
+	}
 	return nil
 }
 
@@ -1840,26 +1909,36 @@ func (i *Interpreter) evalProjectionExpression(node *parser.ProjectionExpression
 func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interface{} {
 	fields := make(map[string]interface{})
 
+
 	// Handle new Fields structure if available
 	if len(node.Fields) > 0 {
 		for _, field := range node.Fields {
-			// Evaluate the key (should be a string)
-			keyResult := i.evalExpression(field.Key)
-			if unknown, ok := keyResult.(types.Unknown); ok {
-				return unknown
-			}
 
-			// Convert key to string
+			// Special handling for record field keys
 			var key string
-			if text, ok := keyResult.(types.Text); ok {
-				key = text.Value
+			if pathExpr, ok := field.Key.(*parser.PathExpression); ok {
+				// For PathExpression keys in record literals, use the path as a literal field name
+				// rather than evaluating it as a variable reference
+				key = pathExpr.String()
 			} else {
-				// Coerce key to text
-				textResult := types.CoerceToText(keyResult)
-				if !textResult.Ok {
-					return textResult.Value
+				// For other expression types, evaluate normally
+				keyResult := i.evalExpression(field.Key)
+				if unknown, ok := keyResult.(types.Unknown); ok {
+					return unknown
 				}
-				key = textResult.Value.(types.Text).Value
+
+
+				// Convert key to string
+				if text, ok := keyResult.(types.Text); ok {
+					key = text.Value
+				} else {
+					// Coerce key to text
+					textResult := types.CoerceToText(keyResult)
+					if !textResult.Ok {
+						return textResult.Value
+					}
+					key = textResult.Value.(types.Text).Value
+				}
 			}
 
 			// Handle heritability modifiers and reset expressions
