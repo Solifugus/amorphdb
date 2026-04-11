@@ -2,6 +2,8 @@
 package lexer
 
 import (
+	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -18,6 +20,9 @@ type Lexer struct {
 	indentStack    []int // stack of indentation levels
 	pendingDedents int   // number of DEDENT tokens to emit
 	atLineStart    bool  // true if we're at the start of a line
+
+	// Context tracking for collection operations
+	previousToken TokenType // track previous token for contextual parsing
 }
 
 // New creates a new lexer instance
@@ -112,17 +117,32 @@ func (l *Lexer) NextToken() Token {
 		l.readChar()
 
 	case '#':
-		return l.readComment()
+		// All # characters start comments (single-line or block)
+		if l.peekChar() == '#' {
+			// It's a block comment (multiple #)
+			return l.readComment()
+		} else {
+			// It's a single-line comment
+			return l.readComment()
+		}
 
 	case '"':
-		tok.Type = TEXT
-		tok.Literal = l.readString()
+		stringLiteral := l.readString()
+		// Check if string is properly terminated by checking if it ends with quote(s)
+		if !strings.HasSuffix(stringLiteral, "\"") {
+			// Unterminated string
+			tok.Type = ILLEGAL
+			tok.Literal = stringLiteral
+		} else {
+			tok.Type = TEXT
+			tok.Literal = stringLiteral
+		}
 
 	case '@':
 		tok.Type = TIME
 		tok.Literal = l.readTimeLiteral()
 
-	case '¤':
+	case '¤', '$', '€', '£', '¥':
 		tok.Type = MONEY
 		tok.Literal = l.readMoneyLiteral()
 
@@ -169,9 +189,19 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '.' {
 			ch := l.ch
 			l.readChar()
-			tok.Type = RANGE
-			tok.Literal = string(ch) + string(l.ch)
-			l.readChar()
+			// Check if it's ... (spread) or .. (range)
+			if l.peekChar() == '.' {
+				// It's ... (spread)
+				l.readChar() // consume the third dot
+				tok.Type = SPREAD
+				tok.Literal = "..."
+				l.readChar()
+			} else {
+				// It's .. (range)
+				tok.Type = RANGE
+				tok.Literal = string(ch) + string(l.ch)
+				l.readChar()
+			}
 		} else {
 			tok.Type = DOT
 			tok.Literal = string(l.ch)
@@ -180,6 +210,11 @@ func (l *Lexer) NextToken() Token {
 
 	case '~':
 		tok.Type = TILDE
+		tok.Literal = string(l.ch)
+		l.readChar()
+
+	case ';':
+		tok.Type = SEMICOLON
 		tok.Literal = string(l.ch)
 		l.readChar()
 
@@ -213,6 +248,11 @@ func (l *Lexer) NextToken() Token {
 		tok.Literal = string(l.ch)
 		l.readChar()
 
+	case '^':
+		tok.Type = POWER
+		tok.Literal = string(l.ch)
+		l.readChar()
+
 	case '&':
 		tok.Type = CONCAT
 		tok.Literal = string(l.ch)
@@ -223,6 +263,19 @@ func (l *Lexer) NextToken() Token {
 		tok.Literal = string(l.ch)
 		l.readChar()
 
+	case '!':
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok.Type = NOT_EQUAL
+			tok.Literal = string(ch) + string(l.ch)
+			l.readChar()
+		} else {
+			tok.Type = ILLEGAL
+			tok.Literal = string(l.ch)
+			l.readChar()
+		}
+
 	case '?':
 		if l.peekChar() == '=' {
 			ch := l.ch
@@ -231,9 +284,10 @@ func (l *Lexer) NextToken() Token {
 			tok.Literal = string(ch) + string(l.ch)
 			l.readChar()
 		} else {
+			// Unknown character starting with ?
 			tok.Type = ILLEGAL
 			tok.Literal = string(l.ch)
-			l.readChar()
+			l.readChar() // Advance past the illegal character
 		}
 
 	case '>':
@@ -265,11 +319,23 @@ func (l *Lexer) NextToken() Token {
 	default:
 		if isLetter(l.ch) {
 			tok.Literal = l.readIdentifier()
-			tok.Type = LookupIdent(tok.Literal)
+			tok.Type = l.lookupIdentWithContext(tok.Literal)
 			return tok
 		} else if isDigit(l.ch) {
-			tok.Type = NUMBER
-			tok.Literal = l.readNumber()
+			// Check for invalid number format before parsing
+			startPos := l.position
+			numberLiteral := l.readNumber()
+
+			// Check for period after the number (like "5.")
+			if l.ch == '.' {
+				// Invalid: number followed by period without digits
+				l.readChar() // consume the period
+				tok.Type = ILLEGAL
+				tok.Literal = l.input[startPos:l.position]
+			} else {
+				tok.Type = NUMBER
+				tok.Literal = numberLiteral
+			}
 			return tok
 		} else {
 			tok.Type = ILLEGAL
@@ -278,23 +344,50 @@ func (l *Lexer) NextToken() Token {
 		}
 	}
 
+	// Update previous token for contextual parsing
+	l.previousToken = tok.Type
 	return tok
+}
+
+// lookupIdentWithContext performs context-aware identifier lookup
+// After .., treat "append" and "prepend" as regular identifiers, not keywords
+func (l *Lexer) lookupIdentWithContext(ident string) TokenType {
+	// If previous token was RANGE (..) and identifier is append/prepend,
+	// treat as regular identifier, not keyword
+	if l.previousToken == RANGE && (ident == "append" || ident == "prepend") {
+		return IDENT
+	}
+	// Otherwise use standard keyword lookup
+	return LookupIdent(ident)
 }
 
 // handleIndentation processes indentation at the beginning of a line
 func (l *Lexer) handleIndentation() Token {
-	// Count tabs at the beginning of the line
-	tabCount := 0
+	// Count indentation level (tabs and spaces)
+	spacesCount := 0
+	tabsCount := 0
 	startPos := l.position
 
-	for l.ch == '\t' {
-		tabCount++
+	for l.ch == '\t' || l.ch == ' ' {
+		if l.ch == '\t' {
+			tabsCount++
+		} else {
+			spacesCount++
+		}
 		l.readChar()
 	}
 
-	// Check for spaces in indentation (error)
-	if l.ch == ' ' {
-		return Token{Type: ILLEGAL, Literal: "spaces not allowed in indentation, use tabs", Line: l.line, Column: l.column, Position: l.position}
+	// Check for mixed indentation (tabs and spaces together)
+	if tabsCount > 0 && spacesCount > 0 {
+		return Token{Type: ILLEGAL, Literal: "mixed tabs and spaces in indentation", Line: l.line, Column: l.column, Position: l.position}
+	}
+
+	// Convert to indentation levels (4 spaces = 1 level, 1 tab = 1 level)
+	var indentLevel int
+	if tabsCount > 0 {
+		indentLevel = tabsCount
+	} else {
+		indentLevel = spacesCount / 4 // 4 spaces = 1 level
 	}
 
 	// Skip empty lines and comments
@@ -312,20 +405,23 @@ func (l *Lexer) handleIndentation() Token {
 	l.atLineStart = false
 	currentLevel := l.indentStack[len(l.indentStack)-1]
 
-	if tabCount > currentLevel {
-		// Increased indentation
-		l.indentStack = append(l.indentStack, tabCount)
+	if indentLevel > currentLevel {
+		// Increased indentation - add all intermediate levels
+		// This ensures proper DEDENT count when jumping back multiple levels
+		for level := currentLevel + 1; level <= indentLevel; level++ {
+			l.indentStack = append(l.indentStack, level)
+		}
 		return Token{Type: INDENT, Literal: "", Line: l.line, Column: l.column, Position: startPos}
-	} else if tabCount < currentLevel {
+	} else if indentLevel < currentLevel {
 		// Decreased indentation - may need multiple DEDENTs
 		dedentCount := 0
-		for len(l.indentStack) > 1 && l.indentStack[len(l.indentStack)-1] > tabCount {
+		for len(l.indentStack) > 1 && l.indentStack[len(l.indentStack)-1] > indentLevel {
 			l.indentStack = l.indentStack[:len(l.indentStack)-1]
 			dedentCount++
 		}
 
 		// Check if we have a valid indentation level
-		if len(l.indentStack) > 0 && l.indentStack[len(l.indentStack)-1] != tabCount {
+		if len(l.indentStack) > 0 && l.indentStack[len(l.indentStack)-1] != indentLevel {
 			return Token{Type: ILLEGAL, Literal: "invalid indentation level", Line: l.line, Column: l.column, Position: startPos}
 		}
 
@@ -361,25 +457,38 @@ func (l *Lexer) readIdentifier() string {
 	return l.input[position:l.position]
 }
 
-// readNumber reads a numeric literal
+// readNumber reads a numeric literal with underscore support
 func (l *Lexer) readNumber() string {
 	const MAX_NUMBER_LENGTH = 100 // Reasonable limit for numeric literals
 
-	position := l.position
 	digitCount := 0
+	var result strings.Builder
 
-	// Read integer part with bounds checking
-	for isDigit(l.ch) && digitCount < MAX_NUMBER_LENGTH {
+	// Read integer part with underscore support
+	for (isDigit(l.ch) || l.ch == '_') && digitCount < MAX_NUMBER_LENGTH {
+		if l.ch == '_' {
+			// Skip underscores, don't add to result
+			l.readChar()
+			continue
+		}
+		result.WriteRune(l.ch)
 		l.readChar()
 		digitCount++
 	}
 
-	// Handle decimal point
+	// Handle decimal point - must be followed by digit
 	if l.ch == '.' && isDigit(l.peekChar()) && digitCount < MAX_NUMBER_LENGTH {
+		result.WriteRune(l.ch)
 		l.readChar() // consume '.'
 		digitCount++
 
-		for isDigit(l.ch) && digitCount < MAX_NUMBER_LENGTH {
+		for (isDigit(l.ch) || l.ch == '_') && digitCount < MAX_NUMBER_LENGTH {
+			if l.ch == '_' {
+				// Skip underscores, don't add to result
+				l.readChar()
+				continue
+			}
+			result.WriteRune(l.ch)
 			l.readChar()
 			digitCount++
 		}
@@ -387,21 +496,29 @@ func (l *Lexer) readNumber() string {
 
 	// Handle scientific notation
 	if (l.ch == 'e' || l.ch == 'E') && digitCount < MAX_NUMBER_LENGTH {
+		result.WriteRune(l.ch)
 		l.readChar() // consume 'e' or 'E'
 		digitCount++
 
 		if (l.ch == '+' || l.ch == '-') && digitCount < MAX_NUMBER_LENGTH {
+			result.WriteRune(l.ch)
 			l.readChar() // consume sign
 			digitCount++
 		}
 
-		for isDigit(l.ch) && digitCount < MAX_NUMBER_LENGTH {
+		for (isDigit(l.ch) || l.ch == '_') && digitCount < MAX_NUMBER_LENGTH {
+			if l.ch == '_' {
+				// Skip underscores, don't add to result
+				l.readChar()
+				continue
+			}
+			result.WriteRune(l.ch)
 			l.readChar()
 			digitCount++
 		}
 	}
 
-	return l.input[position:l.position]
+	return result.String()
 }
 
 // readString reads a quoted string with matching delimiter counting
@@ -465,6 +582,14 @@ func (l *Lexer) readTimeLiteral() string {
 	position := l.position
 	l.readChar() // consume '@'
 
+	// Handle identifier-like time references (e.g., @time, @agent)
+	if isLetter(l.ch) {
+		for isLetter(l.ch) || isDigit(l.ch) || l.ch == '_' {
+			l.readChar()
+		}
+		return l.input[position:l.position]
+	}
+
 	// Read date part (YYYY-MM-DD format expected)
 	for isDigit(l.ch) || l.ch == '-' {
 		l.readChar()
@@ -504,38 +629,28 @@ func (l *Lexer) readMoneyLiteral() string {
 	return l.input[position:l.position]
 }
 
-// readComment reads a comment (# to end of line or ##...##)
+// readComment reads a comment according to the spec:
+// - Single # comments to end of line or to a closing # on the same line
+// - Two or more adjacent # characters open a block comment that terminates
+//   at the next occurrence of the same number of adjacent # characters
 func (l *Lexer) readComment() Token {
 	position := l.position
 
-	if l.ch == '#' && l.peekChar() == '#' {
-		// Block comment ##...##
-		l.readChar() // consume first #
-		l.readChar() // consume second #
+	// Count opening # characters
+	openHashCount := 0
+	for l.ch == '#' {
+		openHashCount++
+		l.readChar()
+	}
 
-		// Look for closing ##
-		for {
-			if l.ch == 0 {
-				break // EOF
-			}
-			if l.ch == '#' && l.peekChar() == '#' {
-				l.readChar() // consume first #
-				l.readChar() // consume second #
+	if openHashCount == 1 {
+		// Single # comment - look for closing # on same line or end of line
+		for l.ch != '\n' && l.ch != 0 {
+			if l.ch == '#' {
+				// Found potential closing #
+				l.readChar() // consume the #
 				break
 			}
-			l.readChar()
-		}
-
-		return Token{
-			Type:     BLOCK_COMMENT,
-			Literal:  l.input[position:l.position],
-			Line:     l.line,
-			Column:   l.column,
-			Position: position,
-		}
-	} else {
-		// Single line comment
-		for l.ch != '\n' && l.ch != 0 {
 			l.readChar()
 		}
 
@@ -546,8 +661,53 @@ func (l *Lexer) readComment() Token {
 			Column:   l.column,
 			Position: position,
 		}
+	} else {
+		// Block comment - look for matching number of # characters
+		for {
+			if l.ch == 0 {
+				break // EOF - unterminated block comment
+			}
+
+			if l.ch == '#' {
+				// Count consecutive # characters
+				hashCount := 0
+				tempPos := l.position
+
+				for l.ch == '#' && hashCount < openHashCount {
+					hashCount++
+					l.readChar()
+				}
+
+				if hashCount == openHashCount {
+					// Found matching closing sequence
+					break
+				} else {
+					// Not enough # characters, backtrack and continue
+					l.position = tempPos
+					l.readPosition = tempPos + 1
+					if tempPos < len(l.input) {
+						var size int
+						l.ch, size = utf8.DecodeRuneInString(l.input[tempPos:])
+						l.readPosition = tempPos + size
+					}
+					l.readChar() // consume the # and continue
+				}
+			} else {
+				l.readChar()
+			}
+		}
+
+		return Token{
+			Type:     BLOCK_COMMENT,
+			Literal:  l.input[position:l.position],
+			Line:     l.line,
+			Column:   l.column,
+			Position: position,
+		}
 	}
 }
+
+
 
 // isStandaloneModifier checks if this looks like a standalone modifier (word) not a function call
 func (l *Lexer) isStandaloneModifier() bool {
@@ -567,34 +727,44 @@ func (l *Lexer) isStandaloneModifier() bool {
 		return false
 	}
 
-	// Check if the content between parentheses looks like a modifier
+	// Check what follows the closing parenthesis - function definitions have ':'
+	afterClosing := tempPos + 1
+	if afterClosing < len(l.input) && l.input[afterClosing] == ':' {
+		return false // This looks like a function definition: identifier(params):
+	}
+
+	// Check if the content between parentheses is a known modifier
 	word := l.input[wordStart:tempPos]
-	// Allow any word-like content - LookupModifier will classify known vs unknown modifiers
 	if len(word) == 0 {
 		return false
 	}
-	// Simple check: must contain only letters, numbers, and underscores (identifier-like)
-	for _, ch := range word {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-			 (ch >= '0' && ch <= '9') || ch == '_') {
-			return false
+
+	// Check if it's a known single-word modifier
+	if _, isKnownModifier := modifiers[word]; isKnownModifier {
+		return true
+	}
+
+	// Check for reset expressions like "reset 0"
+	wordTrimmed := strings.TrimSpace(word)
+	if strings.HasPrefix(wordTrimmed, "reset ") {
+		return true
+	}
+
+	// Allow unknown modifiers if they are valid identifier words (no dots, spaces, quotes, or numbers)
+	// This enables extensible modifier syntax like (unknown_modifier)
+	// but rejects complex expressions like (my.template), literals like (4), or strings like ("text")
+	if len(wordTrimmed) > 0 &&
+		!strings.Contains(wordTrimmed, ".") &&
+		!strings.Contains(wordTrimmed, " ") &&
+		!strings.Contains(wordTrimmed, `"`) &&
+		!strings.ContainsAny(wordTrimmed, "0123456789") {
+		// Must start with a letter or underscore to be a valid identifier
+		if len(wordTrimmed) > 0 && (unicode.IsLetter([]rune(wordTrimmed)[0]) || []rune(wordTrimmed)[0] == '_') {
+			return true
 		}
 	}
 
-	// Check if content is a simple word (no spaces, commas, or complex syntax)
-	content := l.input[l.readPosition:tempPos]
-	if len(content) == 0 {
-		return false
-	}
-
-	// Simple heuristic: if it contains comma, quotes, or multiple words, it's likely a function call
-	for _, ch := range content {
-		if ch == ',' || ch == '"' || ch == ' ' {
-			return false
-		}
-	}
-
-	return true
+	return false
 }
 
 // isModifier checks if the current position starts a modifier like (copy)
@@ -635,7 +805,15 @@ func (l *Lexer) readModifier() Token {
 		l.readChar() // consume ')'
 	}
 
-	tokenType := LookupModifier(word)
+	// Determine token type
+	var tokenType TokenType
+	if modifierType, ok := modifiers[word]; ok {
+		tokenType = modifierType
+	} else if strings.HasPrefix(strings.TrimSpace(word), "reset ") {
+		tokenType = RESET
+	} else {
+		tokenType = IDENT
+	}
 
 	return Token{
 		Type:     tokenType,
@@ -661,12 +839,31 @@ func (l *Lexer) ContainsPattern(pattern string) bool {
 	return false
 }
 
-// isLetter checks if a character is a letter
+// EndsWithPattern checks if the remaining input ends with a specific pattern
+func (l *Lexer) EndsWithPattern(pattern string) bool {
+	remaining := l.input[l.position:]
+
+	// Find the end of the current statement (newline or EOF)
+	statementEnd := len(remaining)
+	for i, ch := range remaining {
+		if ch == '\n' {
+			statementEnd = i
+			break
+		}
+	}
+
+	// Check if the statement ends with the pattern
+	statement := remaining[:statementEnd]
+	return len(statement) >= len(pattern) && statement[len(statement)-len(pattern):] == pattern
+}
+
+// isLetter checks if a character is a letter (including Unicode letters)
 func isLetter(ch rune) bool {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_'
+	return unicode.IsLetter(ch) || ch == '_'
 }
 
 // isDigit checks if a character is a digit
 func isDigit(ch rune) bool {
 	return ch >= '0' && ch <= '9'
 }
+
