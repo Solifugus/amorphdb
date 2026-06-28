@@ -109,29 +109,29 @@ func (s *Scope) Update(name string, value interface{}) {
 
 // Interpreter executes MBL programs against the storage engine
 type Interpreter struct {
-	scope           *Scope
-	currentScopePath []string      // Current scope path for relative references (resolved form, e.g. ["world","agent","1001","utilities"])
+	scope            *Scope
+	currentScopePath []string // Current scope path for relative references (resolved form, e.g. ["world","agent","1001","utilities"])
 	// currentScopePathRaw mirrors currentScopePath but preserves the
 	// unresolved form the user wrote (e.g. ["my","utilities"]). Used by
 	// type-first procedure binding so registry keys match the
 	// user-typed call path. A nil value indicates no scope is set
 	// (REPL or top-of-program).
 	currentScopePathRaw []string
-	errors          []string      // Accumulated errors during execution
-	commitBuffer    *CommitBuffer // Staged writes for batched commit
-	coordinator     *CommitCoordinator // Optional coordinator for cross-execution batching
+	errors              []string           // Accumulated errors during execution
+	commitBuffer        *CommitBuffer      // Staged writes for batched commit
+	coordinator         *CommitCoordinator // Optional coordinator for cross-execution batching
 	// procedures holds *Procedure values bound at a path. Keyed by the
 	// pre-resolution joined path string (e.g. "my.functions.triple"),
 	// matching the lookup form used by evalCallExpression. Procedures
 	// cannot be persisted into the temporal storage tree because
 	// types.CreateValue does not know about *Procedure, so they live
 	// in this in-process registry until that gap is closed.
-	procedures      map[string]*Procedure
+	procedures map[string]*Procedure
 	// watchers holds *Watcher values bound at a path. Keyed by the
 	// resolved joined path (e.g. "world.agent.1001.balance_check"),
 	// matching the form used by bindWatcherAtPath. Like procedures,
 	// watchers cannot currently be persisted into the temporal tree.
-	watchers         map[string]*Watcher
+	watchers map[string]*Watcher
 	// watcherRegistrar receives a parallel registration whenever a
 	// watcher definition is evaluated. Optional: nil disables
 	// registration but still populates i.watchers so tests can verify
@@ -142,8 +142,8 @@ type Interpreter struct {
 // New creates a new interpreter instance
 func New(tree storage.Tree, agent uint64) *Interpreter {
 	return &Interpreter{
-		scope:           NewScope(tree, agent),
-		currentScopePath: nil, // Start with no scope context
+		scope:               NewScope(tree, agent),
+		currentScopePath:    nil, // Start with no scope context
 		currentScopePathRaw: nil,
 		commitBuffer: &CommitBuffer{
 			writes: make([]PendingWrite, 0),
@@ -158,8 +158,8 @@ func New(tree storage.Tree, agent uint64) *Interpreter {
 // NewWithCoordinator creates an interpreter instance with a commit coordinator
 func NewWithCoordinator(tree storage.Tree, agent uint64, coordinator *CommitCoordinator) *Interpreter {
 	return &Interpreter{
-		scope:           NewScope(tree, agent),
-		currentScopePath: nil, // Start with no scope context
+		scope:               NewScope(tree, agent),
+		currentScopePath:    nil, // Start with no scope context
 		currentScopePathRaw: nil,
 		commitBuffer: &CommitBuffer{
 			writes: make([]PendingWrite, 0),
@@ -356,21 +356,21 @@ func (i *Interpreter) shouldRollback(unknown types.Unknown) bool {
 
 	// System/infrastructure errors always trigger rollback
 	if strings.Contains(reason, "commit buffer exceeded") ||
-	   strings.Contains(reason, "commit failed") ||
-	   strings.Contains(reason, "failed to read path") ||
-	   strings.Contains(reason, "failed to write path") ||
-	   strings.Contains(reason, "storage error") ||
-	   strings.Contains(reason, "parse error") ||
-	   strings.Contains(reason, "interpreter error") {
+		strings.Contains(reason, "commit failed") ||
+		strings.Contains(reason, "failed to read path") ||
+		strings.Contains(reason, "failed to write path") ||
+		strings.Contains(reason, "storage error") ||
+		strings.Contains(reason, "parse error") ||
+		strings.Contains(reason, "interpreter error") {
 		return true
 	}
 
 	// Unhandled function calls and similar runtime errors should trigger rollback
 	// when they escape as the final result (not when assigned/handled)
 	if strings.Contains(reason, "unknown function") ||
-	   strings.Contains(reason, "undefined_function") ||
-	   strings.Contains(reason, "unsupported statement type") ||
-	   strings.Contains(reason, "unsupported expression type") {
+		strings.Contains(reason, "undefined_function") ||
+		strings.Contains(reason, "unsupported statement type") ||
+		strings.Contains(reason, "unsupported expression type") {
 		return true
 	}
 
@@ -734,10 +734,10 @@ func (i *Interpreter) evalPath(node *parser.PathExpression) interface{} {
 
 			// Check if this looks like a shell command (for run function)
 			isShellCommand := strings.Contains(argument, " ") ||
-							 strings.Contains(argument, "echo") ||
-							 strings.Contains(argument, "ls") ||
-							 strings.Contains(argument, "pwd") ||
-							 strings.Contains(argument, "cat")
+				strings.Contains(argument, "echo") ||
+				strings.Contains(argument, "ls") ||
+				strings.Contains(argument, "pwd") ||
+				strings.Contains(argument, "cat")
 
 			if isShellCommand {
 				// This looks like a shell command, treat it as run("command")
@@ -1688,9 +1688,9 @@ func (i *Interpreter) evalProcedureExpression(node *parser.ProcedureExpression) 
 
 // evalDefinitionStatement evaluates definitions of the form
 //
-//   procedure double(x): return x * 2          (type-first; AST built in Step 2.1)
-//   my.functions.triple: procedure(x): ...      (path-first procedure)
-//   my.constant: 42                             (path-first non-procedure value)
+//	procedure double(x): return x * 2          (type-first; AST built in Step 2.1)
+//	my.functions.triple: procedure(x): ...      (path-first procedure)
+//	my.constant: 42                             (path-first non-procedure value)
 //
 // Procedure values are bound via bindProcedureAtPath. Non-procedure values
 // are routed through evalAssignment so existing path-based storage logic
@@ -1849,14 +1849,14 @@ func (p *Procedure) Call(interpreter *Interpreter, args []interface{}) interface
 // parallel registration so the heartbeat engine can fire the body
 // when watched paths change.
 type Watcher struct {
-	Name        string                  // Watcher's bound name (last path segment)
-	BindPath    []string                // Resolved storage path where the watcher is bound
-	Watching    []string                // Resolved dotted paths being observed
-	IsAppend    bool                    // True for `watch name append(p) as binding:`
-	BindingName string                  // Name that receives appended items in the body (append form)
-	Filters     []parser.Expression     // Predicate filters from `append(p[expr]) as ...`
-	Body        *parser.BlockStatement  // Parsed body
-	Closure     *Scope                  // Lexical scope captured at definition
+	Name        string                 // Watcher's bound name (last path segment)
+	BindPath    []string               // Resolved storage path where the watcher is bound
+	Watching    []string               // Resolved dotted paths being observed
+	IsAppend    bool                   // True for `watch name append(p) as binding:`
+	BindingName string                 // Name that receives appended items in the body (append form)
+	Filters     []parser.Expression    // Predicate filters from `append(p[expr]) as ...`
+	Body        *parser.BlockStatement // Parsed body
+	Closure     *Scope                 // Lexical scope captured at definition
 }
 
 // Fire executes the watcher body in the captured closure scope. For
@@ -1900,8 +1900,8 @@ func (i *Interpreter) SetWatcherRegistrar(r WatcherRegistrar) {
 
 // evalWatchStatement evaluates a type-first watcher definition
 //
-//   watch name(paths): body
-//   watch name append(path) as binding: body
+//	watch name(paths): body
+//	watch name append(path) as binding: body
 //
 // Resolves the watched paths through the standard `my`/`world` rules,
 // builds a binding path of <currentScopePath>.<name> (or my.<name>
@@ -2201,7 +2201,6 @@ func (i *Interpreter) evalCallExpression(node *parser.CallExpression) interface{
 			return unknown
 		}
 	}
-
 
 	// Check for built-in functions first
 	switch functionName {
@@ -3007,6 +3006,16 @@ func (i *Interpreter) evalProjectionExpression(node *parser.ProjectionExpression
 	// Projections work on records - check if base is a record
 	record, ok := base.(types.Record)
 	if !ok {
+		// The base did not resolve to an in-memory record. If the projection
+		// target is a storage path (e.g. `my.user{ name, email }`), the record's
+		// fields are stored as child attributes under that path. Read the
+		// requested fields directly from storage rather than reconstructing the
+		// whole record (which also lets us project a subset of a large record).
+		if pathExpr, ok := node.Left.(*parser.PathExpression); ok {
+			if projected, found := i.projectFromStoragePath(pathExpr.Parts, node.Fields); found {
+				return projected
+			}
+		}
 		return types.Unknown{Reason: fmt.Sprintf("cannot project from %T, projections require a record", base)}
 	}
 
@@ -3026,9 +3035,60 @@ func (i *Interpreter) evalProjectionExpression(node *parser.ProjectionExpression
 	return types.Record{Fields: projectedFields}
 }
 
+// projectFromStoragePath builds a projected record by reading each requested
+// field as a child attribute of the given path. Record assignment to a path
+// stores each field at path+fieldName (see evalAssignment), so a projection
+// over a stored record reads those child paths directly. It returns the
+// projected record and true if the base path holds at least one of the
+// requested fields; otherwise it returns false so the caller can report the
+// original "not a record" error.
+func (i *Interpreter) projectFromStoragePath(baseParts []string, fields []string) (types.Record, bool) {
+	resolvedBase := i.resolvePath(baseParts)
+	projectedFields := make(map[string]interface{})
+	foundAny := false
+
+	for _, fieldName := range fields {
+		fieldPath := make([]string, len(resolvedBase)+1)
+		copy(fieldPath, resolvedBase)
+		fieldPath[len(resolvedBase)] = fieldName
+
+		// Staged (uncommitted) writes take precedence over committed storage.
+		if stagedValue := i.getStagedWrite(fieldPath); stagedValue != nil {
+			if mblValue, err := storageToMBL(*stagedValue); err == nil && !isNothing(mblValue) {
+				projectedFields[fieldName] = convertToMBLType(mblValue)
+				foundAny = true
+				continue
+			}
+		}
+
+		// A successful read of an absent path yields Nothing (storage returns
+		// Nothing rather than erroring for unset attributes), so an empty/Nothing
+		// result counts as field-absent, not field-present.
+		if storageValue, err := i.scope.tree.Read(fieldPath); err == nil {
+			if mblValue, err := storageToMBL(storageValue); err == nil && !isNothing(mblValue) {
+				projectedFields[fieldName] = convertToMBLType(mblValue)
+				foundAny = true
+				continue
+			}
+		}
+
+		// Field absent from the stored record - mirror the in-memory behavior.
+		projectedFields[fieldName] = types.Unknown{Reason: "not_found"}
+	}
+
+	return types.Record{Fields: projectedFields}, foundAny
+}
+
+// isNothing reports whether an MBL value represents the absence of a value.
+// Storage returns Nothing for unset attributes, so callers use this to treat a
+// Nothing read as "field not present".
+func isNothing(value interface{}) bool {
+	_, ok := value.(types.Nothing)
+	return ok
+}
+
 func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interface{} {
 	fields := make(map[string]interface{})
-
 
 	// Handle new Fields structure if available
 	if len(node.Fields) > 0 {
@@ -3046,7 +3106,6 @@ func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interf
 				if unknown, ok := keyResult.(types.Unknown); ok {
 					return unknown
 				}
-
 
 				// Convert key to string
 				if text, ok := keyResult.(types.Text); ok {
@@ -3083,26 +3142,26 @@ func (i *Interpreter) evalRecordExpression(node *parser.RecordExpression) interf
 						// Store both the value and reset expression
 						// This will be handled during inheritance
 						value = map[string]interface{}{
-							"value": value,
+							"value":  value,
 							"@reset": resetValue,
 						}
 					} else {
 						// Simple reset without expression
 						value = map[string]interface{}{
-							"value": value,
+							"value":  value,
 							"@reset": true,
 						}
 					}
 				case "exclude":
 					// Exclude modifier - mark for exclusion from inheritance
 					value = map[string]interface{}{
-						"value": value,
+						"value":    value,
 						"@exclude": true,
 					}
 				case "link", "copy":
 					// Store modifier for inheritance processing
 					value = map[string]interface{}{
-						"value": value,
+						"value":    value,
 						"@inherit": *field.Modifier,
 					}
 				default:
@@ -4591,7 +4650,6 @@ func (i *Interpreter) reconstructTemplateRecord(basePath []string) interface{} {
 	return nil
 }
 
-
 // evalParseJsonFunction parses JSON text and returns a tree structure
 func (i *Interpreter) evalParseJsonFunction(args []interface{}) interface{} {
 	if len(args) != 1 {
@@ -4739,7 +4797,7 @@ func (i *Interpreter) evalHttpGetFunction(args []interface{}) interface{} {
 
 	// Parse options if provided
 	timeout := 30000 * time.Millisecond // default 30 seconds
-	followRedirects := true            // default true
+	followRedirects := true             // default true
 	var headers map[string]string
 
 	if len(args) == 2 {
@@ -4885,7 +4943,7 @@ func (i *Interpreter) evalHttpPostFunction(args []interface{}) interface{} {
 
 	// Parse options if provided
 	timeout := 30000 * time.Millisecond // default 30 seconds
-	followRedirects := true            // default true
+	followRedirects := true             // default true
 	var headers map[string]string
 
 	if len(args) == 3 {
@@ -5031,7 +5089,7 @@ func (i *Interpreter) evalHttpPutFunction(args []interface{}) interface{} {
 
 	// Parse options if provided
 	timeout := 30000 * time.Millisecond // default 30 seconds
-	followRedirects := true            // default true
+	followRedirects := true             // default true
 	var headers map[string]string
 
 	if len(args) == 3 {
@@ -5177,7 +5235,7 @@ func (i *Interpreter) evalHttpPatchFunction(args []interface{}) interface{} {
 
 	// Parse options if provided
 	timeout := 30000 * time.Millisecond // default 30 seconds
-	followRedirects := true            // default true
+	followRedirects := true             // default true
 	var headers map[string]string
 
 	if len(args) == 3 {
@@ -5313,7 +5371,7 @@ func (i *Interpreter) evalHttpDeleteFunction(args []interface{}) interface{} {
 
 	// Parse options if provided
 	timeout := 30000 * time.Millisecond // default 30 seconds
-	followRedirects := true            // default true
+	followRedirects := true             // default true
 	var headers map[string]string
 
 	if len(args) == 2 {

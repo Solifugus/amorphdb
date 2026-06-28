@@ -3405,6 +3405,50 @@ func TestTypeFirstProcedureEvaluation(t *testing.T) {
 	})
 }
 
+// TestSameLineDefinitionsEvaluation verifies that same-line definitions
+// (docs/amorphdb_design.md §Same-Line Definitions) not only parse but execute
+// end-to-end: a same-line procedure body is callable, a same-line value
+// definition stores and reads back, and semicolon-separated definitions each
+// take effect independently.
+func TestSameLineDefinitionsEvaluation(t *testing.T) {
+	t.Run("same-line procedure body is callable", func(t *testing.T) {
+		tree := &MockTree{data: make(map[string]storage.Value)}
+		interp := New(tree, 1001)
+
+		evalCode(t, interp, "double(x): return x * 2")
+		got := evalCode(t, interp, "double(21)")
+		if !compareValues(got, types.Number{Value: 42}) {
+			t.Errorf("double(21): expected 42, got %v (%T)", got, got)
+		}
+	})
+
+	t.Run("same-line value definition stores and reads back", func(t *testing.T) {
+		tree := &MockTree{data: make(map[string]storage.Value)}
+		interp := New(tree, 1001)
+
+		evalCode(t, interp, "my.config.host: \"localhost\"")
+		got := evalCode(t, interp, "my.config.host")
+		if !compareValues(got, types.Text{Value: "localhost"}) {
+			t.Errorf("my.config.host: expected \"localhost\", got %v (%T)", got, got)
+		}
+	})
+
+	t.Run("semicolon-separated value definitions each take effect", func(t *testing.T) {
+		tree := &MockTree{data: make(map[string]storage.Value)}
+		interp := New(tree, 1001)
+
+		evalCode(t, interp, "my.a: 1; my.b: 2")
+		gotA := evalCode(t, interp, "my.a")
+		gotB := evalCode(t, interp, "my.b")
+		if !compareValues(gotA, types.Number{Value: 1}) {
+			t.Errorf("my.a: expected 1, got %v (%T)", gotA, gotA)
+		}
+		if !compareValues(gotB, types.Number{Value: 2}) {
+			t.Errorf("my.b: expected 2, got %v (%T)", gotB, gotB)
+		}
+	})
+}
+
 // recordingRegistrar captures the calls made by the interpreter to a
 // WatcherRegistrar so tests can verify the parameters that would be
 // forwarded to a real watcher.WatcherEngine.

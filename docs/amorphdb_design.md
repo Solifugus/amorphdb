@@ -94,8 +94,6 @@ a replacement:
         host: "localhost"
         port: 5432
 
-> 🚧 **Same-line definitions are not yet implemented.**
-
 ### Recursive Assignment
 
 Assigning to a path whose intermediate nodes do not yet exist automatically

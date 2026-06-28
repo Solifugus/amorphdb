@@ -137,7 +137,8 @@ Use this as a quick reference. The spec documents have full detail.
 - Quiet assignment `(quietly)`
 - Heartbeat atomicity and staged write model
 - Record literal assignment (`x = { name: "...", age: 55 }`)
-- Projection syntax (`path{ name, age }`)
+- Projection syntax (`path{ name, age }`) — including projection over a stored path
+- Same-line definitions (`name: value; name: value`, `double(x): return x * 2`)
 - Heritability and instantiation (`new()` with copy/link/reset/exclude)
 - Catch/else unknown error handling
 - `(cascade)` scope modifier (parser + basic resolution)
@@ -164,7 +165,6 @@ Use this as a quick reference. The spec documents have full detail.
   integration tests)
 
 ### 🚧 Specified but Not Yet Implemented
-- Same-line definitions (`name: value; name: value`)
 - Recursive assignment (auto-create intermediate nodes)
 - Wildcard projections (`{ price_of_* }`, `{ * }`, `{ *, not field }`)
 - Embed keyword in record bodies (`embed my.record`)

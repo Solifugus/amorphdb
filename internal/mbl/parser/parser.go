@@ -274,7 +274,7 @@ func (p *Parser) decrementRecursionDepth() {
 func (p *Parser) hasCriticalError() bool {
 	for _, err := range p.errors {
 		if strings.Contains(err, "maximum recursion depth") ||
-		   strings.Contains(err, "maximum node count") {
+			strings.Contains(err, "maximum node count") {
 			return true
 		}
 	}
@@ -458,10 +458,21 @@ func (p *Parser) looksLikePathAssignment() bool {
 		return true
 	}
 
+	// Same-line value definition over a multi-segment path:
+	//     my.config.host: "localhost"
+	// is an assignment. Procedure definitions (`my.func: procedure(...)`) are
+	// already routed to parseDefinitionStatement before reaching here, and watch
+	// definitions go to the watch-statement parser, so exclude both.
+	if p.lexer.ContainsPattern(": ") &&
+		!p.lexer.ContainsPattern("procedure") &&
+		!p.lexer.ContainsPattern("watch") {
+		return true
+	}
+
 	// Use the existing ContainsPattern method to look for assignment patterns
 	// Check for = operators after a path pattern (: is for definitions, not assignments)
 	return p.lexer.ContainsPattern(" = ") ||
-		   p.lexer.ContainsPattern("= ")
+		p.lexer.ContainsPattern("= ")
 }
 
 // isProcedureDefinition checks if the current statement is a procedure definition
@@ -528,8 +539,8 @@ func (p *Parser) isScopeStatement() bool {
 
 	// Scope statements must contain ".:" pattern (with body) or end with "." (simple scope set)
 	// Use lexer lookahead to find these patterns
-	return p.lexer.ContainsPattern(".:") ||      // scope with body
-		p.lexer.ContainsPattern(".\n:") ||    // multi-line scope with body
+	return p.lexer.ContainsPattern(".:") || // scope with body
+		p.lexer.ContainsPattern(".\n:") || // multi-line scope with body
 		p.lexer.EndsWithPattern(".") && !p.lexer.ContainsPattern("[") // scope set (but not bracket filters)
 }
 
@@ -588,7 +599,6 @@ func (p *Parser) parseScopeStatement() Statement {
 	return stmt
 }
 
-
 // isDefinition checks if the current statement is a definition (using : colon)
 func (p *Parser) isDefinition() bool {
 	// Check for identifier or path-starting keywords first
@@ -604,22 +614,49 @@ func (p *Parser) isDefinition() bool {
 		return false
 	}
 
-	// If next token is immediate definition, check if this looks like a path definition
-	if p.peekToken.Type == lexer.DEFINE {
-		// A watch statement (name: watch ...) is not a definition; let the
-		// watch-statement parser handle it. Mirrors the guard in
-		// isSimpleAssignment so dispatch order can't swallow watch statements.
-		if p.lexer.ContainsPattern("watch") {
-			return false
-		}
-		return true
+	// A name followed by "(" is either a same-line procedure definition
+	// (`double(x): return x * 2`) or a function call — both handled elsewhere
+	// (isProcedureDefinition / expression parsing), never a path definition.
+	if p.peekToken.Type == lexer.LPAREN {
+		return false
 	}
 
-	// For paths like my.var: value, we need to scan ahead carefully
-	// Look for colon followed by space (definition syntax)
-	return p.lexer.ContainsPattern(": ") && !p.lexer.ContainsPattern("= ")
-}
+	// A path-first definition binds a procedure or watcher to a path, or applies
+	// a heritability modifier:
+	//     my.func:    procedure(x): return x * 2
+	//     my.watcher: watch(path): ...
+	//     x:(copy) = value
+	// A colon followed by a plain value, by contrast, is a same-line value
+	// assignment that parseAssignmentStatement handles as an AssignmentStatement:
+	//     my.config.host: "localhost"
+	//     my.a: 1; my.b: 2
+	rhsIsProcedure := p.lexer.ContainsPattern("procedure")
+	rhsIsWatch := p.lexer.ContainsPattern("watch")
 
+	if p.peekToken.Type == lexer.DEFINE {
+		// Single-segment `name: ...`. A watcher definition here is dispatched to
+		// the watch-statement parser (isWatchStatement), so it is not a
+		// DefinitionStatement; everything else with a procedure RHS or an
+		// immediately-following modifier `:(...)` is.
+		if rhsIsWatch {
+			return false
+		}
+		if rhsIsProcedure {
+			return true
+		}
+		// A modifier follows the colon with no space (`x:(copy)`); a plain value
+		// follows with a space (`x: 5`). The former is a definition.
+		return !p.lexer.ContainsPattern(": ")
+	}
+
+	// Multi-segment path (`my.x ...`): the right-hand side decides. Procedure and
+	// watcher bodies are definitions; a plain value is a same-line assignment.
+	if p.lexer.ContainsPattern(": ") && !p.lexer.ContainsPattern("= ") {
+		return rhsIsProcedure || rhsIsWatch
+	}
+
+	return false
+}
 
 // parseAssignmentStatement parses variable assignments
 func (p *Parser) parseAssignmentStatement() Statement {
@@ -1634,7 +1671,6 @@ func (p *Parser) parseUnknownLiteral() Expression {
 	}
 }
 
-
 // parseAnythingLiteral parses Anything literal
 func (p *Parser) parseAnythingLiteral() Expression {
 	return &LiteralExpression{
@@ -1951,10 +1987,10 @@ func (p *Parser) parseCollectionOperation(left Expression) Expression {
 		methodName := p.currentToken.Literal
 
 		expr := &CollectionOperationExpression{
-			Token:      p.currentToken,
-			Object:     left,
-			Method:     methodName,
-			Arguments:  []Expression{},
+			Token:     p.currentToken,
+			Object:    left,
+			Method:    methodName,
+			Arguments: []Expression{},
 		}
 
 		// Check if this method has arguments (remove, combine do; count doesn't)
@@ -2088,8 +2124,8 @@ func (p *Parser) parseFilterExpression() Expression {
 // parseProjectionExpression parses projection expressions like path{ name, age, job }
 func (p *Parser) parseProjectionExpression(left Expression) Expression {
 	exp := &ProjectionExpression{
-		Token: p.currentToken, // LBRACE token
-		Left:  left,
+		Token:  p.currentToken, // LBRACE token
+		Left:   left,
 		Fields: []string{},
 	}
 
@@ -2271,7 +2307,7 @@ func (p *Parser) parseScopeRelativeExpression() Expression {
 
 	// Build a path expression starting with "."
 	pe := &PathExpression{Token: p.currentToken}
-	pe.Parts = []string{""}  // Empty string represents the leading dot
+	pe.Parts = []string{""} // Empty string represents the leading dot
 
 	p.nextToken() // move to identifier
 	pe.Parts = append(pe.Parts, p.currentToken.Literal)
@@ -2415,7 +2451,6 @@ func (p *Parser) parseProcedureExpression() Expression {
 
 	return pe
 }
-
 
 // parseScopeRelativeAssignment parses assignments to scope-relative references like ".local.variable = 5"
 func (p *Parser) parseScopeRelativeAssignment() Statement {
