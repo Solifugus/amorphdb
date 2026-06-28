@@ -157,6 +157,53 @@ func TestPermissionEvaluator_PermissionCascade(t *testing.T) {
 	}
 }
 
+// TestPermissionEvaluator_TreeAdapterGrantRoundTrip is the regression guard for
+// the production storage.TreeAdapter. The other explicit-permission tests use
+// storage.NewMemoryTree(), which has always round-tripped its hash-keyed
+// metadata; the TreeAdapter used by the live daemon previously faked that
+// metadata with dummy paths and silently dropped every grant, so a granted
+// world.* @write was never honored over the protocol. This test exercises the
+// real adapter end-to-end: world.* write is denied by default, allowed after an
+// explicit grant, and unrelated world.* paths stay denied.
+func TestPermissionEvaluator_TreeAdapterGrantRoundTrip(t *testing.T) {
+	st, err := storage.NewStorageTree(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStorageTree failed: %v", err)
+	}
+	tree := storage.NewTreeAdapter(st)
+	evaluator := NewPermissionEvaluator(tree)
+
+	agent := &Agent{
+		Identity: "kalevo",
+		Stamp:    map[string]interface{}{},
+		Tree:     tree,
+		AgentID:  12345,
+	}
+
+	grantedPath := []string{"world", "projects", "alpha"}
+	otherPath := []string{"world", "projects", "beta"}
+
+	// Default: world.* write is closed.
+	if evaluator.CanWrite(agent, grantedPath) {
+		t.Fatalf("expected world.projects.alpha write to be denied by default")
+	}
+
+	// Grant write on the path.
+	if err := evaluator.SetPermission(grantedPath, WritePermission, types.Text{Value: "(Anything)"}, agent.AgentID); err != nil {
+		t.Fatalf("SetPermission failed: %v", err)
+	}
+
+	// The grant must now be honored via the production adapter's round-trip.
+	if !evaluator.CanWrite(agent, grantedPath) {
+		t.Errorf("expected world.projects.alpha write to be allowed after explicit grant")
+	}
+
+	// An unrelated world.* path must remain denied (grant did not leak).
+	if evaluator.CanWrite(agent, otherPath) {
+		t.Errorf("expected world.projects.beta write to remain denied (no grant)")
+	}
+}
+
 func TestAgent_GetProperty(t *testing.T) {
 	agent := &Agent{
 		Identity: "kalevo",

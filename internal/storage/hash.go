@@ -58,14 +58,30 @@ type ExtendedTree interface {
 	ResolveAttributePath(attributeID uint64) (string, error) // For extract operations
 }
 
-// TreeAdapter adapts a regular Tree to ExtendedTree interface
+// TreeAdapter adapts a regular Tree to ExtendedTree interface.
+//
+// Path-based data (Read/Write/ReadAt/Children/Purge) is delegated to the
+// underlying Tree. The hash-keyed security metadata (instances and values used
+// by permissions, stamps, and filters) is held in dedicated maps so that
+// PutInstance/GetInstance and PutValue/GetValue round-trip faithfully — a value
+// stored by hash can be read back by that same hash, and an instance stored for
+// a (attribute, agent) pair can be retrieved for that same pair. Earlier this
+// metadata was faked with dummy paths and never round-tripped, which silently
+// dropped every permission grant, stamp, and filter the daemon stored.
 type TreeAdapter struct {
-	tree Tree
+	tree      Tree
+	instances map[InstanceKey]SecurityInstance // Agent-scoped instance metadata
+	values    map[Hash][]byte                  // Hash-keyed value metadata
+	mu        sync.RWMutex                     // Protects instances and values
 }
 
 // NewTreeAdapter creates a new tree adapter
 func NewTreeAdapter(tree Tree) ExtendedTree {
-	return &TreeAdapter{tree: tree}
+	return &TreeAdapter{
+		tree:      tree,
+		instances: make(map[InstanceKey]SecurityInstance),
+		values:    make(map[Hash][]byte),
+	}
 }
 
 // Delegate Tree interface methods to underlying tree
@@ -90,57 +106,60 @@ func (ta *TreeAdapter) Purge(path []string, from int64, to int64, author uint64)
 }
 
 // Extended methods for security package
+
+// GetInstance retrieves the security instance previously stored for the given
+// attribute hash and agent. It returns an error (not a zero value) when no
+// instance has been stored, so callers correctly fall back to default
+// permission/stamp/filter behavior when nothing is set.
 func (ta *TreeAdapter) GetInstance(attrHash Hash, agentID uint64) (SecurityInstance, error) {
-	// For now, simulate getting an instance by converting hash to path
-	// This is a simplified implementation - in a full implementation,
-	// we would need to extend the storage engine to support hash-based lookups
+	ta.mu.RLock()
+	defer ta.mu.RUnlock()
 
-	// Convert hash to a dummy path for lookup
-	path := []string{fmt.Sprintf("hash_%x", attrHash[:8])}
-
-	value, err := ta.tree.Read(path)
-	if err != nil {
-		return SecurityInstance{}, fmt.Errorf("instance not found: %w", err)
+	key := InstanceKey{Hash: attrHash, AgentID: agentID}
+	if instance, exists := ta.instances[key]; exists {
+		return instance, nil
 	}
-
-	// Create a dummy instance structure
-	return SecurityInstance{
-		AttributeHash: attrHash,
-		ValueHash:     HashValue(value.Data),
-		Agent:         agentID,
-		Timestamp:     GetCurrentTimestamp(),
-	}, nil
+	return SecurityInstance{}, fmt.Errorf("instance not found for hash %x and agent %d", attrHash[:8], agentID)
 }
 
+// GetValue retrieves the value bytes previously stored under the given value
+// hash, returning an error when none exists.
 func (ta *TreeAdapter) GetValue(valueHash Hash) ([]byte, error) {
-	// In a simplified implementation, we'll return a dummy value
-	// A full implementation would need hash-to-value lookup in the value store
-	return []byte(fmt.Sprintf("value_for_hash_%x", valueHash[:8])), nil
+	ta.mu.RLock()
+	defer ta.mu.RUnlock()
+
+	if value, exists := ta.values[valueHash]; exists {
+		// Return a copy so callers cannot mutate the stored bytes.
+		out := make([]byte, len(value))
+		copy(out, value)
+		return out, nil
+	}
+	return nil, fmt.Errorf("value not found for hash %x", valueHash[:8])
 }
 
+// PutValue stores value bytes keyed by their hash so they can be retrieved by
+// GetValue with the same hash.
 func (ta *TreeAdapter) PutValue(valueHash Hash, value []byte) error {
-	// Store the value using a hash-based path
-	path := []string{"values", fmt.Sprintf("hash_%x", valueHash[:8])}
-	storageValue := Value{
-		Data:    value,
-		TypeTag: TypeText, // Store as text for simplicity
-	}
-	return ta.tree.Write(path, storageValue, 1000) // Use system agent ID
+	ta.mu.Lock()
+	defer ta.mu.Unlock()
+
+	stored := make([]byte, len(value))
+	copy(stored, value)
+	ta.values[valueHash] = stored
+	return nil
 }
 
+// PutInstance stores instance metadata keyed by (attribute hash, agent) so it
+// can be retrieved by GetInstance with the same pair. The agent component comes
+// from instance.Agent — permissions and hierarchical stamps store under agent 0
+// (global), while personal stamps and filters store under the owning agent.
 func (ta *TreeAdapter) PutInstance(attrHash Hash, instance SecurityInstance) error {
-	// Store the instance metadata using a hash-based path
-	path := []string{"instances", fmt.Sprintf("hash_%x", attrHash[:8])}
+	ta.mu.Lock()
+	defer ta.mu.Unlock()
 
-	// Serialize instance data
-	instanceData := fmt.Sprintf("agent=%d,timestamp=%d,value_hash=%x",
-		instance.Agent, instance.Timestamp, instance.ValueHash[:8])
-
-	storageValue := Value{
-		Data:    []byte(instanceData),
-		TypeTag: TypeText,
-	}
-	return ta.tree.Write(path, storageValue, instance.Agent)
+	key := InstanceKey{Hash: attrHash, AgentID: instance.Agent}
+	ta.instances[key] = instance
+	return nil
 }
 
 func (ta *TreeAdapter) ResolveAttributePath(attributeID uint64) (string, error) {
@@ -159,10 +178,10 @@ type InstanceKey struct {
 
 // MemoryTree is an in-memory implementation of ExtendedTree for testing
 type MemoryTree struct {
-	data      map[string]Value                    // Path-based data storage
-	instances map[InstanceKey]SecurityInstance   // Agent-scoped instance storage
-	values    map[Hash][]byte                    // Hash-based value storage
-	mu        sync.RWMutex                       // Thread safety
+	data      map[string]Value                 // Path-based data storage
+	instances map[InstanceKey]SecurityInstance // Agent-scoped instance storage
+	values    map[Hash][]byte                  // Hash-based value storage
+	mu        sync.RWMutex                     // Thread safety
 }
 
 // NewMemoryTree creates a new in-memory tree for testing
