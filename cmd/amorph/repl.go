@@ -102,16 +102,52 @@ func (r *REPL) Start() {
 			continue // Empty input, show prompt again
 		}
 
+		// Check for display hints before executing
+		displayHint, cleanInput := r.parseDisplayHint(input)
+
 		// Execute MBL statement
-		result := r.execute(input)
+		result := r.executeWithHint(cleanInput, displayHint)
 		if result != "" {
 			fmt.Println(result)
 		}
 	}
 }
 
-// execute processes MBL input through the lexer→parser→interpreter pipeline
-func (r *REPL) execute(input string) string {
+// DisplayHint represents formatting hints for REPL output
+type DisplayHint string
+
+const (
+	DisplayAuto  DisplayHint = "auto"  // Auto-inferred based on data structure
+	DisplayTree  DisplayHint = "tree"  // Force tree view (indented hierarchy)
+	DisplayTable DisplayHint = "table" // Force table view
+	DisplayList  DisplayHint = "list"  // Force list view (one item per line)
+)
+
+// parseDisplayHint extracts display hint from input and returns clean input
+func (r *REPL) parseDisplayHint(input string) (DisplayHint, string) {
+	trimmed := strings.TrimSpace(input)
+
+	// Look for " :hint" pattern at the end of the input
+	// Use regex or simple string matching to find " :tree", " :table", " :list"
+	if strings.Contains(trimmed, " :tree") && strings.HasSuffix(trimmed, " :tree") {
+		cleanInput := strings.TrimSpace(strings.TrimSuffix(trimmed, " :tree"))
+		return DisplayTree, cleanInput
+	}
+	if strings.Contains(trimmed, " :table") && strings.HasSuffix(trimmed, " :table") {
+		cleanInput := strings.TrimSpace(strings.TrimSuffix(trimmed, " :table"))
+		return DisplayTable, cleanInput
+	}
+	if strings.Contains(trimmed, " :list") && strings.HasSuffix(trimmed, " :list") {
+		cleanInput := strings.TrimSpace(strings.TrimSuffix(trimmed, " :list"))
+		return DisplayList, cleanInput
+	}
+
+	// No display hint found - use auto-inferred formatting
+	return DisplayAuto, input
+}
+
+// executeWithHint processes MBL input with a display hint
+func (r *REPL) executeWithHint(input string, hint DisplayHint) string {
 	// 1. Tokenize input with MBL lexer
 	l := lexer.New(input)
 
@@ -130,8 +166,17 @@ func (r *REPL) execute(input string) string {
 		return fmt.Sprintf("Runtime Error: %v", err)
 	}
 
-	// 4. Format result for user display
-	return r.formatResult(result)
+	// 4. Format result with display hint
+	return r.formatResultWithHint(result, hint)
+}
+
+// execute processes MBL input through the lexer→parser→interpreter pipeline
+func (r *REPL) execute(input string) string {
+	// Check for display hints first
+	displayHint, cleanInput := r.parseDisplayHint(input)
+
+	// Use executeWithHint to handle the cleaned input
+	return r.executeWithHint(cleanInput, displayHint)
 }
 
 // formatParseErrors formats parser errors for user display

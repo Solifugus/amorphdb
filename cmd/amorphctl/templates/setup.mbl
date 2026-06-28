@@ -1,0 +1,52 @@
+# AmorphDB PWA — myapp Setup
+#
+# Initializes the app's data structure and defines the per-user watcher
+# registration procedure called by the reference signup watcher
+# (auth/signup.mbl).
+#
+# `amorphctl init-pwa` generates this file. Edit it to fit the
+# application — token lifetime, per-user watchers, app-wide watchers
+# and procedures all live here.
+#
+# After deployment the app subtree looks like:
+#   world.apps.myapp.app       - shared UI configuration
+#   world.apps.myapp.auth      - app-defined credentials
+#   world.apps.myapp.tokens    - active auth tokens
+#   world.apps.myapp.devices   - pre-auth browser connections
+#   world.apps.myapp.users     - per-user data subtrees
+
+# Token lifetime in seconds. 0 disables expiry.
+# 604800 = 7 days.
+world.apps.myapp.app._token_ttl = 604800
+
+# my.app.setup_user_watchers is called by auth/signup.mbl after a new
+# user is created and their data subtree (world.apps.myapp.users[username])
+# is materialized, but before the auto-login token is issued. Register
+# per-user watchers here so each user's reactive logic is live by the
+# time their first authenticated request arrives.
+#
+# A typical pattern: a logout watcher that removes the user's tokens
+# when they signal logout intent. Replace or extend with app-specific
+# behavior as the application grows.
+
+procedure my.app.setup_user_watchers(username):
+
+    # Per-user logout. Removes every token whose .identity matches this
+    # user, then quietly resets the intent so the watcher does not loop.
+    # The next authenticated request from any device for this user will
+    # fail resolveAuth and the boilerplate's 401 handling (Step B5)
+    # will route the browser back to the login screen.
+    watch my.app.logout_handler[username](
+            world.apps.myapp.users[username].intent.logout):
+        if world.apps.myapp.users[username].intent.logout = true:
+            for token in world.apps.myapp.tokens:
+                if token.identity = username:
+                    token = unknown
+            world.apps.myapp.users[username].intent.logout = (quietly) false
+
+    # Add additional per-user watchers below as the app grows. Each
+    # watcher should observe paths under
+    # world.apps.myapp.users[username].* and react to user-driven
+    # intents. Use my.app.<name>[username] watcher names so each user
+    # gets a distinct, named watcher instance.
+    pass

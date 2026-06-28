@@ -284,6 +284,121 @@ z = 3`
 	}
 }
 
+func TestEnhancedBlockComments(t *testing.T) {
+	// Test all spec examples for comments
+	testCases := []struct {
+		name     string
+		input    string
+		expected []struct {
+			tokenType TokenType
+			literal   string
+		}
+	}{
+		{
+			name:  "single line comment",
+			input: `# single line comment`,
+			expected: []struct {
+				tokenType TokenType
+				literal   string
+			}{
+				{COMMENT, "# single line comment"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "code with inline comment and more code",
+			input: `code # inline comment # more code`,
+			expected: []struct {
+				tokenType TokenType
+				literal   string
+			}{
+				{IDENT, "code"},
+				{COMMENT, "# inline comment #"},
+				{IDENT, "more"},
+				{IDENT, "code"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "double hash block comment",
+			input: `## block comment spanning lines ##`,
+			expected: []struct {
+				tokenType TokenType
+				literal   string
+			}{
+				{BLOCK_COMMENT, "## block comment spanning lines ##"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "block comment with single hash inside",
+			input: `## block containing # single hash ##`,
+			expected: []struct {
+				tokenType TokenType
+				literal   string
+			}{
+				{BLOCK_COMMENT, "## block containing # single hash ##"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "triple hash block comment with double hash inside",
+			input: `### block containing ## double hash ###`,
+			expected: []struct {
+				tokenType TokenType
+				literal   string
+			}{
+				{BLOCK_COMMENT, "### block containing ## double hash ###"},
+				{EOF, ""},
+			},
+		},
+		{
+			name: "multiline block comment",
+			input: `## block comment
+spanning multiple
+lines ##`,
+			expected: []struct {
+				tokenType TokenType
+				literal   string
+			}{
+				{BLOCK_COMMENT, "## block comment\nspanning multiple\nlines ##"},
+				{EOF, ""},
+			},
+		},
+		{
+			name:  "quadruple hash block comment",
+			input: `#### four hash block ####`,
+			expected: []struct {
+				tokenType TokenType
+				literal   string
+			}{
+				{BLOCK_COMMENT, "#### four hash block ####"},
+				{EOF, ""},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := New(tc.input)
+
+			for i, expected := range tc.expected {
+				tok := l.NextToken()
+
+				if tok.Type != expected.tokenType {
+					t.Errorf("test %q - token[%d] type wrong. expected=%q, got=%q",
+						tc.name, i, expected.tokenType, tok.Type)
+				}
+
+				if tok.Literal != expected.literal {
+					t.Errorf("test %q - token[%d] literal wrong. expected=%q, got=%q",
+						tc.name, i, expected.literal, tok.Literal)
+				}
+			}
+		})
+	}
+}
+
 func TestSpaceIndentationError(t *testing.T) {
 	input := `if true:
     x = 1`  // Using spaces instead of tabs
@@ -298,12 +413,9 @@ func TestSpaceIndentationError(t *testing.T) {
 
 	tok := l.NextToken()
 
-	if tok.Type != ILLEGAL {
-		t.Fatalf("expected ILLEGAL token for space indentation, got %q", tok.Type)
-	}
-
-	if tok.Literal != "spaces not allowed in indentation, use tabs" {
-		t.Fatalf("unexpected error message: %q", tok.Literal)
+	// Spaces are now accepted for indentation (4 spaces = 1 level)
+	if tok.Type != INDENT {
+		t.Fatalf("expected INDENT token for space indentation, got %q", tok.Type)
 	}
 }
 
@@ -319,6 +431,8 @@ func TestKeywords(t *testing.T) {
 		{"in", IN},
 		{"consider", CONSIDER},
 		{"watch", WATCH},
+		{"append", APPEND},
+		{"as", AS},
 		{"return", RETURN},
 		{"pass", PASS},
 		{"new", NEW},
@@ -329,9 +443,9 @@ func TestKeywords(t *testing.T) {
 		{"false", FALSE},
 		{"my", MY},
 		{"world", WORLD},
-		{"Nothing", NOTHING},
-		{"Unknown", UNKNOWN},
-		{"Anything", ANYTHING},
+		{"nothing", NOTHING},
+		{"unknown", UNKNOWN},
+		{"anything", ANYTHING},
 	}
 
 	for _, tt := range tests {
@@ -516,5 +630,54 @@ func TestComplexIndentationExample(t *testing.T) {
 	}
 	if dedentCount != 4 {
 		t.Fatalf("expected 4 DEDENT tokens, got %d", dedentCount)
+	}
+}
+
+func TestEmbedAndSpreadTokens(t *testing.T) {
+	input := `embed my.stamp
+...my.other.stamp
+.. range syntax
+... spread syntax`
+
+	tests := []struct {
+		expectedType    TokenType
+		expectedLiteral string
+	}{
+		{EMBED, "embed"},
+		{MY, "my"},
+		{DOT, "."},
+		{IDENT, "stamp"},
+		{NEWLINE, "\n"},
+		{SPREAD, "..."},
+		{MY, "my"},
+		{DOT, "."},
+		{IDENT, "other"},
+		{DOT, "."},
+		{IDENT, "stamp"},
+		{NEWLINE, "\n"},
+		{RANGE, ".."},
+		{IDENT, "range"},
+		{IDENT, "syntax"},
+		{NEWLINE, "\n"},
+		{SPREAD, "..."},
+		{IDENT, "spread"},
+		{IDENT, "syntax"},
+		{EOF, ""},
+	}
+
+	l := New(input)
+
+	for i, tt := range tests {
+		tok := l.NextToken()
+
+		if tok.Type != tt.expectedType {
+			t.Fatalf("tests[%d] - tokentype wrong. expected=%q, got=%q",
+				i, tt.expectedType, tok.Type)
+		}
+
+		if tok.Literal != tt.expectedLiteral {
+			t.Fatalf("tests[%d] - literal wrong. expected=%q, got=%q",
+				i, tt.expectedLiteral, tok.Literal)
+		}
 	}
 }

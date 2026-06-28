@@ -11,11 +11,11 @@ import (
 
 // BridgeScope represents a resolved bridge scope for cross-mesh operations
 type BridgeScope struct {
-	MeshName     string              // Target mesh name
-	AgentHome    string              // Agent home path (world.agent.{bridge_identity})
-	LocalPath    string              // Original local path (my.partnernet.*)
-	BridgeID     string              // Bridge identity ID
-	Connection   *BridgeConnection   // Bridge connection info
+	MeshName     string               // Target mesh name
+	AgentHome    string               // Agent home path (world.agent.{bridge_identity})
+	LocalPath    string               // Original local path (my.partnernet.*)
+	BridgeID     string               // Bridge identity ID
+	Connection   *BridgeConnection    // Bridge connection info
 	PathResolver *types.PathValidator // Path validation and parsing
 }
 
@@ -28,9 +28,9 @@ type BridgeConnection struct {
 
 // BridgeScopeResolver handles resolution of bridge scopes for data access
 type BridgeScopeResolver struct {
-	bridges       map[string]*BridgeConnection  // Active bridge connections by mesh name
-	bridgeStorage *storage.BridgeStorage        // Bridge storage manager
-	pathValidator *types.PathValidator          // Path validation
+	bridges       map[string]*BridgeConnection // Active bridge connections by mesh name
+	bridgeStorage *storage.BridgeStorage       // Bridge storage manager
+	pathValidator *types.PathValidator         // Path validation
 }
 
 // NewBridgeScopeResolver creates a new bridge scope resolver
@@ -107,10 +107,10 @@ func (bsr *BridgeScopeResolver) ResolveBridgePath(pathString string) (*BridgeSco
 		return nil, fmt.Errorf("no bridge connection to mesh '%s'", meshName)
 	}
 
-	// Validate bridge status
-	if bridge.Status != "connected" {
-		return nil, fmt.Errorf("bridge to mesh '%s' is not connected (status: %s)", meshName, bridge.Status)
-	}
+	// Note: connection status is intentionally NOT checked here. Resolving a
+	// bridge path only requires that a bridge to the mesh is registered. Whether
+	// the bridge is currently usable (connected) is a separate concern enforced
+	// by BridgeScope.ValidateAccess at access time.
 
 	// Create agent home path: world.agent.{bridge_identity}
 	agentHome := fmt.Sprintf("world.agent.%s", bridge.Identity.ID)

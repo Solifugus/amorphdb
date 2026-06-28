@@ -1,0 +1,59 @@
+# Test: x ?= unknown matching semantics (Step 1.4)
+#
+# Demonstrates the `?=` operator's Unknown-matching forms:
+#   x ?= unknown            — true if x is any Unknown value
+#   x ?= unknown("reason")  — true only if x is Unknown with the same reason
+#
+# Implementation note: assigning an Unknown to a variable currently
+# short-circuits without storing (interpreter.go evalAssignment), so
+# this script uses inline unknown(...) literals on the LHS where the
+# left value must be Unknown. Stored variable assignments are used for
+# normal (non-Unknown) values, which round-trip correctly.
+
+output("=== Definite-equality (?=) Unknown matching ===")
+
+# --- bare `unknown` on the right matches any Unknown ---
+
+result1 = unknown("timeout") ?= unknown
+output("unknown(\"timeout\") ?= unknown -> ", result1)        # true
+
+result2 = unknown ?= unknown
+output("unknown ?= unknown -> ", result2)                     # true
+
+# --- bare `unknown` on the right does NOT match a non-Unknown ---
+
+result3 = 42 ?= unknown
+output("42 ?= unknown -> ", result3)                          # false
+
+result4 = "hello" ?= unknown
+output("\"hello\" ?= unknown -> ", result4)                   # false
+
+# --- reasoned `unknown("...")` on the right matches only same reason ---
+
+result5 = unknown("timeout") ?= unknown("timeout")
+output("unknown(\"timeout\") ?= unknown(\"timeout\") -> ", result5)   # true
+
+result6 = unknown("dns_failure") ?= unknown("timeout")
+output("unknown(\"dns_failure\") ?= unknown(\"timeout\") -> ", result6) # false
+
+# --- LHS Unknown vs non-Unknown RHS returns false (no propagation) ---
+
+result7 = unknown("offline") ?= 5
+output("unknown(\"offline\") ?= 5 -> ", result7)              # false
+
+# --- normal equality still works on non-Unknown values ---
+
+my.y = 42
+result8 = my.y ?= unknown
+output("my.y(=42) ?= unknown -> ", result8)                   # false
+
+result9 = my.y ?= 42
+output("my.y(=42) ?= 42 -> ", result9)                        # true
+
+result10 = my.y ?= 7
+output("my.y(=42) ?= 7 -> ", result10)                        # false
+
+result11 = "hello" ?= "hello"
+output("\"hello\" ?= \"hello\" -> ", result11)                # true
+
+output("=== End of ?= unknown matching demo ===")

@@ -26,7 +26,6 @@ The first non-whitespace character on a line determines scope resolution:
 |--------|---------|
 | `~`    | References the user's home |
 | `.`    | Reference is relative to the current scope |
-| `+`    | For textually indexed fields: overwrite. For numerically indexed fields: append |
 | ``     | Nearest matching upstream scope; otherwise behaves the same as `.` |
 
 Dot notation traverses the hierarchy (e.g., `parent.child.grandchild`).
@@ -69,13 +68,57 @@ In the full logic expression form, `@` appears explicitly on the left side of a 
 
 | Suffix | Meaning |
 |--------|---------|
-| `:`    | Assignment of a definition |
+| `:`    | Introduces a definition (procedures, watchers, record bodies) |
 | `=`    | Assignment of a value (i.e., recording a change) |
 | `.`    | Sets the current scope |
 
+### Same-Line Definitions
+
+A definition body may be placed on the same line as the colon, as a convenience
+for short definitions. Multiple statements on the same line are separated by
+semicolons:
+
+    my.functions.double: procedure(x): return x * 2
+
+    my.account.balance: 0; my.account.status: "active"
+
+If the colon is followed by a newline, the body must be indented (the standard
+multi-line form). Both forms are always available — same-line is a shorthand, not
+a replacement:
+
+    # Same-line (short definitions)
+    my.config.host: "localhost"; my.config.port: 5432
+
+    # Multi-line (standard form, always valid)
+    my.config:
+        host: "localhost"
+        port: 5432
+
+> 🚧 **Same-line definitions are not yet implemented.**
+
+### Recursive Assignment
+
+Assigning to a path whose intermediate nodes do not yet exist automatically
+creates those nodes rather than producing an error. This applies to both value
+assignment and definition:
+
+    my.new.deeply.nested.value = 42      # creates my.new, my.new.deeply, etc.
+
+Each intermediate node is created as an empty record. If an intermediate node
+already exists, it is left unchanged.
+
+> 🚧 **Recursive assignment is not yet implemented.** Currently, all intermediate
+> nodes must exist before assignment.
+
 ### Data Types
 
-Text, Number, Time, Money, Picture, Reference, Procedure, Watcher, Embed
+Text, Number, Boolean, Time, Money, Picture, Reference, Procedure, Watcher, Embed
+
+> **Note on Embed:** Embed is a structural composition mechanism, not a value type in
+> the same sense as the others. It does not hold a value that can be assigned,
+> returned, or passed as a parameter. It is listed here for completeness because it
+> appears in the type system and is visible in storage, but it is described fully under
+> [Embed](#embed) in the Stamps section.
 
 - Text
   UTF-8 dynamic character string.
@@ -88,6 +131,11 @@ Text, Number, Time, Money, Picture, Reference, Procedure, Watcher, Embed
 - Number
   The largest floating point number supported by the processor architecture.
   In MBL, literal numbers may not begin or end with a period (.), may begin with a negation (-), and may include underscore characters (though they are ignored--only for visual clarity purposes).
+- Boolean
+  A true or false value. In MBL, the literals are `true` and `false`.
+  Truthiness rules for other types: Number 0 is false, any other number is true.
+  Empty text is false, any other text is true. Zero time is false, any other time
+  is true. Unknown is always false in boolean context.
 - Time
   UNIX Time (2038-proofed) kept in UTC.
   In MBL, a time literal begins with the "@" symbol and follows in the order of YYYY-MM-DD hh:mm:ss.n
@@ -100,45 +148,52 @@ Text, Number, Time, Money, Picture, Reference, Procedure, Watcher, Embed
     - @2026-02-15 15:30:00.0 (February 15th, 2026 at 3:30 PM)
 - Money
   Text/decimal storing monetary values with currency symbol.
-  In MBL, A money literal is specified as a currency symbol followed immediately by a decimal number.
+  In MBL, a money literal is specified as either a specific currency symbol or the
+  universal currency symbol (¤) followed immediately by a decimal number. When using
+  the universal symbol, the ISO 4217 currency code follows the number.
   Examples:
     - $143.68
     - €21.80
+    - ¤143.68 USD
+    - ¤21.80 EUR
 - Picture
   Full RGBA at 16-bits each.
   In MBL, it cannot be typed as a literal but must be loaded via an operation.
 - Reference
   A link (by name or unique identifier) to another node elsewhere in the tree.
-  In MBL, literal references are specified by doubling the normal notation for that path (e.g., "world.foo" resolves to a value, while ""world.foo"" is a reference to that location).
+  In MBL, a literal reference is specified using the `(link)` keyword before a path (e.g., `world.foo` resolves to a value, while `(link)world.foo` is a reference to that location).
 - Procedure
   A stored program (see Procedures below).
 - Watcher
   A persistent trigger (see Watchers below).
 - Embed
-  External data marked as content (not metadata).
+  A structural composition mechanism that makes the attributes of one record appear
+  as siblings within another record, without copying or merging them. The embedded
+  record retains its identity as a distinct unit. Used internally by the stamp system
+  and available to programmers via the `embed` keyword. See [Embed](#embed).
 
-### Meta Types
+### Meta Type
 
-Each type above supports meta types:
+Each type above supports one meta type:
 
 - Unknown
-  Indicates that the expected value is not available, along with a reason why.
-  In MBL, this is the "#" character followed by text explaining why.
+  Indicates that the expected value is not available. Like any value in
+  AmorphDB, an Unknown is a node in the tree and may carry sub-attributes.
+  In MBL, the `unknown` keyword creates an Unknown value. An optional
+  text argument sets the `.reason` attribute as a shorthand:
   Examples:
-    - #offline
-    - #access_denied
-    - #not_found
-- Queued
-  Indicates that a value will be set but has not been obtained yet, possibly with expected delivery information.
-  In MBL, this is the "?" character followed by text explaining when it will be available.
-  Examples:
-    - ?tomorrow
-    - ?in_5_seconds
-- Redacted
-  Indicates that a value exists but may not be displayed at this level of access or under this filter.
-  In MBL, this is displayed as asterisks only and cannot be specified directly (only visible as the result of accessing filtered content).
-  Examples:
-    - ***, ****, *****, etc. (by character count of original)
+    - `unknown` — bare Unknown, no reason
+    - `unknown("not_found")` — Unknown with reason (shorthand for setting `.reason`)
+    - `unknown("timeout")` — application-specific reason
+  Additional attributes can be set on an Unknown like any other node:
+    - `my.result = unknown("inconclusive")`
+    - `my.result.confidence = 0.3`
+    - `my.result.options = [5, 3, 2]`
+  The system produces Unknown values automatically in these cases:
+    - Reading a non-existent path: `unknown("not_found")`
+    - Accessing data hidden by permissions or filters: `unknown("filtered")`
+    - Division by zero: `unknown("division_by_zero")`
+    - Network failure: `unknown("timeout")`, `unknown("connection_refused")`, etc.
 
 ### Structures
 
@@ -148,6 +203,101 @@ AmorphDB provides two aggregate structures: Records and Lists. Both are based on
 - Lists store data in numerically indexed fields.
 
 Since these are both tree nodes with attributes underneath, either may contain any mix of types including other records, other lists, or any other type. The distinction exists only to indicate the predominant access method.
+
+### Heritability and Instantiation
+
+Any record can serve as a template. The `new` keyword creates an instance from
+a template. Each attribute in the template has a heritability rule that controls
+what happens to it in the new instance, stored as two meta attributes:
+
+| Meta Attribute | Values | Meaning |
+|----------------|--------|---------|
+| `@heritability` | `"copy"` (default), `"link"`, `"reset"`, `"exclude"` | How this attribute behaves during instantiation |
+| `@default` | any value | The value to use when `@heritability = "reset"` |
+
+Heritability rules:
+
+| Rule | Meaning |
+|------|---------|
+| `"copy"` | Deep copy the value — the new instance gets its own independent copy (default) |
+| `"link"` | Create a reference — the new instance shares the template's value; changes to the template propagate |
+| `"reset"` | Override with the `@default` value regardless of the template's current value |
+| `"exclude"` | Omit from new instances — the value exists in the template but is not inherited |
+
+When `@heritability` is not set on an attribute, `"copy"` is the default.
+
+**Shorthand syntax:** Value modifiers in parentheses set the meta attributes
+inline, consistent with other value modifiers like `(quietly)` and `(link)`:
+
+| Shorthand | Equivalent meta attributes |
+|-----------|---------------------------|
+| `(copy) value` | `@heritability = "copy"` |
+| `(link) value` | `@heritability = "link"` |
+| `(reset X) value` | `@heritability = "reset"`, `@default = X` |
+| `(exclude) value` | `@heritability = "exclude"` |
+
+**Template definition with shorthand modifiers:**
+```
+my.templates.account:
+    name: (copy) ""
+    balance: (reset 0) $1000
+    interest_rate: (link) 0.05
+    internal_notes: (exclude) "template maintenance log"
+```
+
+**Equivalent using meta attributes directly:**
+```
+my.templates.account:
+    name: ""
+    balance: $1000
+    balance.@heritability = "reset"
+    balance.@default = 0
+    interest_rate: 0.05
+    interest_rate.@heritability = "link"
+    internal_notes: "template maintenance log"
+    internal_notes.@heritability = "exclude"
+```
+
+**Instantiation:**
+```
+my.customers.alice = new(my.templates.account)
+my.customers.alice.name = "Alice"
+
+# alice.balance is 0 (reset to @default, regardless of template's $1000)
+# alice.interest_rate is linked to template (shared, updates propagate)
+# alice.internal_notes does not exist (excluded)
+```
+
+**Per-field overrides at instantiation time:**
+
+Heritability modifiers can be overridden when creating a new instance:
+
+```
+my.customers.bob = new my.templates.account {
+    name: (copy) "Bob",
+    balance: (reset 500) 0,
+    interest_rate: (copy) 0.05
+}
+```
+
+Here `interest_rate` was `"link"` in the template but overridden to `"copy"` for
+Bob — he gets his own independent copy of the rate.
+
+**Global modifier:**
+
+A global modifier applies to all attributes that don't have their own explicit
+modifier:
+
+```
+my.snapshot = new(my.templates.account, (link)) { name: (copy) "Snapshot" }
+```
+
+Everything is linked except `name`, which is explicitly copied.
+
+**Heritability is recursive.** When an attribute is a nested record and the
+rule is `"copy"`, the entire subtree is deep-copied. When the rule is
+`"link"`, the reference points to the template's subtree — changes at any depth
+propagate.
 
 ### Instance Meta Attributes
 
@@ -181,7 +331,7 @@ Examples:
 Instance meta attributes can be used in brackets for queries:
 
     # All changes made by kalevo today
-    my.log[@agent = ""world.agent.kalevo"", @time >= @2026-03-01]
+    my.log[@agent = (link)world.agent.kalevo, @time >= @2026-03-01]
 
     # Values that are temporary (have TTL)
     my.cache[@ttl > 0]
@@ -189,21 +339,40 @@ Instance meta attributes can be used in brackets for queries:
     # Large files (over 1MB)
     my.files[@size > 1000000]
 
-The double reference `""` syntax indicates that `world.agent.kalevo` should be treated as a reference to that path, not the value at that path.
+The `(link)` keyword indicates that `world.agent.kalevo` should be treated as a reference to that path, not the value at that path.
 
 ## MBL (Modern Business Language)
 
 ### Lexical Structure
 
-MBL source text is UTF-8. A program is a sequence of statements separated by whitespace or newlines. Comments begin with `#` and extend to end of line:
+MBL source text is UTF-8. A program is a sequence of statements separated by whitespace or newlines.
 
-    # This is a comment
-    my.account.balance = 100    # Another comment
+**Comments** follow the same adjacency principle as text literals. A single `#`
+comments to end of line or to a closing `#` on the same line. Two or more
+adjacent `#` characters open a block comment that terminates at the next
+occurrence of the same number of adjacent `#` characters. Block comments may
+span multiple lines and may contain shorter `#` sequences without terminating
+early. This allows commenting out code that itself contains comments.
+
+    # This is a single-line comment
+    my.account.balance = 100    # Another single-line comment
+    my.account.status = "active" # inline comment # my.account.name = "checking"
+
+    ## This is a block comment
+    that spans multiple lines ##
+
+    ## This block comment contains # single-line comment syntax
+    and still continues until the matching pair ##
+
+    ### This block comment contains ## nested block markers ##
+    and still continues until the matching triple ###
 
 **Identifiers** are sequences of letters, numbers, or underscores, beginning with a letter or underscore. Case is significant: `Account` and `account` are different. Identifiers may contain Unicode characters. Reserved words cannot be used as identifiers:
 
-    and, or, not, if, then, else, while, for, in, return, new, quietly,
-    procedure, watch, catch, my, world, true, false, null
+    and, or, not, if, else, while, for, in, return, new, quietly,
+    procedure, watch, catch, my, world, true, false, embed,
+    break, pass, link, unknown, copy, reset, exclude, append,
+    prepend
 
 **Numbers** may be integers or floating-point, and may include underscores for visual grouping:
 
@@ -224,11 +393,12 @@ MBL source text is UTF-8. A program is a sequence of statements separated by whi
     ""He said "Hello" to me""      # Includes quotes
     """Complex "quoted" text"""    # More quotes
 
-**Operators** include arithmetic, comparison, and logical operators:
+**Operators** include arithmetic, comparison, logical, and concatenation operators:
 
     +, -, *, /, %, ^               # Arithmetic
     =, !=, <, >, <=, >=            # Comparison
     and, or, not                   # Logical
+    &                              # String concatenation
 
 **Paths** are dot-separated sequences of identifiers, with special prefixes:
 
@@ -237,9 +407,41 @@ MBL source text is UTF-8. A program is a sequence of statements separated by whi
     ~.account.balance             # Relative to user's home
     my.account.balance            # Same as above (from program root)
 
-**References** double the path syntax:
+**References** use the `(link)` keyword before a path:
 
-    ""world.market.price""         # Reference to a location (not its value)
+    (link)world.market.price         # Reference to a location (not its value)
+
+**Record literals** assign multiple named fields inline using curly braces. Field
+names and values are separated by colons, fields separated by commas:
+
+    x = { name: "Matthew C. Tedder", age: 55, job: "Software Engineer" }
+
+This is distinct from a projection (see below) because every field has a value.
+Record literals may be nested:
+
+    x = { address: { city: "Rome", state: "NY" }, active: true }
+
+**Projections** select a subset of sub-attributes from a path, using curly braces
+containing only names (no values, no colons). The result is a record containing
+only the named fields:
+
+    person{ name, age, job }                         # read three fields
+    my.employees[active = true]{ name, salary }      # filter then project
+
+Wildcard patterns select all sub-attributes whose names match a prefix, suffix,
+or the full set:
+
+    my.products{ price_of_* }     # all attributes starting with "price_of_"
+    my.products{ *_total }        # all attributes ending with "_total"
+    my.products{ * }              # all sub-attributes (explicit full read)
+
+Exclusions can be combined with wildcards:
+
+    my.products{ *, not internal_code, not cost_basis }   # all except named fields
+
+> 🚧 **Wildcard projections are not yet implemented.** Simple named projections
+> (`{ name, age, job }`) are specified and planned. Wildcard and exclusion forms
+> are lower-priority and will be added in a later pass.
 
 ### Operators and Expressions
 
@@ -255,30 +457,68 @@ MBL source text is UTF-8. A program is a sequence of statements separated by whi
 - `and` and `or` have equal precedence and are left-associative
 - `not` has higher precedence
 
-**Assignment:** =, :=
+**Assignment:** =
 - `=` records a value change (creates a new instance)
-- `:=` records a definition (used for procedures, watchers, types)
+- `:` introduces a definition (used for procedures, watchers, record bodies)
+
+**String Concatenation:** &
+- Joins values into text: `"Hello" & " " & "World"` yields `"Hello World"`
+- Non-text values are coerced to text before joining
+
+**Context-sensitive `=`:** The `=` operator serves as both assignment and
+equality comparison. The parser distinguishes them by syntactic context:
+- At **statement level** (left side is a path, right side is a value): assignment
+- Inside **bracket expressions** `[...]`: equality comparison
+- Inside **conditions** (`if`, `while`, `for`): equality comparison
+- After **`:` in definitions**: not `=` — uses `:` instead
+
+There is never ambiguity: assignment requires a path target at statement level,
+and comparison requires an expression context. The programmer does not need to
+use different symbols — the context makes the meaning clear.
+
+The **definite-equality** operator `?=` (described below) exists for a different
+purpose: it handles Unknown values safely. `x = 5` propagates Unknown if `x` is
+Unknown; `x ?= 5` returns false instead. Only equality has a `?`-prefixed form;
+ordering comparisons (`<`, `>`, `<=`, `>=`) propagate Unknown like other
+expressions.
 
 **Path Resolution:** ., .., ~
 - `.` accesses child attributes
 - `..` accesses special operations on collections
 - `~` accesses user's home
 
-**Type Checking:** ?=, ?!=, ?<, ?>, ?<=, ?>=
-- Comparison operators with "?" prefix check for Unknown and Queued values
-- Return true/false instead of propagating Unknown/Queued up the expression tree
+**Definite Equality:** ?=
+- `?=` returns a definite boolean when comparing equality, never Unknown
+- If the left operand is Unknown, `?=` returns false (rather than propagating)
 - Example: `if x ?= 5:` succeeds if x is 5, fails safely if x is Unknown
+- When the right operand is the literal `unknown`, `?=` reports definite
+  Unknown-status: `x ?= unknown` is true if x is Unknown, false otherwise.
+  If a reason is given (`x ?= unknown("timeout")`), the match is restricted to
+  Unknown values with that reason; bare `unknown` matches any Unknown.
+- `is_unknown(x)` and `x ?= unknown` are equivalent. Either is preferable to
+  `x = unknown`, which propagates Unknown rather than producing a boolean.
+
+Only equality has a `?`-prefixed form. Ordering operators (`<`, `>`, `<=`,
+`>=`) and inequality (`!=`) propagate Unknown — the honest answer for
+"is Unknown less than 5?" is Unknown, not a boolean. To check definite
+non-equality, use `not (x ?= y)`.
 
 **Collection Operations:**
 - `..count` - number of attributes under a node
+- `..append(value)` - add item to end of list
+- `..prepend(value)` - add item to beginning of list
 - `..remove(index)` - remove by position
 - `..remove(value)` - remove first match by value
 - `..combine(separator)` - join values with separator
 
-**Brackets:**
+**Brackets and Projections:**
 - `[expression]` - filter or query child attributes
 - Used for array indexing: `my.array[0]`
 - Used for conditional queries: `my.users[active = true]`
+- `{name, name, ...}` - projection: read only the named sub-attributes
+- `{prefix_*}` - wildcard projection (🚧 not yet implemented)
+- `{*, not name}` - exclusion projection (🚧 not yet implemented)
+- Brackets and projections compose: `my.users[active = true]{ name, email }`
 
 **Operator Precedence** (highest to lowest):
 1. Path resolution (.), member access
@@ -286,10 +526,11 @@ MBL source text is UTF-8. A program is a sequence of statements separated by whi
 3. Exponentiation (^)
 4. Multiplication (*), Division (/), Modulo (%)
 5. Addition (+), Subtraction (-)
-6. Comparison (=, !=, <, >, <=, >=)
-7. Logical and
-8. Logical or
-9. Assignment (=, :=)
+6. String concatenation (&)
+7. Comparison (=, !=, <, >, <=, >=)
+8. Logical and
+9. Logical or
+10. Assignment (=)
 
 ### Type Coercion
 
@@ -312,9 +553,8 @@ MBL performs automatic type conversion in expressions when possible:
 - Time: Zero time (@1970-01-01 00:00:00) is false, any other time is true
 
 **Error propagation:**
-- Unknown values propagate through expressions: `5 + #offline` yields `#offline`
-- Queued values propagate through expressions: `5 + ?tomorrow` yields `?tomorrow`
-- Type-safe comparison operators (?=, ?!=, etc.) return false for Unknown/Queued instead of propagating
+- Unknown values propagate through expressions: `5 + unknown("offline")` yields `unknown("offline")`
+- The definite-equality operator `?=` returns false (or true, when matching Unknown directly) rather than propagating
 
 ### System Operations
 
@@ -359,7 +599,7 @@ add_time(time, days, hours, minutes)      # Time arithmetic
 **Type Operations:**
 ```
 type_of(value)                            # Returns type name as text
-is_unknown(value), is_queued(value)       # Check for meta types
+is_unknown(value)                         # Check for Unknown meta type
 convert(value, type)                      # Explicit type conversion
 ```
 
@@ -377,20 +617,19 @@ Lists and records are the same underlying structure — a node with attributes. 
 
     x..count                                    # number of attributes under this node
     x..combine(separator = ",")                 # join values into text
+    x..append(value)                            # add item to end of list
+    x..prepend(value)                           # add item to beginning of list
     x..remove(position)                         # remove by numeric index (list reindexes)
     x..remove(value)                            # remove first match by value (list) or by name (record)
     x..remove(from, to)                         # remove a range by index
 
     # Examples
     my.shopping_list..count                     # how many items
+    my.shopping_list..append("milk")            # add to end
+    my.shopping_list..prepend("bread")          # add to beginning
     my.shopping_list..remove(2)                 # remove third item (zero-indexed)
     my.contacts..remove("bob")                  # remove contact named bob
     my.numbers..combine(" + ")                  # "1 + 2 + 3"
-
-Assignment with `+` prefix appends to lists:
-
-    +my.shopping_list = "milk"                  # append item to end
-    +my.log = now() & ": system started"       # append log entry
 
 ### Control Flow
 
@@ -434,15 +673,30 @@ catch:
 else unknown:
     # Handle Unknown values
     my.computer.output("Operation failed: " & unknown)
-else queued:
-    # Handle Queued values
-    my.computer.output("Operation delayed: " & queued)
 ```
 
 **Flow Control:**
 ```
 return value                                # Exit procedure with value
-return                                      # Exit procedure with null
+return                                      # Exit procedure with no value
+break                                       # Exit the innermost loop
+pass                                        # No-op; placeholder for an empty block
+```
+
+`pass` is used where a block is syntactically required but no action is needed.
+Because MBL uses indentation for block structure, an empty block body is a
+syntax error without `pass`:
+
+```
+# Stub procedure — body required, nothing to do yet
+my.functions.placeholder: procedure(x):
+    pass
+
+# Ignoring a specific condition
+if my.account.status = "pending":
+    pass
+else:
+    my.computer.output("Account is active")
 ```
 
 ### Procedures
@@ -450,6 +704,23 @@ return                                      # Exit procedure with null
 A **procedure** is a reusable block of code that accepts parameters and returns a value. Procedures are first-class values — they can be stored in attributes, passed as parameters, and returned from other procedures.
 
 **Definition:**
+
+The primary form places the type word `procedure` first, followed by the name and parameter list:
+
+```
+procedure calculate_tax(income, rate):
+    if income <= 0:
+        return 0
+    else:
+        return income * rate
+```
+
+The name binds in the current persistent scope at the time the definition is
+evaluated. See [Scope of Definitions](#scope-of-definitions) for details.
+
+The path-first form is also available and useful when the destination needs to
+be explicit:
+
 ```
 my.functions.calculate_tax: procedure(income, rate):
     if income <= 0:
@@ -457,6 +728,10 @@ my.functions.calculate_tax: procedure(income, rate):
     else:
         return income * rate
 ```
+
+Both forms produce the same binding. Type-first is preferred for readability;
+path-first is preferred when the path is deep or differs from the current
+scope.
 
 **Calling:**
 ```
@@ -473,15 +748,20 @@ tax_owed = my.functions.calculate_tax(50000, 0.25)
 A procedure's sub-attributes serve as persistent local storage between calls:
 
 ```
-my.counters.page_views: procedure():
+procedure page_views():
     .count = .count + 1                     # Persistent between calls
     return .count
 ```
 
 **Anonymous Procedures:**
+
+In expression position — when a procedure is being passed as an argument or
+assigned to an attribute via `=` — the parenthesized form without a name is
+used:
+
 ```
-# Assign procedure directly
-my.double: procedure(x): return x * 2
+# Assign anonymous procedure to a path
+my.double = procedure(x): return x * 2
 
 # Pass as parameter
 my.numbers = [1, 2, 3, 4, 5]
@@ -493,13 +773,29 @@ my.doubled = map(my.numbers, procedure(x): return x * 2)
 A **watcher** is a procedure that runs automatically when specified attributes change. Watchers enable reactive programming — code that responds to data changes rather than being explicitly called.
 
 **Definition:**
+
+The primary form places the `watch` keyword first:
+
+```
+watch balance_check(my.account.balance, my.account.limit):
+    if my.account.balance > my.account.limit:
+        my.account.status = (quietly) "overlimit"
+```
+
+The name binds in the current persistent scope at the time the definition is
+evaluated. See [Scope of Definitions](#scope-of-definitions) for details.
+
+The path-first form is also available for explicit destinations:
+
 ```
 my.automation.balance_check: watch(my.account.balance, my.account.limit):
     if my.account.balance > my.account.limit:
         my.account.status = (quietly) "overlimit"
 ```
 
-**Note:** The syntax `name: watch(...)` is the standard form — the watcher name comes first, followed by a colon, then the watch declaration with its body. This creates a named watcher that can be referenced, enabled/disabled, and inspected like any other value in the hierarchy.
+Both forms create the same watcher. Type-first reads as an action ("watch
+these paths, name it this"); path-first reads as a definition ("this attribute
+is a watcher"). They are interchangeable.
 
 A watcher is a value in the hierarchy like any other. It is operated by the node responsible for the zone where it lives. Its sub-attributes form its persistent local data scope.
 
@@ -512,9 +808,9 @@ Every watcher has the following attributes:
 | `@enabled` | Boolean | true | Whether this watcher is active |
 | `@watching` | List of References | (from definition) | Paths being monitored |
 | `@code` | Procedure | (from definition) | Code to execute on changes |
-| `@last_run` | Time | null | When this watcher last executed |
+| `@last_run` | Time | (none) | When this watcher last executed |
 | `@run_count` | Number | 0 | Total number of executions |
-| `@last_error` | Text | null | Error message from last failed run |
+| `@last_error` | Text | (none) | Error message from last failed run |
 
 **Enabling/Disabling:**
 ```
@@ -542,6 +838,11 @@ my.automation.account_monitor: watch(my.account.balance, my.account.limit):
 
 This is equivalent to having separate watchers for each path, but more efficient and allows coordinated logic.
 
+> **Note:** Procedures like `my.alerts.send()` and `my.notifications.send()` in
+> the following examples are application-defined — they are not built into
+> AmorphDB. They illustrate how developers would build their own logic on top
+> of the watcher system.
+
 **Real-World Examples:**
 
 System resource monitoring:
@@ -559,7 +860,7 @@ Configuration and time-based automation:
 ```
 my.automation.backup_scheduler: watch(my.config.backup_enabled, world.clock.hour):
     if my.config.backup_enabled and world.clock.hour ?= 2:
-        my.computer.execute("backup-script.sh")
+        my.computer.run("backup-script.sh")
         my.logs.backup = world.clock.now & ": Backup completed"
 ```
 
@@ -583,6 +884,13 @@ my.automation.balance_monitor: watch(my.checking.balance, my.savings.balance, my
 
 A watcher can trigger specifically on items appended to a list during the current tick using the `append` keyword:
 
+```
+watch new_orders append(my.orders) as orders:
+    for order in orders:
+        my.computer.output("New order: " & order.id)
+```
+
+The path-first form is equivalent:
 ```
 my.automation.new_orders: watch append(my.orders) as orders:
     for order in orders:
@@ -610,10 +918,11 @@ This follows the same binding pattern as `for item in list`. The list itself is 
 
 **Real-World Examples:**
 
-HTTP request processing:
+External API request processing (for third-party consumers, not PWA clients — see
+Network Sub-Library for the data-driven PWA approach):
 ```
 my.services.handlers.balance: watch append(
-    my.computer.network.requests[
+    my.computer.network.web.requests[
         domain ?= "api.example.com",
         method ?= "GET",
         path ?= "/api/balance"
@@ -625,19 +934,19 @@ my.services.handlers.balance: watch append(
         req.processed = (quietly) true
 ```
 
-Multi-domain API handling:
+Multi-domain external API handling:
 ```
 my.services.handlers.status: watch append(
-    my.computer.network.requests[
+    my.computer.network.web.requests[
         method ?= "GET",
         path ?= "/status"
     ]
 ) as new_requests:
     for req in new_requests:
         if req.domain ?= "api.example.com":
-            req.respond(200, my.computer.network.to_json(world.services.status))
+            req.respond(200, my.computer.network.web.to_json(world.services.status))
         else if req.domain ?= "admin.corp.internal":
-            req.respond(200, my.computer.network.to_json(my.admin.status))
+            req.respond(200, my.computer.network.web.to_json(my.admin.status))
         else:
             req.respond(404, "Not found")
         req.processed = (quietly) true
@@ -772,19 +1081,700 @@ Local variables can refer to persistent data:
 
 When a program ends, anything not attached to `my` or `world` is discarded.
 
-[Content continues with unchanged sections: Computer, Cascade, Watcher and Procedure Scope sections...]
+#### Scope of Definitions
+
+A type-first definition (`procedure name(args):`, `watch name(...):`,
+`structure name:`, etc.) creates the named binding in the **current persistent
+scope** at the time the definition is evaluated. The current scope is
+determined by where the file is loaded or, within a procedure body, by any
+explicit scope changes via `:`.
+
+For example, if a file is loaded at scope `my.utilities`, then:
+
+```
+procedure double(x): return x * 2
+```
+
+creates `my.utilities.double`. Loaded at the root of `my`, the same line
+creates `my.double`.
+
+The path-first form makes the destination explicit and works regardless of
+current scope:
+
+```
+my.utilities.double: procedure(x): return x * 2
+```
+
+Both forms produce the same binding. Choose type-first for readability when
+the destination is the current scope; choose path-first when the destination
+is elsewhere or when the explicit path improves clarity.
+
+The same rule applies to anonymous procedures assigned via `=` to an explicit
+path:
+
+```
+my.utilities.double = procedure(x): return x * 2
+```
+
+This is equivalent to either of the above.
 
 #### The Computer
 
-`~.computer` (accessible as `my.computer` from program root) is a virtual mount in the agent's home that provides access to the local machine. It is not stored in the mesh — it is provided by the node the agent is connected from.
+`~.computer` (accessible as `my.computer` from program root) is a virtual mount
+in the agent's home that provides access to the local machine. It is not stored
+in the mesh — it is provided by the node the agent is connected from.
 
-    my.computer.output(value)       # write to stdout (procedure)
-    my.computer.input(prompt)       # read from stdin (procedure, returns text)
-    my.computer.files              # filesystem access
-    my.computer.network            # network operations
-    my.computer.system             # system information
+```
+my.computer.output(value)              # write to stdout
+my.computer.input(prompt)              # read from stdin (returns text)
+my.computer.run(command)               # execute shell command (returns record)
+my.computer.files                      # filesystem access (see below)
+my.computer.network                    # network operations (see below)
+my.computer.hostname                   # system hostname
+my.computer.os                         # operating system name
+my.computer.arch                       # processor architecture
+```
 
-This allows programs to interact with the physical machine they're running on while keeping the bulk of their data in the distributed mesh.
+This allows programs to interact with the physical machine they're running on
+while keeping the bulk of their data in the distributed mesh.
+
+##### Shell Execution
+
+`my.computer.run(command)` executes a shell command on the local machine and
+returns a record:
+
+```
+result = my.computer.run("ls -la /tmp")
+my.computer.output(result.stdout)
+if result.exit_code != 0:
+    my.computer.output("Error: " & result.stderr)
+```
+
+| Attribute | Type | Meaning |
+|-----------|------|---------|
+| `.exit_code` | Number | Process exit code (0 = success) |
+| `.stdout` | Text | Standard output |
+| `.stderr` | Text | Standard error |
+
+##### Files Sub-Library
+
+`my.computer.files` provides access to the local filesystem. All operations are
+subject to OS-level permissions — the daemon runs as a specific OS user and can
+only access files that user is permitted to access.
+
+**Basic operations:**
+```
+my.computer.files.read(path)                    # Read file as Text
+my.computer.files.write(path, content)          # Write Text to file
+my.computer.files.exists(path)                  # Returns true/false
+my.computer.files.delete(path)                  # Delete file
+my.computer.files.list(path)                    # List directory (returns list)
+my.computer.files.info(path)                    # File metadata (returns record)
+```
+
+The `.info()` procedure returns a record with:
+
+| Attribute | Type | Meaning |
+|-----------|------|---------|
+| `.size` | Number | File size in bytes |
+| `.modified` | Time | Last modification time |
+| `.is_directory` | Boolean | Whether the path is a directory |
+
+**Structured import:**
+```
+my.computer.files.import(path, format)
+my.computer.files.import(path, format, options)
+```
+
+Reads a file and converts its content into an AmorphDB tree node. Supported
+formats:
+
+| Format | Description |
+|--------|-------------|
+| `"json"` | JSON → Record/List. Objects become Records, arrays become Lists. |
+| `"csv"` | CSV → List of Records. First row is headers. Type inference on values. |
+| `"tsv"` | TSV → List of Records. Same as CSV with tab separator. |
+| `"toml"` | TOML → Record. Sections become nested Records. |
+| `"xml"` | XML → Record. Elements become Records, text content stored as `_text`. Namespace prefixes preserved. Repeated elements become Lists. |
+
+Options record (all optional, format-dependent):
+
+| Option | Applies to | Meaning |
+|--------|------------|---------|
+| `separator` | csv | Custom separator character (default: `,`) |
+| `headers` | csv, tsv | Boolean — first row contains headers (default: `true`) |
+
+All import failures return Unknown with a reason:
+- `unknown("file_not_found")` — path does not exist
+- `unknown("unsupported_format")` — format string not recognized
+- `unknown("parse_error")` — file content is malformed
+
+**Structured export:**
+```
+my.computer.files.export(node, path, format)
+my.computer.files.export(node, path, format, options)
+```
+
+Writes an AmorphDB tree node to a file in the specified format. Supported
+formats are the same as import: `"json"`, `"csv"`, `"tsv"`, `"toml"`, `"xml"`.
+
+**Fixed-width import (ARI):**
+```
+my.computer.files.import_fixed_width(path, ari_spec)
+my.computer.files.import_fixed_width(path, ari_spec, options)
+```
+
+Imports fixed-width data files using an ARI (Anchor Relative Identification)
+specification. ARI is a domain-specific notation for describing the spatial
+layout of fixed-width reports and data files:
+
+```
+result = my.computer.files.import_fixed_width("/data/report.txt",
+    "section bank_report:" &
+    "  field report_date: right 12 same: \"BANK REPORT\"" &
+    "  field bank_id: right 4 same: \"ID:\""
+)
+```
+
+> The full ARI specification is documented separately. ARI supports spatial
+> anchoring (left/right/up/down), pattern matching, section boundaries
+> (starts/ends), break statements for record separation, nested sections,
+> and automatic type conversion.
+
+##### Network Sub-Library
+
+`my.computer.network` provides network capabilities. The web-serving features
+live under `my.computer.network.web`; email under `my.computer.network.email`.
+All web communication is HTTPS only — plain HTTP is not supported.
+
+The network sub-library supports several distinct traffic patterns:
+
+| Traffic | Mechanism | MBL Developer Sees |
+|---------|-----------|-------------------|
+| Own PWA clients | Data-driven — Go layer translates between client and data tree | Just data changes and watchers on application data |
+| External API consumption | Outbound HTTP procedures | Procedure calls that return data |
+| External API provision / webhooks / auth | Inbound request queue | Request nodes in append watchers |
+| Email send | `email.send(account, message)` procedure | Procedure calls that return sent-message records |
+| Email fetch | `email.fetch(account, options)` procedure | Procedure calls that return lists of messages |
+| Email subscription | IMAP IDLE driven by `subscription.enabled` on account | Append watchers on `subscription.target` |
+
+###### Data-Driven PWA Communication
+
+PWA clients built on the AmorphDB boilerplate do not use the request queue.
+Instead, the Go layer translates between MCP messages and the application's
+data tree. The MBL developer never sees HTTP requests — they only see data
+changing.
+
+**How it works:**
+
+1. A user interacts with the PWA (clicks a button, fills a form)
+2. The boilerplate sends the data change to the Go bridge
+3. The Go bridge resolves the user's identity from their auth token and
+   routes the write to `world.apps.<app>.users.<identity>.*`
+4. A per-user watcher fires and executes business logic
+5. The watcher writes results back to the user's data subtree
+6. The Go bridge detects the change and pushes it to the user's browser via SSE
+
+The MBL developer writes per-user watchers on application data, not on
+HTTP requests:
+
+```
+# Per-user watcher — registered at signup, fires only for this user
+watch my.app.watchers[username & ".submit"](user_path.intent.submit_order):
+    if user_path.intent.submit_order = true:
+        world.apps.myapp.shared.orders..append({
+            user_identity: username,
+            items: user_path.forms.order_data.items,
+            submitted: now()
+        })
+        user_path.intent.submit_order = (quietly) false
+        user_path.intent.result = { status: "submitted" }
+```
+
+This approach means:
+- The MBL developer never thinks about HTTP, request objects, or response codes
+- Each user has their own watchers — no looping over all users
+- Real-time updates flow automatically to the correct user's browser
+- Multiple users see shared data changes immediately
+- The Go layer handles all transport concerns (SSE connections, MCP parsing,
+  identity resolution)
+
+###### PWA User Identity and Authentication
+
+PWAs distinguish between two identity layers:
+
+- **Mesh agents** are AmorphDB's native identities with post-quantum keys
+  and mesh permissions.
+- **App users** are end users of an application, managed by the app, not by
+  AmorphDB. They do not have mesh identities or permissions on the mesh.
+
+The platform provides the data shape, routing, and security boundary. The
+application decides what a user is and how they prove identity. **The
+developer does not write session logic, identity resolution, or HTTP
+plumbing** — the platform handles it.
+
+**Data model:**
+
+```
+world.apps.<app>
+    app                         # shared UI definition (parsed from app.html)
+        _token_ttl: 604800      # login timeout in seconds (from app.html)
+    assets                      # static files served by the Go layer
+    devices                     # pre-auth browser connections
+        d8f2a1b3...             # device ID (generated by boilerplate)
+            login               # login form data lands here
+            signup              # signup form data lands here
+    users                       # authenticated user data
+        kalevo
+            banner
+                user_name = "Kalevo"
+            workspace
+                orders = [...]
+        miratu
+            ...
+    tokens                      # active auth tokens
+        a7f3c1b9...             # opaque token string
+            identity: "kalevo"
+            device: "d8f2a1b3..."
+            @ttl: 604800        # seconds, from app._token_ttl
+    auth                        # app-defined auth state
+        credentials
+            kalevo
+                password_hash: "..."
+                salt: "..."
+```
+
+**Device identity:** The boilerplate generates a device ID on first visit,
+stored in localStorage permanently. It identifies the browser, not the person.
+Before login, the Go bridge routes writes to
+`world.apps.<app>.devices.<deviceId>.login` and `.signup` only. All other
+paths are rejected with 401.
+
+**User identity:** The `users.<identity>` subtree is the permanent home of
+each user's data. It persists across connections, devices, and disconnections.
+The identity is a string chosen by the application — a username, email, UUID,
+or anything the app prefers.
+
+**Tokens:** Map a device to a user identity. Each token carries `.identity`,
+`.device`, and `@ttl`. Tokens expire automatically via AmorphDB's purge
+mechanism. A user can be logged in on multiple devices simultaneously — each
+device has its own token pointing to the same identity.
+
+**Token TTL configuration:** Set in `app.html` as a system attribute on the
+root section, in seconds:
+
+```html
+<section name="app" token_ttl="604800">
+    <!-- 604800 seconds = 7 days. 0 = no timeout. -->
+    ...
+</section>
+```
+
+**Go bridge routing:**
+
+| State | Headers | Bridge routes writes to |
+|-------|---------|------------------------|
+| Pre-auth | `X-AmorphDB-Device` only | `devices.<deviceId>.login` and `.signup` only |
+| Post-auth | `X-AmorphDB-Device` + `X-AmorphDB-Token` | `users.<identity>.*` (token must match device) |
+
+A request with an expired, unknown, or device-mismatched token returns 401.
+
+**Authentication flow:**
+
+1. Browser submits credentials to `devices.<deviceId>.login`
+2. Login watcher validates credentials, generates token, writes to
+   `world.apps.<app>.tokens.<token>` with `.identity`, `.device`, `@ttl`
+3. Go bridge returns token to browser; boilerplate stores in localStorage
+4. Subsequent requests include both device and token headers
+5. Go bridge resolves identity from token and routes to user subtree
+
+**Logout:** Delete the token. The next request returns 401. The boilerplate
+clears localStorage and shows the login screen. Passive invalidation happens
+automatically when `@ttl` expires.
+
+**Per-user watchers:** Every user gets their own watchers, registered at
+signup time via a `setup_user_watchers` procedure. One watcher per user per
+action — the watcher fires only when that specific user's data changes.
+This is the only pattern; there is no "watch all users" alternative.
+
+```
+my.app.setup_user_watchers: procedure(username):
+    user_path = world.apps.myapp.users[username]
+
+    watch my.app.watchers[username & ".submit_order"](user_path.intent.submit_order):
+        if user_path.intent.submit_order = true:
+            world.apps.myapp.shared.orders..append({
+                user_identity: username,
+                items: user_path.forms.order_data.items,
+                submitted: now()
+            })
+            user_path.intent.submit_order = (quietly) false
+            user_path.intent.result = { status: "submitted" }
+
+    watch my.app.watchers[username & ".logout"](user_path.intent.logout):
+        if user_path.intent.logout = true:
+            for token in world.apps.myapp.tokens:
+                if token.identity = username:
+                    world.apps.myapp.tokens..remove(token)
+            user_path.intent.logout = (quietly) false
+```
+
+**Supported user models:**
+
+| Model | How it works |
+|-------|-------------|
+| Guest only (no login) | All data under `devices.<deviceId>`. No tokens or users. |
+| Registered users only | Admin creates users and credentials. PWA shows login only. |
+| Self-registration | Signup watcher creates user, credentials, and per-user watchers. |
+| External registration | HR import or admin panel writes to `users` and `auth`. |
+| Third-party auth (OAuth, SSO) | Login watcher redirects to provider; callback watcher validates and creates token. |
+
+**Security boundary:**
+
+1. **Mesh permissions** — the daemon agent has `@write` on
+   `world.apps.<app>.*`. Set once at deployment.
+2. **Go bridge enforcement** — routes writes only to the authenticated
+   user's subtree. Refuses writes to `app`, `assets`, `auth`, `tokens`.
+   Token-to-device matching prevents token theft.
+3. **Watcher validation** — app watchers mediate between user data and
+   shared data. A user intent does not directly modify shared records.
+
+**Reference auth scheme:** The boilerplate ships with Argon2id password
+hashing, CSPRNG token generation, and standard login/signup/logout watchers.
+Apps needing OAuth, SAML, SSO, or other schemes replace the login watcher;
+the token handoff and security boundary are unchanged.
+
+No MBL interpreter changes are required for the identity model. It is
+implemented entirely in the Go bridge layer.
+
+> 🚧 **The current Go bridge routes through session-ID-keyed paths and does
+> not yet implement the device/token/identity model. Converting the bridge
+> is a dedicated development phase — see DEVPLAN.md.**
+
+###### Outbound HTTP Requests
+
+For calling external APIs and third-party services, outbound HTTP procedures
+are available:
+
+```
+my.computer.network.web.get(url)
+my.computer.network.web.get(url, options)
+my.computer.network.web.post(url, body)
+my.computer.network.web.post(url, body, options)
+my.computer.network.web.put(url, body)
+my.computer.network.web.put(url, body, options)
+my.computer.network.web.patch(url, body)
+my.computer.network.web.patch(url, body, options)
+my.computer.network.web.delete(url)
+my.computer.network.web.delete(url, options)
+```
+
+Options record:
+
+| Option | Type | Default | Meaning |
+|--------|------|---------|---------|
+| `headers` | Record | (none) | Request headers (Text → Text) |
+| `timeout` | Number | 30000 | Milliseconds before giving up |
+| `follow_redirects` | Boolean | true | Follow HTTP redirects |
+
+Response record:
+
+| Attribute | Type | Meaning |
+|-----------|------|---------|
+| `.status` | Number | HTTP status code (200, 404, etc.) |
+| `.body` | Text | Response body |
+| `.headers` | Record | Response headers |
+| `.time` | Time | When the response was received |
+| `.duration` | Number | Round-trip time in milliseconds |
+
+Network failures return Unknown: `unknown("dns_failure")`,
+`unknown("connection_refused")`, `unknown("timeout")`,
+`unknown("tls_error")`.
+
+Example — calling an external shipping API from a watcher:
+
+```
+watch my.fulfillment.ship(my.orders[status = "confirmed"]):
+    for order in my.orders[status = "confirmed"]:
+        result = my.computer.network.web.post(
+            "https://api.shipper.com/shipments",
+            my.computer.network.web.to_json(order)
+        )
+        order.tracking = my.computer.network.web.parse_json(result.body)
+        order.status = "shipped"
+```
+
+**JSON helpers:**
+```
+my.computer.network.web.parse_json(text)        # JSON text → tree node
+my.computer.network.web.to_json(node)           # Tree node → JSON text
+```
+
+###### Inbound Request Queue (External Traffic)
+
+For traffic from external systems — third-party webhooks, OAuth callbacks,
+REST APIs consumed by external clients — HTTP requests arrive as nodes
+appended to the request queue. Watchers process them using the append watcher
+pattern.
+
+This is NOT used for PWA client communication. PWA clients use the data-driven
+approach described above.
+
+```
+my.api.orders: watch append(my.computer.network.web.requests[
+    method ?= "GET", path starts "/api/orders/"
+]) as reqs:
+    for req in reqs:
+        order_id = substring(req.path, 12, length(req.path))
+        order = my.orders[id = order_id]
+        my.computer.network.web.ok_json(req, order)
+```
+
+Request node attributes:
+
+| Attribute | Type | Meaning |
+|-----------|------|---------|
+| `.domain` | Text | Request hostname |
+| `.method` | Text | HTTP method (GET, POST, etc.) |
+| `.path` | Text | Request path |
+| `.query` | Record | Query parameters |
+| `.headers` | Record | Request headers |
+| `.body` | Text | Request body |
+| `.remote_ip` | Text | Client IP address |
+| `.time` | Time | Arrival time |
+
+**Response helpers:**
+```
+my.computer.network.web.ok(req, body)           # 200 response
+my.computer.network.web.ok_json(req, node)      # 200 with JSON body
+my.computer.network.web.not_found(req)          # 404
+my.computer.network.web.bad_request(req, msg)   # 400
+my.computer.network.web.server_error(req, msg)  # 500
+my.computer.network.web.redirect(req, url)      # 302
+```
+
+Example — handling an OAuth callback:
+
+```
+watch append(my.computer.network.web.requests[
+    path ?= "/auth/google/callback"
+]) as reqs:
+    for req in reqs:
+        token = my.computer.network.web.post(
+            "https://oauth2.googleapis.com/token",
+            "code=" & req.query.code & "&client_id=..."
+        )
+        # create or update user identity and token
+        my.computer.network.web.redirect(req, "/dashboard")
+```
+
+Example — receiving a webhook:
+
+```
+watch append(my.computer.network.web.requests[
+    method ?= "POST", path ?= "/webhooks/stripe"
+]) as reqs:
+    for req in reqs:
+        event = my.computer.network.web.parse_json(req.body)
+        if event.type = "payment_intent.succeeded":
+            my.orders[event.data.order_id].payment_status = "paid"
+        my.computer.network.web.ok(req, "received")
+```
+
+Requests have a configurable TTL (default 5 seconds). If no watcher responds
+before the TTL expires, the Go layer returns a 503 to the client.
+
+###### SSE (Server-Sent Events)
+
+For PWA clients, SSE is managed automatically by the Go layer as part of the
+data-driven communication model — the developer does not interact with SSE
+directly.
+
+For external SSE consumers (third-party systems subscribing to event streams),
+publish events by writing to SSE paths:
+
+```
+my.computer.network.web.sse.price_updates = world.market.price
+```
+
+External clients subscribe via `GET /sse/{stream_name}`. One event per path
+per tick. Last value wins within a tick.
+
+###### Email
+
+`my.computer.network.email` provides primitives for sending and receiving
+email through external servers. AmorphDB does not act as a mail server; it
+speaks IMAP and SMTP to existing infrastructure (Postfix, Microsoft Exchange,
+Gmail, Microsoft 365, and similar).
+
+The subsystem is intentionally minimal — it provides capabilities, not policy.
+Where account configurations and received messages are stored, how messages
+are routed once received, and how multi-user access is structured are all
+developer choices expressed in MBL code.
+
+**Two procedures and one configuration trigger:**
+
+- `my.computer.network.email.send(account, message)` — send via SMTP. Returns
+  the sent message record (with assigned message-id, time, etc.) or Unknown.
+  The call runs on whatever node executes it; to target a specific node, use
+  `world.agent.<node_id>.computer.network.email.send(...)`.
+- `my.computer.network.email.fetch(account, options)` — pull-based IMAP fetch.
+  Returns a list of newly available messages since the last fetch with the
+  same account. Stateless from MBL's perspective; the runtime tracks fetch
+  state per account.
+- Setting `subscription.enabled: true` on an account record activates
+  IMAP IDLE on the node holding write authority for that record. New
+  messages are appended to the path given by `subscription.target`.
+  Developers consume them with ordinary append-watchers.
+
+**Account record:**
+
+The `account` argument to `send`/`fetch`, and the record on which subscription
+is configured, is a record with the following fields read by the runtime:
+
+| Field | Meaning |
+|-------|---------|
+| `protocol` | Inbound protocol (currently `"imap"`) |
+| `host`, `port` | IMAP server connection |
+| `auth.username`, `auth.password` | Inbound credentials (or OAuth fields, future) |
+| `smtp.host`, `smtp.port` | SMTP server for outbound |
+| `smtp.auth.*` | SMTP credentials; defaults to inbound `auth` if unset |
+| `subscription.enabled` | If true, IMAP IDLE is active on the authority node |
+| `subscription.target` | Path to which new messages are appended |
+
+Any additional fields the developer adds to the record (display name,
+signature, routing rules, application metadata) are application-specific and
+ignored by the runtime.
+
+Account records can live anywhere — `~.email.<name>` for a personal account,
+`world.email.<name>` for an organizational account, or any other path the
+developer chooses. The location does not affect behavior; only the contents
+of the record do.
+
+**Message record:**
+
+Messages — both received (in `subscription.target` or returned from `fetch`)
+and constructed for `send` — follow standard email conventions:
+
+| Field | Meaning |
+|-------|---------|
+| `from` | Sender address |
+| `to`, `cc`, `bcc` | Recipient lists |
+| `subject` | Subject line |
+| `body` | Plain-text body |
+| `body_html` | HTML body (optional) |
+| `attachments` | List of attachment records (`filename`, `content_type`, `bytes`) |
+| `headers` | Record of additional headers |
+| `time` | Send time (received) or constructed time (outbound) |
+| `message_id` | Globally unique message identifier |
+| `in_reply_to` | message_id of the message being replied to (for threading) |
+
+**Subscription example:**
+
+A shared support inbox configured to stream new messages into a queue:
+
+```
+world.email.support:
+    @read: [(link)world.agent.alice, (link)world.agent.bob]
+    
+    protocol: "imap"
+    host: "outlook.office365.com"
+    port: 993
+    auth.username: "support@americu.org"
+    auth.password: "..."
+    auth.@read: [(link)world.agent.admin]
+    
+    smtp.host: "smtp.office365.com"
+    smtp.port: 587
+    
+    subscription.enabled: true
+    subscription.target: .inbox
+
+watch route_support append(world.email.support.inbox) as msgs:
+    for msg in msgs:
+        world.support.unclaimed..append(msg)
+```
+
+**Send example:**
+
+```
+my.computer.network.email.send(world.email.support, {
+    to: original.from,
+    subject: "Re: " & original.subject,
+    in_reply_to: original.message_id,
+    body: "Thanks for contacting support. We're looking into it."
+})
+```
+
+**Authority and singleton execution:**
+
+When `subscription.enabled` is true, exactly one node — the write authority
+for the account record — opens and maintains the IMAP IDLE connection.
+Authority transfer (failover, voluntary delegation) carries subscription
+responsibility with it. This reuses the mesh's existing authority semantics;
+no email-specific failover logic is needed.
+
+A node that does not hold authority for the account record does nothing with
+`subscription.enabled`, even though it sees the field via mesh replication.
+
+**Credential safety:**
+
+Credentials stored in account records are subject to the standard permission
+system. The convention for any account record containing `auth.password` or
+OAuth tokens is to tighten `@read` on the credential subtree to specific
+agents, regardless of the surrounding record's read permissions. Default
+permissions under `world` allow `@read = "Anything"`, which is appropriate
+for the metadata of a shared inbox but not for the password used to access it.
+
+**Implementation phases:**
+
+Initial implementation supports IMAP and SMTP with username/password (or
+app-password) authentication, sufficient for self-hosted servers, Fastmail,
+and Gmail/Microsoft 365 with app passwords enabled.
+
+OAuth 2.0 for Gmail and Microsoft 365 is planned as a follow-up phase.
+Microsoft Graph API support (for richer Exchange/M365 integration including
+calendar and contacts) is a possible later addition.
+
+###### PWA Static Asset Serving
+
+Static assets are served directly by the Go layer from an in-memory cache.
+No MBL code is involved in serving static files — this is handled entirely
+at the Go level for maximum performance.
+
+```
+my.computer.network.web.pwa["app.example.com"].enabled = true
+my.computer.network.web.pwa["app.example.com"].spa_mode = true
+my.computer.network.web.deploy_pwa("app.example.com", "/build")
+```
+
+`deploy_pwa` reads all files recursively from the directory, wraps each as
+an asset with inferred MIME type, and writes them to the mesh in a single
+staged commit. The in-memory cache serves assets with sub-millisecond
+response times, refreshed within one heartbeat tick when assets change.
+
+Individual assets:
+```
+my.computer.network.web.pwa["app.example.com"].assets["style.css"] =
+    my.computer.network.web.asset(my.computer.files.read("/build/style.css"), "text/css")
+```
+
+`my.computer.network.web.asset(data, mime_type)` constructs an asset record
+with `.data` and `.mime_type` fields.
+
+SPA fallback order:
+1. Exact asset match in cache → serve asset
+2. SSE path → hand off to SSE handler
+3. No match, `spa_mode = true` → return `index.html`
+4. No match, `spa_mode = false` → 503
+
+**TLS configuration** is set in `amorphd.toml`, not in MBL. Certificates are
+stored per domain with SNI routing.
+
+> 🚧 **The network sub-library is not yet implemented in code.** The path
+> structure exists with stubbed procedures. The files sub-library is partially
+> implemented (XML import/export and ARI fixed-width import are working;
+> JSON, CSV, TSV, TOML are stubbed).
 
 #### Cascade
 
@@ -887,12 +1877,14 @@ The purge mechanism respects the temporal nature of the database — historical 
 
 During compaction:
 
-1. The node enters maintenance mode and replicas assume zone authority.
+1. The node enters maintenance mode and temporarily transfers write authority
+   for its hosted paths to subscriber nodes.
 2. Values are relocated to fill gaps, working from the end of the file toward the beginning.
 3. Instance records are updated with new value offsets as values move.
 4. Free space is consolidated at the end and the file is truncated.
-5. The node rejoins the mesh and resyncs — the replica sends all instances written during maintenance, which append cleanly to the freshly compacted files.
-6. The node resumes authority and replicas return to replica mode.
+5. The node rejoins the mesh and resyncs — subscriber nodes send all instances
+   written during maintenance, which append cleanly to the freshly compacted files.
+6. The node resumes write authority for its paths.
 
 
 ## Stamps, Filters, and Permissions
@@ -953,21 +1945,59 @@ my.datasets[@stamp.source != "internal"]
 
 ### Embed
 
-The **embed** meta type marks external data as content rather than metadata. Embedded data preserves its original format and stamps while integrating into the AmorphDB hierarchy.
+**Embed** is a structural composition mechanism that makes the attributes of one
+record appear as siblings within another record, without copying or merging them.
+The embedded record retains its identity as a distinct unit — its attributes are
+presented as flat alongside the host record's own attributes, but are stored
+separately and remain attributable to the embedded record as a coherent group.
+
+#### How the Stamp System Uses Embed
+
+Every value written by an agent automatically carries the agent's stamp record as
+an embed. This means stamp attributes (`@stamp.project`, `@stamp.department`, etc.)
+appear alongside the value's own attributes and are queryable like ordinary
+attributes — but they are not absorbed into the value itself and can be updated
+independently by updating the stamp record.
+
+This is why stamps are ordinary attributes rather than meta attributes: they are
+real, agent-defined, queryable data that need to travel with the value as a unit,
+while remaining distinct from the value's own structure.
+
+#### User-Facing Syntax
+
+Programmers can use embed directly in record bodies with the `embed` keyword:
 
 ```
-# Embed external JSON data
-my.imports.customer_data = embed({
-    "customers": [...],
-    "format": "json",
-    "@source": "external-api"
-})
-
-# Embedded data preserves original structure
-customer_count = my.imports.customer_data.customers..count
+my.report.data:
+    title: "Q3 Report"
+    embed my.context.project_stamp
+    revenue: $14200
 ```
 
-Embedded data appears as normal AmorphDB structures but retains stamps indicating its external origin and original format.
+`embed` is a statement-level keyword, not an assignment. It may appear anywhere in
+a record body. Multiple embeds are permitted.
+
+The spread form is accepted as an equivalent alternative for programmers familiar
+with that convention:
+
+```
+my.report.data:
+    title: "Q3 Report"
+    ...my.context.project_stamp
+    revenue: $14200
+```
+
+#### Collision Rule
+
+When an embedded record's attribute name conflicts with a host record's explicitly
+declared attribute, the **host attribute wins**. When two embeds conflict with each
+other, the **later embed in declaration order wins**.
+
+#### What Embed Is Not
+
+Embed is not a value. You cannot assign an embed to an attribute, return one from
+a procedure, or pass one as a parameter. It is a composition directive that affects
+how a record is presented and stored, not a data value in its own right.
 
 ### Filters
 
@@ -989,7 +2019,7 @@ my.filter = [                                   # Apply multiple filters
 ]
 ```
 
-When a filter is active, any data matching the filter criteria appears as **Redacted** (`***`) in queries and displays. The agent can remove filters to see the full data, but cannot use filters to access data they lack permissions for.
+When a filter is active, any data matching the filter criteria returns `unknown("filtered")`. The agent can remove filters to see the full data, but cannot use filters to access data they lack permissions for.
 
 **Use cases:**
 - Hide development data in production views
@@ -1010,28 +2040,28 @@ AmorphDB uses a capability-based permission system. Every piece of data has five
 | `@purge` | Can mark this data for deletion |
 
 **Permission values:**
-- **Agent reference** (e.g., `""world.agent.kalevo""`) — specific agent
-- **Agent list** (e.g., `[""world.agent.alice"", ""world.agent.bob""]`) — multiple agents
+- **Agent reference** (e.g., `(link)world.agent.kalevo`) — specific agent
+- **Agent list** (e.g., `[(link)world.agent.alice, (link)world.agent.bob]`) — multiple agents
 - **"Anything"** — unrestricted access
 - **"Nothing"** — no access (effectively private)
 
 **Permission examples:**
 ```
 # Private data — only the owner can access
-my.secrets.password.@read = ""world.agent.kalevo""
-my.secrets.password.@write = ""world.agent.kalevo""
+my.secrets.password.@read = (link)world.agent.kalevo
+my.secrets.password.@write = (link)world.agent.kalevo
 
 # Team collaboration — multiple agents can read and write
 world.projects.alpha.@read = "Anything"
 world.projects.alpha.@write = [
-    ""world.agent.alice"",
-    ""world.agent.bob"",
-    ""world.agent.charlie""
+    (link)world.agent.alice,
+    (link)world.agent.bob,
+    (link)world.agent.charlie
 ]
 
 # Public read, restricted write
 world.announcements.@read = "Anything"
-world.announcements.@write = ""world.agent.admin""
+world.announcements.@write = (link)world.agent.admin
 ```
 
 #### Defaults
@@ -1087,7 +2117,7 @@ All agents have identities and keys, but their relationship to the mesh differs 
 - Purpose: Provides mesh infrastructure and local services
 
 **Mobile Agents:**
-- Home: Stored in mesh, replicated across zones
+- Home: Stored in mesh, replicated across subscriber nodes
 - Identity/Keys: Stored encrypted in agent's mesh home
 - Survival: Persists across hardware failures (data is replicated)
 - Access: Can connect through any node in the mesh
@@ -1141,16 +2171,16 @@ Standalone nodes can join existing meshes by connecting to any current member:
 ```bash
 amorphctl join node2.company.com:5830
 # Handshake discovers mesh name automatically
-# Node becomes mesh member with zone assignments
+# Node receives path directory and joins the mesh
 ```
 
 **Join Process:**
 1. Connect to seed node with post-quantum encryption
 2. Discover mesh name during handshake
 3. Receive assigned identity in target mesh
-4. Calculate position on consistent hash ring
-5. Begin zone migration with adjacent nodes
-6. Start heartbeat with zone peers and gossip peers
+4. Receive a snapshot of the path directory from the seed node
+5. Register as a node in the mesh via gossip
+6. Begin receiving write authority assignments and subscription requests
 
 #### Bridge Connections
 
@@ -1196,7 +2226,7 @@ amorphctl detach partner-net  # Disconnect specific bridge
 
 Graceful disconnection includes:
 - Announcing departure via gossip protocol
-- Migrating owned zones to adjacent nodes
+- Transferring write authority for hosted paths to subscriber nodes
 - Clearing local mesh state
 - Preserving identity for potential rejoin
 
@@ -1242,64 +2272,132 @@ Because `world.clock` sub-attributes update independently, watchers can target e
         else:
             my.status = (quietly) "away"
 
-### Zones
+### Data Distribution Model
 
-The unit of distribution is a **zone**. A zone is defined by two dimensions: a subtree of the hierarchy and an optional temporal range.
+> 🚧 **The subscription-based distribution model described here replaces the
+> previous zone/consistent-hashing model.** The old model assigned each node a
+> fixed slice of the keyspace via consistent hashing, with nodes becoming
+> authority and replica for whatever zones their hash position covered. The new
+> model is subscription-based with explicit write authority per path. This is
+> a significant architectural change that requires a dedicated development phase.
+> See the development plan for migration details.
 
-**Spatial zones** encompass a subtree and everything beneath it:
-- `world.market` zone contains all market data
-- `world.agent.kalevo` zone contains agent kalevo's home
-- `world.services.auth` zone contains authentication service data
+#### Write Authority
 
-**Temporal zones** split historical data by time range:
-- `world.market:current` contains recent market data
-- `world.market:2020-2023` contains historical data from that period
-- Old instances automatically link to archival zones via `@older_instance_id`
+Every path in the tree has exactly one **write authority** — the node responsible
+for accepting and committing writes to that path. All writes to a path are routed
+to its authority. The authority processes writes, timestamps them, and pushes
+updates to all subscribers.
 
-Each zone has one **authority node** responsible for writes and two **replica nodes** for redundancy. Zone assignments are calculated using consistent hashing:
+Write authority is not determined by hashing. It is assigned explicitly and can
+be transferred. The mesh maintains a directory of path-to-authority mappings,
+distributed across nodes via the gossip protocol.
 
-    hash("world.market:current")        → node_B (authority), node_C, node_A (replicas)
-    hash("world.market:2020-2023")      → node_F (authority), node_A, node_B (replicas)
+**Authority splitting:** When a write authority becomes overwhelmed with writes
+to a large subtree, it may delegate authority over a sub-path to another node.
+For example, an authority for `world.market` that is overloaded may delegate
+`world.market.equities` to another node while retaining authority over
+`world.market.bonds` and `world.market.fx`. The delegated node becomes the
+new authority for that sub-path and its descendants.
 
-This is deterministic — any node can calculate where a zone lives by hashing the path. No central directory is required for routing, though nodes cache routing information for performance.
+**Authority promotion:** When a write authority goes offline, a new authority
+is elected from among the current subscribers to that path. Because subscribers
+maintain a current copy of the data, promotion is fast — no data migration is
+needed, only a role change. The promotion process:
 
-When a node joins or leaves the mesh, only zones adjacent on the hash ring need to migrate. The consistent hashing algorithm minimizes data movement during topology changes.
+1. Subscribers detect the authority is unresponsive (missed heartbeats)
+2. Subscribers elect a new authority among themselves (highest uptime wins as
+   tiebreaker)
+3. The new authority announces itself via gossip
+4. Other nodes update their directory entries
+5. Buffered writes that did not reach the old authority are replayed
 
-### Zone Splitting
+**Voluntary delegation:** An overwhelmed authority may proactively delegate
+write authority to a subscriber rather than waiting for overload to become
+critical. The subscriber already has current data and can assume authority
+immediately.
 
-Each zone authority monitors its own load — storage size, query rate, write rate. When thresholds are exceeded, the authority autonomously decides to split. No central coordinator is involved.
+#### Subscription Model
 
-**Spatial splitting:** A zone with many sub-attributes splits into smaller subtrees. A zone rooted at `world.agent` might split by key distribution of its children. The tree structure provides natural split points.
+Reads do not route to a write authority. Instead, nodes subscribe to the paths
+they need and maintain local copies. A node that has subscribed to a path
+receives pushed updates from the authority on every heartbeat tick in which
+that path changed.
 
-**Temporal splitting:** A zone with deep history splits by time range. Recent instances stay on fast-access nodes, historical instances migrate to archival nodes. The `older_instance_id` pointer at the time boundary becomes a redirect to the archival node.
+**How subscriptions are established:**
 
-After a split, the new zones are hashed onto the ring independently. They may land on different nodes, automatically distributing the load that caused the split.
+- When a watcher or procedure is stored at a path, the node that hosts it
+  automatically subscribes to all paths that code reads. On first execution,
+  the runtime observes which paths are accessed and registers subscriptions
+  for them. Subsequent executions read from the local subscribed copy.
+- A node may also explicitly subscribe to a path for redundancy, caching,
+  or local read performance.
+- Any node may request that another node subscribe to its data — useful for
+  ensuring redundancy when a path has few natural subscribers.
+
+**Subscription load balancing:** When a write authority accumulates more
+subscribers than it can efficiently push updates to, it may delegate push
+responsibility to a subscriber — that subscriber re-fans updates to a subset
+of the original subscriber pool. This keeps per-authority fan-out bounded
+regardless of how many nodes subscribe to popular paths.
+
+**Reads from subscribed data** are served locally with no network round-trip.
+If a node has not yet subscribed to a path it needs, the first read routes to
+the write authority and the subscription is established in the background.
+
+#### Path Directory
+
+The mesh maintains a distributed directory mapping paths to their current write
+authority. This directory is propagated via the gossip protocol and cached on
+every node. It is eventually consistent — a node may briefly route to a stale
+authority after a promotion event, but the receiving node will redirect to the
+correct current authority.
+
+#### Temporal Data
+
+Historical instances (older data beyond a configurable recency window) may be
+migrated to archival nodes. The `@older_instance_id` pointer on the boundary
+instance serves as a redirect to the archival location. Archival nodes are
+subscribers that specialize in storing historical data rather than serving
+current reads.
 
 ### Distributed Computation
 
-Watchers and procedures execute on the node that owns the zone where they live. Computation moves to the data, not the other way around. As zones split and migrate, the code moves with the data.
+Watchers and procedures execute on the node that hosts them. When a node hosts a
+watcher, it subscribes to all paths that watcher reads — so the data the watcher
+needs is available locally at execution time. Computation moves toward the data
+through the subscription mechanism rather than through explicit placement.
 
-A chain of watchers across different zones becomes a distributed pipeline, each stage executing on the node closest to its data:
+A chain of watchers across different nodes becomes a distributed pipeline. Each
+watcher executes on its host node, reading from locally subscribed data and
+writing through the write authority for its target paths:
 
-    # watcher on the node owning world.market.raw
-    watch ingest(world.market.raw):
+    # watcher hosted on node_A, subscribed to world.market.raw
+    my.automation.ingest: watch(world.market.raw):
         world.market.processed = transform(world.market.raw)
 
-    # watcher on the node owning world.market.processed
-    watch analyze(world.market.processed):
+    # watcher hosted on node_B, subscribed to world.market.processed
+    my.automation.analyze: watch(world.market.processed):
         world.reports.daily = analyze(world.market.processed)
 
-    # watcher on the node owning world.reports
-    watch distribute(world.reports.daily):
+    # watcher hosted on node_C, subscribed to world.reports.daily
+    my.automation.distribute: watch(world.reports.daily):
         world.notifications.send_report(world.reports.daily)
 
 Each heartbeat propagates changes through the pipeline. The mesh is the execution engine.
 
 ### Locality
 
-Most operations cluster in specific subtrees. A user predominantly accesses `my.*`, a department works within `world.departments.{dept}.*`. Consistent hashing keeps related data together — the zone for a subtree encompasses everything beneath it until a split occurs.
+Because subscriptions are established based on what code actually reads, related
+data naturally gravitates to nodes that use it. A node hosting many watchers over
+`world.departments.engineering.*` will subscribe to that subtree and maintain a
+local copy, effectively co-locating computation and data without requiring
+explicit placement decisions.
 
-Some subtrees are broadly shared (configuration, shared libraries, common reference data). These require replication across multiple nodes rather than single-node ownership.
+Broadly shared data (configuration, reference data, shared libraries) will
+accumulate many subscribers across the mesh. The subscription load balancing
+mechanism handles fan-out automatically, preventing any one authority from
+becoming a bottleneck for popular paths.
 
 ### Bridge Communication and Routing
 
@@ -1366,24 +2464,127 @@ amorphctl detach                # Leave primary mesh (become standalone)
 amorphctl detach partner-net    # Disconnect specific bridge
 ```
 
+### Data Extract
+
+`amorphctl extract` generates an MBL script that recreates the current state of
+a subtree. The output is human-readable MBL code that can be reviewed, edited,
+and run on any AmorphDB instance to reproduce the data structure.
+
+```bash
+# Extract an entire application subtree
+amorphctl extract world.knowledgefoyer -o knowledgefoyer.mbl
+
+# Extract to stdout
+amorphctl extract world.knowledgefoyer
+
+# Extract a smaller subtree
+amorphctl extract world.knowledgefoyer.config -o config_only.mbl
+```
+
+The generated script includes:
+- All attribute values with their current data
+- Record structure and list contents
+- Heritability modifiers (`(copy)`, `(link)`, `(reset)`, `(exclude)`)
+- Procedure and watcher definitions
+- Permission settings
+- Stamp configurations
+- Embed directives
+
+The script does NOT include temporal history. History is an immutable audit
+trail — extracting and replaying it would undermine its trustworthiness. The
+extract captures what exists now, not how it got there.
+
+**Restoring** is just running the extracted MBL script:
+
+```bash
+amorph knowledgefoyer.mbl
+```
+
+**Common use cases:**
+- Back up application state before a software upgrade
+- Move a data structure from one instance to another
+- Review or edit a data structure as text
+- Create a baseline template for new deployments
+- Share a data structure definition with another developer
+
+### PWA Management Commands
+
+```bash
+# Create a new PWA project
+amorphctl init-pwa myapp ~/projects/myapp/
+
+# Deploy project files to AmorphDB
+amorphctl deploy-pwa myapp.example.com ~/projects/myapp/
+
+# Enable/disable a PWA
+amorphctl enable-pwa myapp.example.com
+amorphctl disable-pwa myapp.example.com
+```
+
+`init-pwa` creates a starter project directory with `index.html`, `app.html`,
+`app.js`, and `style.css`. `deploy-pwa` reads the project files, stores them as
+assets in the mesh, and parses `app.html` to build the shared app structure.
+
+The boilerplate JavaScript (`amorphdb-pwa.js`) and default styles are embedded
+in the `amorphd` binary and served at `/amorphdb/pwa.js` and `/amorphdb/pwa.css`.
+All PWAs on the instance share the same boilerplate version.
+
+> See `AmorphDB_PWA_Boilerplate_Spec.md` for the full PWA specification.
+
 ### The Client
 
-The client (`amorph`) is the primary interface for humans and external programs to interact with AmorphDB. It supports two modes of operation.
+The client (`amorph`) is the primary interface for humans and external programs to
+interact with AmorphDB. It supports two modes of operation.
 
-**Interactive mode** provides a REPL (Read-Eval-Print Loop) for ad hoc queries, data exploration, and immediate operations:
+**Interactive mode** provides a REPL (Read-Eval-Print Loop) for ad hoc queries,
+data exploration, and immediate operations. The display format is inferred
+automatically from what is returned — no mode-switching required:
 
-    $ amorph
-    AmorphDB> my.account.balance
-    $1,247.83
+- A **scalar value** (no sub-attributes) prints as a value with its timestamp
+  and writing agent shown as context
+- A **record** (named sub-attributes) prints as a fielded key-value block; if
+  the node also has a scalar value of its own, that value is shown first
+- A **list** (numerically indexed, homogeneous sub-attributes) prints as a table
+  with automatic column headers
 
-    AmorphDB> my.tasks[priority = "high"]
-    [
-        {subject: "Client presentation", due: @2026-01-20},
-        {subject: "Code review", due: @2026-01-18}
-    ]
+```
+AmorphDB> my.account.balance
+$1,247.83  (@2026-03-28 14:22:01 by kalevo)
 
-    AmorphDB> world.market.price.@time
-    @2026-01-15 14:32:18
+AmorphDB> my.account
+value:       "checking"
+balance:     $1,247.83
+status:      "active"
+opened:      @2019-04-12
+
+AmorphDB> my.transactions
+  #   date          type      amount      balance
+  0   @2026-03-28   debit     $42.50      $1,247.83
+  1   @2026-03-27   credit    $2,100.00   $1,290.33
+  2   @2026-03-25   debit     $18.99      ...
+
+AmorphDB> world.market.price.@time
+@2026-01-15 14:32:18
+```
+
+Display hints can override the inferred format:
+
+```
+AmorphDB> my.account :tree        # force tree view
+AmorphDB> my.transactions :table  # force table view
+AmorphDB> my.transactions :list   # force list view
+```
+
+Pagination uses slice notation for large collections:
+
+```
+AmorphDB> my.transactions[0:9]    # first ten items
+AmorphDB> my.transactions[10:19]  # next ten
+```
+
+> 🚧 **Display hints (`:tree`, `:table`, `:list`) and slice pagination are not
+> yet implemented.** Basic scalar and structured output is implemented. Full
+> auto-inferred table rendering for homogeneous lists is planned.
 
 **Script mode** executes MBL programs from files:
 
@@ -1400,10 +2601,13 @@ The client automatically handles:
 Connection options:
 
     $ amorph                               # connect to local node (default)
-    $ amorph --node 192.168.1.50:5000          # connect to remote node
-    $ amorph --identity kalevo                  # authenticate as specific agent
+    $ amorph --node 192.168.1.50:5000      # connect to remote node
+    $ amorph --identity kalevo             # authenticate as specific agent
 
-By default, the client connects to the local node's socket. For remote connections, an address is specified and authentication proceeds via challenge-response (see Security). If no identity is specified, the client uses the identity stored in the local configuration.
+By default, the client connects to the local node's socket. For remote connections,
+an address is specified and authentication proceeds via challenge-response (see
+Security). If no identity is specified, the client uses the identity stored in the
+local configuration.
 
 
 ## Security
@@ -1448,7 +2652,9 @@ The derived key is used for a challenge-response protocol with the node. The nod
 
 ### Agent-Level Encryption
 
-An agent's secrets — private keys, sensitive data — are stored in the mesh but encrypted with the agent's own derived key. The node hosting the agent's zone stores this data but cannot read it. Only the authenticated agent can decrypt it.
+An agent's secrets — private keys, sensitive data — are stored in the mesh but
+encrypted with the agent's own derived key. The node hosting the agent's data
+stores this data but cannot read it. Only the authenticated agent can decrypt it.
 
     ~.keys.public                   # in the mesh, readable by anyone
     ~.keys.private                  # in the mesh, encrypted with agent's derived key
@@ -1479,19 +2685,33 @@ AmorphDB uses a custom protocol over TCP with the following layers:
 The same protocol operates over both local Unix sockets (no encryption) and network TCP sockets (full encryption stack).
 
 **Mesh Communication:**
-Each node heartbeats to a small set of direct peers — zone cluster peers (the authority and replicas for zones this node participates in) and a handful of gossip peers for broader mesh awareness. This keeps per-node connection count bounded regardless of mesh size.
+Each node heartbeats to a small set of direct peers — nodes it holds write
+authority for, nodes it subscribes to, and a handful of gossip peers for
+broader mesh awareness. This keeps per-node connection count bounded regardless
+of mesh size.
 
-**Zone cluster heartbeats** are direct and immediate — writes replicate to replicas within one heartbeat tick. This is the hot path for data consistency.
+**Authority heartbeats** are direct and immediate — writes are pushed to
+subscribers within one heartbeat tick. This is the hot path for data consistency.
 
-**Gossip heartbeats** propagate mesh-wide information (new nodes, departed nodes, zone splits) through neighbors. This information may take several ticks to reach the entire mesh, which is acceptable for metadata that changes infrequently.
+**Gossip heartbeats** propagate mesh-wide information (new nodes, departed nodes,
+authority promotions, path directory updates) through neighbors. This information
+may take several ticks to reach the entire mesh, which is acceptable for metadata
+that changes infrequently.
 
 #### Routing
 
-Any node can calculate which node owns a zone by hashing the path onto the consistent hash ring. When a node receives a request for data it does not own, it forwards the request to the calculated authority. The response returns along the same path. The client does not need to know the mesh topology.
+When a node receives a write request for a path it does not hold authority for,
+it consults its local copy of the path directory and forwards the request to the
+current authority. The response returns along the same path. The client does not
+need to know the mesh topology.
 
-For read requests, the node may route to the nearest replica rather than the authority, reducing latency and distributing read load.
+Read requests are served locally if the node has a current subscribed copy of the
+data. If not, the read is forwarded to the write authority and a subscription is
+established in the background.
 
-**Bridge Routing:** Bridge nodes maintain separate routing tables for each mesh they participate in. Requests are routed within the appropriate mesh based on the data path being accessed.
+**Bridge Routing:** Bridge nodes maintain separate path directories for each mesh
+they participate in. Requests are routed within the appropriate mesh based on the
+data path being accessed.
 
 #### Extensibility
 
@@ -1505,64 +2725,65 @@ The protocol is designed to support future extensions:
 
 ## Future Enhancements
 
-### Windows Platform Support
+### MCARS — Standard Data Interface Convention
 
-**Current Status:** AmorphDB is designed for Unix-like systems (Linux, macOS) and uses platform-specific features that limit Windows compatibility.
+**MCARS** (inspired by the LCARS interface from Star Trek, with improvements) is
+AmorphDB's standard visual interface convention. It defines a set of layout,
+navigation, and field presentation rules that PWA and client applications built
+on AmorphDB can follow to give users a consistent experience across different
+applications.
 
-#### Compatibility Challenges
+MCARS covers:
+- Standard external frame (header with time, current data path, user identity,
+  and help access; content area; footer)
+- Standard internal frame (message routing via `send`/`reception`, MCP-based
+  communication between client and server)
+- Generic section layout (hamburger menu, section name, focus radio, field
+  presentation rules per value type)
+- Field rendering by type: text, time, money, picture, boolean, watcher,
+  procedure
 
-**Unix Domain Sockets:** The current implementation uses Unix domain sockets for local IPC between `amorph` clients and the `amorphd` daemon. Windows uses a different named pipe mechanism for equivalent functionality.
+**WAGLE notation** is a companion design language for specifying custom
+interfaces within the MCARS convention, allowing developers to override the
+generic presentation with custom layouts for specific data views.
 
-**File System Assumptions:** Configuration and code assumes Unix-style paths:
-- Data directories: `/var/lib/amorphdb`
-- Socket paths: `/var/run/amorphdb.sock`
-- Log files: `/var/log/amorphdb/`
-- Configuration: `/etc/amorphdb/`
+> 📋 **MCARS and WAGLE are design concepts.** Full specifications will be
+> developed as separate documents. No implementation exists yet.
 
-**Service Integration:** Current installation assumes systemd service management, which is not available on Windows.
+### PWA Standard Component
 
-#### Potential Solutions
+A standard PWA shell for building applications on AmorphDB. The boilerplate
+provides five primitives — proxied data cache, batch sender, SSE receiver,
+local watchers, and deep link mapper. Everything else is application logic.
 
-**Option 1: Network-Only Windows Mode**
-- Disable Unix domain sockets on Windows
-- Use TCP-only communication (localhost:8080)
-- Implement Windows-appropriate default paths
-- Maintain functional parity with slightly different UX
+- Vanilla HTML/CSS/JavaScript (no framework dependencies)
+- Application structure defined in `app.html` using `<section>` tags
+- Data-driven communication — PWA clients interact through data changes, not HTTP requests
+- Device-based identity before login, token-based identity after login
+- Per-user data at `world.apps.<app>.users.<identity>` with per-user watchers
+- Reference password auth scheme (Argon2id) with swappable login watchers
+- Surgical DOM updates via `data-bind` attributes
+- SPA routing with deep-linkable URLs
+- AI helper operates through the same client interface with the same permissions
 
-**Option 2: Full Windows Native Support**
-- Implement Named Pipe support for local IPC
-- Create Windows-specific path abstractions
-- Add Windows Service integration
-- Platform-specific installation packages
+> 📋 **PWA boilerplate is specified in a separate document.** See
+> `AmorphDB_PWA_Boilerplate_Spec.md`.
 
-**Option 3: Project Branching Strategy**
-- Fork AmorphDB for Windows-specific implementation
-- Maintain feature parity between Unix and Windows branches
-- Allow platform-specific optimizations and integrations
-- Coordinate releases and feature development
+### Examples Library
 
-#### Implementation Considerations
+A comprehensive set of MBL examples covering every language feature, organized
+for use as both a tutorial and a reference. Examples will be cross-referenced
+from the language specification sections.
 
-**Cross-Platform Abstraction:** Creating an IPC abstraction layer would allow the same business logic to run over Unix sockets on Unix systems and Named Pipes on Windows.
+> 📋 **Planned after core language implementation is stable.**
 
-**Configuration Management:** Platform-specific default configurations would handle path differences transparently while maintaining consistent functionality.
+### LLM Fine-Tuning for AmorphDB
 
-**Testing Strategy:** Windows support would require platform-specific testing infrastructure and validation of all mesh bridge functionality in Windows environments.
+A fine-tuned language model trained to understand MBL syntax and semantics,
+ARI notation, MCARS/MCP patterns, and AmorphDB architecture. The goal is to
+provide AI assistance to developers and users working with AmorphDB — helping
+write, debug, and design MBL programs, generate ARI specs from file samples,
+and interact with MCARS interfaces.
 
-**Distribution Impact:** Windows binaries could be included in the existing cross-platform binary distribution strategy with appropriate documentation about platform differences.
-
-#### Recommendation
-
-A **project branching approach** is recommended for Windows support:
-
-1. **Branch Creation:** Create a Windows-specific branch with platform adaptations
-2. **Feature Coordination:** Maintain core feature parity through coordinated development
-3. **Platform Optimization:** Allow platform-specific optimizations (Windows Services, Unix systemd)
-4. **Distribution Strategy:** Include Windows binaries in unified release packages
-5. **Long-term Maintenance:** Evaluate demand and consolidation opportunities
-
-This approach allows Windows support without compromising the Unix-native design while providing flexibility for platform-specific enhancements and optimizations.
-
-**Timeline:** Windows support could be implemented as a separate development track, either in-house or through community contribution, without impacting the core Unix development roadmap.
-
-The mesh is designed to be long-lived and evolvable. Nodes can join and leave freely, and the system adapts to changing topology and requirements without central coordination.
+> 📋 **Planned as a later-stage initiative once the specification and examples
+> library are stable enough to generate quality training data.**

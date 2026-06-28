@@ -1,3 +1,5 @@
+//go:build ignore
+// Deprecated: zone-based tests are disabled as zone package is being replaced
 package integration
 
 import (
@@ -5,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/solifugus/amorphdb/internal/mesh"
-	"github.com/solifugus/amorphdb/internal/zone"
 )
 
 // TestStep12_2_TwoNodeMesh tests Step 12.2: Two Node Mesh Integration

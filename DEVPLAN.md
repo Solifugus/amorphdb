@@ -529,7 +529,7 @@ go test ./internal/mbl/...
 
 ### Step 10 — Path directory data structure and API
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-04-02) — Implemented distributed path directory with thread-safe operations, longest-prefix matching, last-write-wins merging, and comprehensive test coverage
 
 **Spec reference:** `docs/amorphdb_design.md` §Path Directory, §Write Authority
 
@@ -569,7 +569,7 @@ go test ./internal/directory/...
 
 ### Step 11 — Subscription registry data structure and API
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-04-02) — Implemented subscription registry with thread-safe tracking of node subscriptions and subscribers, comprehensive test coverage for all operations
 
 **Spec reference:** `docs/amorphdb_design.md` §Subscription Model
 
@@ -607,7 +607,7 @@ go test ./internal/subscription/...
 
 ### Step 12 — Write authority assignment and promotion protocol
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-04-02) — Implemented comprehensive write authority management with announcement, promotion, delegation, and splitting protocols
 
 **Spec reference:** `docs/amorphdb_design.md` §Write Authority (full section)
 
@@ -651,7 +651,7 @@ go test ./internal/directory/...
 
 ### Step 13 — Subscription-based replication replacing zone replication
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-04-02) — Implemented complete subscription-based replication system with feature flag, write routing, subscription management, and comprehensive test coverage
 
 **Spec reference:** `docs/amorphdb_design.md` §Subscription Model,
 §Distributed Computation
@@ -696,7 +696,7 @@ go test ./internal/subscription/...
 
 ### Step 14 — Cutover: enable subscription model, retire zone model
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-04-02) — Enabled subscription-based replication as default, removed UseSubscriptionReplication config flag, archived zone package to zone_deprecated/. Integration tests pass with subscription model. Some legacy zone-based tests remain that need cleanup in future maintenance.
 
 **Spec reference:** `docs/amorphdb_design.md` §Data Distribution Model
 
@@ -732,7 +732,7 @@ go test ./...
 
 ### Step 15 — Update REPL join process output and status messages
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-04-02) — Updated CLI output terminology from zone-based to subscription model. Changed "Assigned Zone" to "Path Authorities" in join output, and "Zones" to "Path Authorities" in mesh status. Updated corresponding struct fields and test fixtures.
 
 **Spec reference:** `docs/amorphdb_design.md` §Mesh Formation and Management
 
@@ -757,7 +757,7 @@ go test ./cmd/...
 
 ### Step 16 — Archive old spec documents and place updated specs
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-04-02) — Verified all current spec documents contain required sections. Created missing pending_code_changes.md with asset() rename documentation. Historical spec versions preserved.
 
 **Scope:** `docs/` directory only — no code changes
 

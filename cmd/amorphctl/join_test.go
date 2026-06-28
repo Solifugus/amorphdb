@@ -16,10 +16,10 @@ func TestJoinCommand_JoinMesh_Success(t *testing.T) {
 		Message:      "Successfully joined mesh 'test-mesh'",
 		NodeIdentity: "node-456",
 		MeshInfo: &JoinedMeshInfo{
-			Name:         "test-mesh",
-			AssignedZone: "zone-1",
-			MemberCount:  2,
-			JoinedAt:     time.Now(),
+			Name:            "test-mesh",
+			PathAuthorities: "node-123",
+			MemberCount:     2,
+			JoinedAt:        time.Now(),
 		},
 		DataPreserved: true,
 	}

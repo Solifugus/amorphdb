@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/solifugus/amorphdb/internal/config"
+	"github.com/solifugus/amorphdb/internal/directory"
 	"github.com/solifugus/amorphdb/internal/identity"
 	"github.com/solifugus/amorphdb/internal/storage"
+	"github.com/solifugus/amorphdb/internal/subscription"
 )
 
 // MeshManager manages mesh creation, joining, and bridging operations
@@ -23,6 +25,13 @@ type MeshManager struct {
 	bridges        map[string]*BridgeConnection
 	bridgeManager  *BridgeManager
 	leaveManager   *LeaveManager
+
+	// Subscription-based distribution model components
+	pathDirectory    *directory.Directory             // Path-to-authority mapping
+	subscriptionReg  *subscription.SubscriptionRegistry // Subscription tracking
+	authorityMgr     *AuthorityManager                 // Authority promotion and delegation
+	gossipManager    *GossipManager                    // Gossip protocol manager
+	heartbeatManager *HeartbeatManager                 // Heartbeat and failure detection
 }
 
 // MeshState represents the current state of the mesh
@@ -114,12 +123,31 @@ func NewMeshManager(cfg *config.Config, storage storage.Tree, configPath string)
 		protocol:      nil, // Will be set when protocol is available
 	}
 
+	// Initialize subscription-based distribution components
+	mm.pathDirectory = directory.NewDirectory()
+	mm.subscriptionReg = subscription.NewSubscriptionRegistry()
+
 	// Load existing node identity if available
 	if cfg.Mesh.Identity != "" {
 		err := mm.loadOrCreateNodeIdentity()
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize node identity: %w", err)
 		}
+
+		// Initialize authority manager with node identity
+		mm.authorityMgr = NewAuthorityManager(
+			mm.meshState.NodeIdentity,
+			mm.pathDirectory,
+			mm.subscriptionReg,
+		)
+
+		// Initialize gossip and heartbeat managers
+		mm.gossipManager = NewGossipManager(mm.meshState.NodeIdentity.ID)
+		mm.heartbeatManager = NewHeartbeatManager(mm.meshState.NodeIdentity.ID)
+
+		// Wire authority manager with gossip and heartbeat
+		mm.authorityMgr.SetGossipManager(mm.gossipManager)
+		mm.authorityMgr.SetHeartbeatManager(mm.heartbeatManager)
 	}
 
 	return mm, nil
@@ -645,4 +673,39 @@ func (mm *MeshManager) saveConfig() error {
 	// Placeholder implementation - in full implementation this would save config to disk
 	fmt.Printf("Saving configuration for mesh: %s\n", mm.config.Mesh.Name)
 	return nil
+}
+
+// GetPathDirectory returns the path directory for authority lookups
+func (mm *MeshManager) GetPathDirectory() *directory.Directory {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+	return mm.pathDirectory
+}
+
+// GetSubscriptionRegistry returns the subscription registry
+func (mm *MeshManager) GetSubscriptionRegistry() *subscription.SubscriptionRegistry {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+	return mm.subscriptionReg
+}
+
+// GetAuthorityManager returns the authority manager
+func (mm *MeshManager) GetAuthorityManager() *AuthorityManager {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+	return mm.authorityMgr
+}
+
+// GetGossipManager returns the gossip manager
+func (mm *MeshManager) GetGossipManager() *GossipManager {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+	return mm.gossipManager
+}
+
+// GetHeartbeatManager returns the heartbeat manager
+func (mm *MeshManager) GetHeartbeatManager() *HeartbeatManager {
+	mm.mu.RLock()
+	defer mm.mu.RUnlock()
+	return mm.heartbeatManager
 }

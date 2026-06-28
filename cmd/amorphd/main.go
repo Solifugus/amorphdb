@@ -69,6 +69,8 @@ func main() {
 		LocalSocketPath: cfg.Network.LocalSocketPath,
 		NetworkPort:     cfg.Network.Port,
 		NodeIdentity:    cfg.Mesh.Identity,
+		MeshName:        cfg.Mesh.Name,
+		ConfigPath:      configPath,
 	}
 
 	// Ensure storage and socket directories exist

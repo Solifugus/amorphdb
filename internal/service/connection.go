@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/solifugus/amorphdb/internal/mbl/interpreter"
 	"github.com/solifugus/amorphdb/internal/protocol"
 	"github.com/solifugus/amorphdb/internal/security"
+	"github.com/solifugus/amorphdb/internal/storage"
+	"github.com/solifugus/amorphdb/internal/types"
 )
 
 // Connection represents a client connection to the service
@@ -164,6 +167,10 @@ func (c *Connection) handleMessage(msg *protocol.Message) *protocol.Message {
 		return c.handleJoinMesh(msg)
 	case protocol.CREATE_BRIDGE:
 		return c.handleCreateBridge(msg)
+	case protocol.EXECUTE:
+		return c.handleExecute(msg)
+	case protocol.EXTRACT:
+		return c.handleExtract(msg)
 	default:
 		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Unknown message type: 0x%02x", msg.Type))
 	}
@@ -431,4 +438,204 @@ func (c *Connection) handleCreateBridge(msg *protocol.Message) *protocol.Message
 	}
 
 	return protocol.CreateMessage(protocol.CREATE_BRIDGE_ACK, msg.Sequence, responseData)
+}
+
+// handleExecute processes EXECUTE messages
+func (c *Connection) handleExecute(msg *protocol.Message) *protocol.Message {
+	executeMsg, err := protocol.DecodeExecuteMessage(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid EXECUTE message: %v", err))
+	}
+
+	// Execute the MBL code using the connection's interpreter
+	result, err := c.interpreter.EvaluateExpression(executeMsg.Code)
+
+	var responseMsg *protocol.ExecuteResponseMessage
+	if err != nil {
+		// Execution failed
+		responseMsg = &protocol.ExecuteResponseMessage{
+			Success: false,
+			Result:  storage.Value{}, // Empty value for error case
+			Error:   err.Error(),
+		}
+	} else {
+		// Execution succeeded - convert result to storage.Value
+		storageValue, err := c.convertToStorageValue(result)
+		if err != nil {
+			responseMsg = &protocol.ExecuteResponseMessage{
+				Success: false,
+				Result:  storage.Value{}, // Empty value for error case
+				Error:   fmt.Sprintf("Failed to serialize result: %v", err),
+			}
+		} else {
+			responseMsg = &protocol.ExecuteResponseMessage{
+				Success: true,
+				Result:  storageValue,
+				Error:   "",
+			}
+		}
+	}
+
+	// Encode the response
+	payload, err := protocol.EncodeExecuteResponseMessage(responseMsg)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.EXECUTE_RESPONSE, msg.Sequence, payload)
+}
+
+// convertToStorageValue converts an interpreter result to storage.Value
+func (c *Connection) convertToStorageValue(result interface{}) (storage.Value, error) {
+	// This conversion depends on the types used by the interpreter and storage
+	// For now, we'll use a basic approach - this may need refinement based on actual types
+	if result == nil {
+		return storage.Value{}, nil
+	}
+
+	// The actual implementation will depend on how the interpreter types map to storage.Value
+	// This is a placeholder that should be updated based on the types system
+	return storage.Value{
+		Data:    []byte(fmt.Sprintf("%v", result)),
+		TypeTag: 1, // This should be determined based on the actual type
+	}, nil
+}
+
+// handleExtract processes EXTRACT messages
+func (c *Connection) handleExtract(msg *protocol.Message) *protocol.Message {
+	extractMsg, err := protocol.DecodeExtractMessage(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid EXTRACT message: %v", err))
+	}
+
+	// Generate MBL script by walking the tree from the specified path
+	script, err := c.generateMBLScript(extractMsg.Path)
+
+	var responseMsg *protocol.ExtractResponseMessage
+	if err != nil {
+		// Extraction failed
+		responseMsg = &protocol.ExtractResponseMessage{
+			Success: false,
+			Script:  "",
+			Error:   err.Error(),
+		}
+	} else {
+		// Extraction succeeded
+		responseMsg = &protocol.ExtractResponseMessage{
+			Success: true,
+			Script:  script,
+			Error:   "",
+		}
+	}
+
+	// Encode the response
+	payload, err := protocol.EncodeExtractResponseMessage(responseMsg)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.EXTRACT_RESPONSE, msg.Sequence, payload)
+}
+
+// generateMBLScript walks the tree and generates MBL script to recreate the current state
+func (c *Connection) generateMBLScript(rootPath []string) (string, error) {
+	var script strings.Builder
+
+	// For now, just try to extract the value at the specified path
+	// TODO: Add recursive tree walking when storage.Attribute API is enhanced with name resolution
+	value, err := c.service.tree.Read(rootPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read path %v: %w", rootPath, err)
+	}
+
+	// Generate assignment for this value
+	assignment, err := c.generateAssignment(rootPath, value)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate assignment for path %v: %w", rootPath, err)
+	}
+
+	script.WriteString(assignment)
+	script.WriteString("\n")
+
+	return script.String(), nil
+}
+
+// generateAssignment creates an MBL assignment statement for a given path and value
+func (c *Connection) generateAssignment(path []string, value storage.Value) (string, error) {
+	pathStr := strings.Join(path, ".")
+
+	// Convert storage.Value to MBL literal syntax based on type
+	mblValue, err := c.formatValueForMBL(value)
+	if err != nil {
+		return "", fmt.Errorf("failed to format value: %w", err)
+	}
+
+	return fmt.Sprintf("%s = %s", pathStr, mblValue), nil
+}
+
+// formatValueForMBL converts a storage.Value to MBL literal syntax
+func (c *Connection) formatValueForMBL(value storage.Value) (string, error) {
+	// Import the types package functions to deserialize values
+	switch value.TypeTag {
+	case 0x01: // TypeText
+		if text, err := types.DeserializeText(value.Data); err == nil {
+			// Escape quotes in text and wrap in quotes
+			escaped := strings.ReplaceAll(text.Value, "\"", "\\\"")
+			return fmt.Sprintf("\"%s\"", escaped), nil
+		}
+	case 0x02: // TypeNumber
+		if number, err := types.DeserializeNumber(value.Data); err == nil {
+			return fmt.Sprintf("%g", number.Value), nil
+		}
+	case 0x03: // TypeTime
+		if timeVal, err := types.DeserializeTime(value.Data); err == nil {
+			// Use @ prefix for time literals (no quotes per spec)
+			return fmt.Sprintf("@%s", timeVal.Timestamp.Format("2006-01-02 15:04:05")), nil
+		}
+	case 0x04: // TypeMoney
+		if money, err := types.DeserializeMoney(value.Data); err == nil {
+			// Use currency symbol prefix (number first, then currency code per spec)
+			return fmt.Sprintf("¤%.2f %s", money.Amount, money.CurrencyCode), nil
+		}
+	case 0x0A: // TypeBoolean
+		if boolean, err := types.DeserializeBoolean(value.Data); err == nil {
+			if boolean.Value {
+				return "true", nil
+			}
+			return "false", nil
+		}
+	case 0x06: // TypeReference
+		if reference, err := types.DeserializeReference(value.Data); err == nil {
+			// Use (link) prefix for references - resolve AttributeID to path per spec
+			path, err := c.resolveAttributeIDToPath(reference.AttributeID)
+			if err != nil {
+				// Fallback to internal ID if resolution fails
+				return fmt.Sprintf("(link) &%d", reference.AttributeID), nil
+			}
+			return fmt.Sprintf("(link)%s", path), nil
+		}
+	case 0xF0: // TypeNothing
+		return "Nothing", nil
+	case 0xF1: // TypeUnknown
+		if unknown, err := types.DeserializeUnknown(value.Data); err == nil {
+			return fmt.Sprintf("unknown(\"%s\")", unknown.Reason), nil
+		}
+	}
+
+	// Fallback for unsupported or complex types
+	return fmt.Sprintf("unknown(\"unsupported type: 0x%02x\")", value.TypeTag), nil
+}
+
+// resolveAttributeIDToPath resolves an attribute ID back to its path string
+func (c *Connection) resolveAttributeIDToPath(attributeID uint64) (string, error) {
+	// Access the storage tree through the service
+	tree := c.service.tree
+
+	// Use the ResolveAttributePath method from the ExtendedTree interface
+	pathStr, err := tree.ResolveAttributePath(attributeID)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve attribute path: %w", err)
+	}
+
+	return pathStr, nil
 }

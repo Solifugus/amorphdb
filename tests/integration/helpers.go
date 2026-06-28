@@ -9,7 +9,6 @@ import (
 	"github.com/solifugus/amorphdb/internal/mbl/lexer"
 	"github.com/solifugus/amorphdb/internal/mbl/parser"
 	"github.com/solifugus/amorphdb/internal/storage"
-	"github.com/solifugus/amorphdb/internal/zone"
 )
 
 // executeProgram executes MBL code using the given interpreter
@@ -32,10 +31,7 @@ func executeProgram(interp *interpreter.Interpreter, code string) (interface{}, 
 func createTestCoordinator(storage storage.Tree) *interpreter.CommitCoordinator {
 	logger := log.New(os.Stdout, "[Coordinator] ", log.LstdFlags)
 
-	// Create minimal hash ring for testing
-	hashRing := zone.NewHashRing(1, 1)
-	hashRing.AddNode("test-node", "127.0.0.1:8080")
-
-	// Create coordinator without replication manager for simple testing
-	return interpreter.NewCommitCoordinator(hashRing, nil, storage, "test-node", logger)
+	// Note: Using nil for hashRing since zone model is deprecated
+	// This is acceptable for testing as coordinator will use subscription model
+	return interpreter.NewCommitCoordinator(nil, nil, storage, "test-node", logger)
 }

@@ -1,0 +1,60 @@
+# Test: type-first watcher definition syntax (Step 2.6)
+#
+# Demonstrates `watch name(paths): body` as a primary definition form.
+# Both type-first and path-first watcher forms are valid and equivalent.
+#
+# Spec: docs/syntax_changes_development_plan.md §Phase 2 (Steps 2.3, 2.4, 2.5)
+#       docs/amorphdb_design.md §Watchers (type-first form)
+#
+# Implementation note: this script defines watchers but does not exercise
+# their firing behavior — that requires a wired-up watcher engine and
+# storage writes that produce events. The Go unit tests in
+# internal/mbl/interpreter (TestTypeFirstWatcherEvaluation) cover the
+# fire path. This script's job is to demonstrate that each definition
+# form parses, evaluates, and binds without error.
+
+output("=== Type-first watcher definitions ===")
+
+# --- single-path type-first watcher binds at my.<name> ---
+
+watch balance_check(my.account.balance):
+    my.audit.last_balance_change = 1
+
+output("balance_check defined")
+
+# --- multi-path type-first watcher (paths comma-separated) ---
+
+watch multi_check(my.a, my.b, my.c):
+    my.audit.touched = 1
+
+output("multi_check defined")
+
+# --- append-form type-first watcher with binding ---
+
+watch new_orders append(my.orders) as orders:
+    my.audit.last_orders = orders
+
+output("new_orders defined")
+
+# --- append-form type-first watcher with predicate filter ---
+
+watch urgent_orders append(my.orders[priority ?= "urgent"]) as urgent:
+    my.audit.last_urgent = urgent
+
+output("urgent_orders defined")
+
+# --- path-first form must still work (equivalent to type-first) ---
+
+my.handlers.legacy: watch(my.legacy_signal):
+    my.audit.legacy_fired = 1
+
+output("my.handlers.legacy defined (path-first)")
+
+# --- anonymous-watch assignment form must still work ---
+
+my.handlers.assigned = watch(my.assigned_signal):
+    my.audit.assigned_fired = 1
+
+output("my.handlers.assigned defined (assignment form)")
+
+output("=== End of type-first watcher demo ===")

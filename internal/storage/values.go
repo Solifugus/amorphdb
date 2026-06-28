@@ -80,6 +80,9 @@ type ValueStore struct {
 
 	// Content hash to value ID mapping for deduplication
 	hashToValueID map[[32]byte]uint64
+
+	// Reference counting for proper deduplication cleanup
+	referenceCount map[uint64]int
 }
 
 // Note: FreeBlock is now defined in freelist.go
@@ -92,12 +95,13 @@ func NewValueStore(basePath string) (*ValueStore, error) {
 	}
 
 	vs := &ValueStore{
-		basePath:      basePath,
-		tier0Files:    make(map[uint64]*os.File),
-		tier1Files:    make(map[uint64]*os.File),
-		tier2Files:    make(map[uint64]*os.File),
-		hashToValueID: make(map[[32]byte]uint64),
-		freeLists:     [4]*FreeList{NewFreeList(), NewFreeList(), NewFreeList(), NewFreeList()},
+		basePath:       basePath,
+		tier0Files:     make(map[uint64]*os.File),
+		tier1Files:     make(map[uint64]*os.File),
+		tier2Files:     make(map[uint64]*os.File),
+		hashToValueID:  make(map[[32]byte]uint64),
+		referenceCount: make(map[uint64]int),
+		freeLists:      [4]*FreeList{NewFreeList(), NewFreeList(), NewFreeList(), NewFreeList()},
 	}
 
 	// Open or create the tier 3 large file
@@ -186,6 +190,8 @@ func (vs *ValueStore) writeValue(value Value) (uint64, error) {
 	// Check for deduplication first
 	hash := vs.hashValue(value)
 	if valueID, exists := vs.hashToValueID[hash]; exists {
+		// Increment reference count for deduplicated value
+		vs.referenceCount[valueID]++
 		return valueID, nil
 	}
 
@@ -213,8 +219,9 @@ func (vs *ValueStore) writeValue(value Value) (uint64, error) {
 		return 0, err
 	}
 
-	// Store hash mapping for deduplication
+	// Store hash mapping for deduplication and set initial reference count
 	vs.hashToValueID[hash] = valueID
+	vs.referenceCount[valueID] = 1
 
 	return valueID, nil
 }
@@ -248,8 +255,36 @@ func (vs *ValueStore) readValue(valueID uint64) (Value, error) {
 	return vs.deserializeValue(data)
 }
 
-// tombstoneValue marks a value as deleted
+// tombstoneValue decrements reference count and marks value as deleted if count reaches zero
 func (vs *ValueStore) tombstoneValue(valueID uint64) error {
+	// Check current reference count
+	refCount, exists := vs.referenceCount[valueID]
+	if !exists {
+		return fmt.Errorf("value ID %d not found in reference count", valueID)
+	}
+
+	// Decrement reference count
+	refCount--
+
+	// If still has references, just update the count and return
+	if refCount > 0 {
+		vs.referenceCount[valueID] = refCount
+		return nil
+	}
+
+	// No more references, actually tombstone the value
+	delete(vs.referenceCount, valueID)
+
+	// Find and remove the hash mapping
+	// We need to read the value to compute its hash for removal
+	value, err := vs.readValue(valueID)
+	if err != nil {
+		// Value might already be tombstoned, try to tombstone anyway
+	} else {
+		hash := vs.hashValue(value)
+		delete(vs.hashToValueID, hash)
+	}
+
 	tier := vs.extractTier(valueID)
 	bucket := vs.extractBucket(valueID)
 	offset := vs.extractOffset(valueID)
@@ -325,8 +360,12 @@ func (vs *ValueStore) deserializeValue(data []byte) (Value, error) {
 		}
 		valueData = data[offset : offset+int(length)]
 	} else {
-		// Fixed-length type, read remaining data
-		valueData = data[offset:]
+		// Fixed-length type, read expected size
+		expectedSize := vs.getFixedTypeSize(typeTag)
+		if len(data) < offset+expectedSize {
+			return Value{}, fmt.Errorf("incomplete fixed-length data for type %x: need %d bytes, have %d", typeTag, expectedSize, len(data)-offset)
+		}
+		valueData = data[offset : offset+expectedSize]
 	}
 
 	return Value{
@@ -359,10 +398,13 @@ func (vs *ValueStore) determineTier(size int) int {
 // isVariableLength returns true if the type tag represents a variable-length type
 func (vs *ValueStore) isVariableLength(typeTag byte) bool {
 	switch typeTag {
-	case TypeText, TypePicture, TypeProcedure, TypeEmbed, TypeUnknown:
+	case TypeText, TypeMoney, TypePicture, TypeReference, TypeProcedure, TypeWatcher, TypeEmbed, TypeUnknown:
 		return true
-	default:
+	case TypeNumber, TypeTime, TypeNothing, TypeAnything:
 		return false
+	default:
+		// Default to variable length for safety
+		return true
 	}
 }
 
@@ -529,16 +571,12 @@ func (vs *ValueStore) getFixedTypeSize(typeTag byte) int {
 	case TypeNumber:
 		return 8 // float64
 	case TypeTime:
-		return 9 // 8 bytes UNIX + 1 byte precision
-	case TypeMoney:
-		return 12 // 8 bytes amount + 4 bytes currency code
-	case TypeReference:
-		return 8 // uint64
-	case TypeWatcher:
-		return 0 // No data for watcher type tag
+		return 8 // int64 timestamp
 	case TypeNothing, TypeAnything:
 		return 0 // No data
 	default:
+		// This should never be called for variable-length types
+		// Money, Reference, Watcher are all variable-length
 		return 0
 	}
 }
@@ -805,9 +843,10 @@ func (vs *ValueStore) rebuildHashMap() error {
 			continue
 		}
 
-		// Add to hash map
+		// Add to hash map and set initial reference count
 		hash := vs.hashValue(value)
 		vs.hashToValueID[hash] = valueID
+		vs.referenceCount[valueID] = 1 // Start with 1 reference when rebuilding
 	}
 
 	return nil

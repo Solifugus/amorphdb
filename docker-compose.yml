@@ -1,0 +1,129 @@
+# AmorphDB Docker Compose Configuration
+# Provides easy multi-node mesh setup for development and testing
+
+version: '3.8'
+
+services:
+  # Mesh founder node
+  amorphdb-node1:
+    build: .
+    container_name: amorphdb-node1
+    ports:
+      - "8080:8080"
+    volumes:
+      - amorphdb_node1_data:/var/lib/amorphdb
+      - amorphdb_node1_logs:/var/log/amorphdb
+      - ./examples/mesh_setup/configs/basic_config.yaml:/etc/amorphdb/amorphd.yaml:ro
+    environment:
+      - AMORPHDB_NODE_ID=node1
+      - AMORPHDB_MESH_NAME=docker-mesh
+    networks:
+      - amorphdb_mesh
+    healthcheck:
+      test: ["CMD", "amorphctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Mesh member node 2
+  amorphdb-node2:
+    build: .
+    container_name: amorphdb-node2
+    ports:
+      - "8081:8080"
+    volumes:
+      - amorphdb_node2_data:/var/lib/amorphdb
+      - amorphdb_node2_logs:/var/log/amorphdb
+      - ./examples/mesh_setup/configs/basic_config.yaml:/etc/amorphdb/amorphd.yaml:ro
+    environment:
+      - AMORPHDB_NODE_ID=node2
+    networks:
+      - amorphdb_mesh
+    depends_on:
+      amorphdb-node1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "amorphctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Mesh member node 3
+  amorphdb-node3:
+    build: .
+    container_name: amorphdb-node3
+    ports:
+      - "8082:8080"
+    volumes:
+      - amorphdb_node3_data:/var/lib/amorphdb
+      - amorphdb_node3_logs:/var/log/amorphdb
+      - ./examples/mesh_setup/configs/basic_config.yaml:/etc/amorphdb/amorphd.yaml:ro
+    environment:
+      - AMORPHDB_NODE_ID=node3
+    networks:
+      - amorphdb_mesh
+    depends_on:
+      amorphdb-node1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "amorphctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Setup container for mesh initialization
+  amorphdb-setup:
+    build: .
+    container_name: amorphdb-setup
+    volumes:
+      - ./scripts:/scripts:ro
+    networks:
+      - amorphdb_mesh
+    depends_on:
+      amorphdb-node1:
+        condition: service_healthy
+      amorphdb-node2:
+        condition: service_healthy
+      amorphdb-node3:
+        condition: service_healthy
+    command: |
+      sh -c "
+        echo 'Initializing AmorphDB mesh...'
+
+        # Create mesh on node 1
+        amorphctl --host=amorphdb-node1:8080 create-mesh docker-mesh
+        sleep 2
+
+        # Join node 2 to mesh
+        amorphctl --host=amorphdb-node2:8080 join amorphdb-node1:8080
+        sleep 2
+
+        # Join node 3 to mesh
+        amorphctl --host=amorphdb-node3:8080 join amorphdb-node1:8080
+        sleep 2
+
+        # Verify mesh status
+        echo 'Mesh setup complete!'
+        echo 'Node 1 status:'
+        amorphctl --host=amorphdb-node1:8080 status
+        echo 'Node 2 status:'
+        amorphctl --host=amorphdb-node2:8080 status
+        echo 'Node 3 status:'
+        amorphctl --host=amorphdb-node3:8080 status
+
+        echo 'AmorphDB mesh is ready!'
+      "
+    profiles:
+      - setup
+
+volumes:
+  amorphdb_node1_data:
+  amorphdb_node1_logs:
+  amorphdb_node2_data:
+  amorphdb_node2_logs:
+  amorphdb_node3_data:
+  amorphdb_node3_logs:
+
+networks:
+  amorphdb_mesh:
+    driver: bridge

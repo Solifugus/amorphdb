@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/solifugus/amorphdb/internal/config"
 	"github.com/solifugus/amorphdb/internal/mbl/interpreter"
+	"github.com/solifugus/amorphdb/internal/mesh"
 	"github.com/solifugus/amorphdb/internal/protocol"
 	"github.com/solifugus/amorphdb/internal/security"
 	"github.com/solifugus/amorphdb/internal/storage"
@@ -69,23 +71,23 @@ func DefaultConfig() Config {
 		NetworkPort:     5000,
 		NodeIdentity:    generateNodeIdentity(),
 		MeshName:        "", // Empty = standalone mode
-		ConfigPath:      filepath.Join(amorphDir, "config.yaml"),
+		ConfigPath:      filepath.Join(amorphDir, "svcConfig.yaml"),
 	}
 }
 
 // New creates a new service instance with the given configuration
-func New(config Config) (*Service, error) {
+func New(svcConfig Config) (*Service, error) {
 	// Create service context
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Ensure storage directory exists
-	if err := os.MkdirAll(config.StorageDir, 0755); err != nil {
+	if err := os.MkdirAll(svcConfig.StorageDir, 0755); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
 	// Initialize storage tree
-	tree, err := storage.NewStorageTree(config.StorageDir)
+	tree, err := storage.NewStorageTree(svcConfig.StorageDir)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
@@ -102,9 +104,28 @@ func New(config Config) (*Service, error) {
 	// Initialize watcher engine
 	watcherEngine := watcher.NewWatcherEngine(extendedTree, 1000)
 
-	// Initialize mesh service (simplified for now)
-	// TODO: Proper mesh configuration integration
-	meshService := &MeshService{} // Placeholder
+	// Convert service config to mesh config format
+	meshConfig := &config.Config{
+		Mesh: config.MeshConfig{
+			Name:     svcConfig.MeshName,
+			Identity: svcConfig.NodeIdentity,
+			Bridges:  make(map[string]string),
+		},
+		Data: config.DataConfig{
+			StorageDir: svcConfig.StorageDir,
+		},
+		Network: config.NetworkConfig{
+			LocalSocketPath: svcConfig.LocalSocketPath,
+			Port:           svcConfig.NetworkPort,
+		},
+	}
+
+	// Initialize mesh manager and service
+	meshManager, err := mesh.NewMeshManager(meshConfig, tree, svcConfig.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mesh manager: %w", err)
+	}
+	meshService := NewMeshService(meshManager)
 
 	// Create service instance
 	service := &Service{
@@ -114,12 +135,12 @@ func New(config Config) (*Service, error) {
 		filterManager:   filterManager,
 		watcherEngine:   watcherEngine,
 		meshService:     meshService,
-		localSocketPath: config.LocalSocketPath,
-		networkPort:     config.NetworkPort,
+		localSocketPath: svcConfig.LocalSocketPath,
+		networkPort:     svcConfig.NetworkPort,
 		connections:     make(map[string]*Connection),
 		startTime:       time.Now(),
-		nodeIdentity:    config.NodeIdentity,
-		storageDir:      config.StorageDir,
+		nodeIdentity:    svcConfig.NodeIdentity,
+		storageDir:      svcConfig.StorageDir,
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -228,9 +249,15 @@ func (s *Service) GetStatus() protocol.StatusResponseMessage {
 
 	uptime := time.Since(s.startTime).Seconds()
 
+	// Get current node identity (may have been updated by mesh operations)
+	currentNodeIdentity := s.nodeIdentity
+	if s.meshService != nil && !s.meshService.IsStandalone() {
+		currentNodeIdentity = s.meshService.GetNodeIdentity()
+	}
+
 	return protocol.StatusResponseMessage{
 		Uptime:       int64(uptime),
-		NodeIdentity: s.nodeIdentity,
+		NodeIdentity: currentNodeIdentity,
 		LocalSocket:  s.localSocketPath,
 		NetworkPort:  s.networkPort,
 		Connections:  connectionCount,

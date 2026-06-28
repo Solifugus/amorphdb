@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Structure Test</title>
+</head>
+<body>
+    <div id="results"></div>
+
+    <script>
+        // Mock the auto-init by providing a simplified PWA class
+        class TestAmorphPWA {
+            constructor() {
+                this.sectionTree = null;
+                this.dataTree = null;
+                console.log('Test PWA initialized');
+            }
+
+            parseSection(sectionElement) {
+                const name = sectionElement.getAttribute('name');
+                if (!name) throw new Error('Section missing name');
+
+                const layout = sectionElement.getAttribute('layout') || 'vertical';
+                const type = sectionElement.getAttribute('type') || null;
+
+                const sectionClone = sectionElement.cloneNode(true);
+                const childSections = Array.from(sectionClone.querySelectorAll(':scope > section'));
+
+                childSections.forEach(child => {
+                    if (sectionClone.contains(child)) {
+                        sectionClone.removeChild(child);
+                    }
+                });
+
+                const templateContent = sectionClone.innerHTML.trim();
+                const fieldNames = this.extractFieldNames(templateContent);
+
+                const children = {};
+                childSections.forEach(childElement => {
+                    const childSection = this.parseSection(childElement);
+                    children[childSection.name] = childSection;
+                });
+
+                return {
+                    name: name,
+                    layout: layout,
+                    type: type,
+                    template: templateContent,
+                    fields: fieldNames,
+                    children: children
+                };
+            }
+
+            extractFieldNames(template) {
+                const fieldRegex = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+                const fields = new Set();
+                let match;
+                while ((match = fieldRegex.exec(template)) !== null) {
+                    fields.add(match[1]);
+                }
+                return Array.from(fields);
+            }
+
+            parseApp(appHtml) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(appHtml, 'text/html');
+                const rootSections = doc.querySelectorAll('section');
+                if (rootSections.length === 0) return null;
+                return this.parseSection(rootSections[0]);
+            }
+
+            generateDataNode(section) {
+                if (!section || typeof section !== 'object') {
+                    return {};
+                }
+
+                if (section.type === 'list') {
+                    const listArray = [];
+                    listArray._from = 0;
+                    listArray._through = 0;
+                    listArray._total = 0;
+                    listArray._load_max = section.load_max || 200;
+                    return listArray;
+                }
+
+                const dataNode = {};
+                dataNode._shown = true;
+
+                if (section.fields && section.fields.length > 0) {
+                    section.fields.forEach(fieldName => {
+                        const lowerName = fieldName.toLowerCase();
+                        if (lowerName.includes('quantity') || lowerName.includes('amount')) {
+                            dataNode[fieldName] = 0;
+                        } else {
+                            dataNode[fieldName] = "";
+                        }
+                    });
+                }
+
+                if (section.children && Object.keys(section.children).length > 0) {
+                    Object.keys(section.children).forEach(childName => {
+                        const childSection = section.children[childName];
+                        dataNode[childName] = this.generateDataNode(childSection);
+                    });
+                }
+
+                return dataNode;
+            }
+
+            generateDataTree(sectionTree) {
+                if (!sectionTree) return null;
+                return this.generateDataNode(sectionTree);
+            }
+        }
+
+        const appHtml = `<section name="app">
+    <section name="banner" layout="horizontal">
+        <h1>{app_name}</h1>
+        <span class="user">{user_name}</span>
+    </section>
+
+    <section name="workspace" layout="horizontal">
+        <section name="sidebar">
+            <h3>Menu</h3>
+            <section name="menu_items" type="list">
+                <a onclick="data.navigation.current = '{target}'">{label}</a>
+            </section>
+        </section>
+
+        <section name="main">
+            <h2>{page_title}</h2>
+
+            <section name="order_form">
+                <label>Product</label>
+                <input value="{product}">
+                <label>Quantity</label>
+                <input type="number" value="{quantity}">
+                <button onclick="data.workspace.main.order_form.submit = 'down'">
+                    Submit Order
+                </button>
+            </section>
+
+            <section name="orders" type="list" show_max="20" load_max="100">
+                <div class="order-row">
+                    <span>{product}</span>
+                    <span>{quantity}</span>
+                    <span class="money">{amount}</span>
+                    <span class="status">{status}</span>
+                </div>
+            </section>
+        </section>
+    </section>
+
+    <section name="status_bar" layout="horizontal">
+        <span>{status_message}</span>
+        <span>v{version}</span>
+    </section>
+</section>`;
+
+        const pwa = new TestAmorphPWA();
+        const sectionTree = pwa.parseApp(appHtml);
+        const dataTree = pwa.generateDataTree(sectionTree);
+
+        const results = document.getElementById('results');
+        results.innerHTML = `
+            <h3>Data Tree Structure Test</h3>
+            <pre>Section Tree: ${JSON.stringify(sectionTree, null, 2)}</pre>
+            <pre>Data Tree: ${JSON.stringify(dataTree, null, 2)}</pre>
+
+            <h4>Field Location Tests:</h4>
+            <ul>
+                <li>banner.app_name: ${dataTree?.banner?.app_name !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+                <li>banner.user_name: ${dataTree?.banner?.user_name !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+                <li>workspace.main.page_title: ${dataTree?.workspace?.main?.page_title !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+                <li>workspace.main.order_form.product: ${dataTree?.workspace?.main?.order_form?.product !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+                <li>workspace.main.order_form.quantity: ${dataTree?.workspace?.main?.order_form?.quantity !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+                <li>workspace.main.orders (array): ${Array.isArray(dataTree?.workspace?.main?.orders) ? '✅ IS ARRAY' : '❌ NOT ARRAY'}</li>
+                <li>workspace.sidebar._shown: ${dataTree?.workspace?.sidebar?._shown !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+                <li>status_bar.status_message: ${dataTree?.status_bar?.status_message !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+                <li>status_bar.version: ${dataTree?.status_bar?.version !== undefined ? '✅ EXISTS' : '❌ MISSING'}</li>
+            </ul>
+        `;
+    </script>
+</body>
+</html>

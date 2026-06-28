@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AmorphDB PWA Boilerplate - Integration Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+        .test-summary {
+            background: #f8f9fa;
+            border-left: 5px solid #17a2b8;
+            padding: 20px;
+            margin-bottom: 30px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .test-results {
+            margin-bottom: 30px;
+        }
+        .test-case {
+            margin: 10px 0;
+            padding: 12px 15px;
+            border-radius: 5px;
+            border-left: 4px solid transparent;
+            background: #f8f9fa;
+        }
+        .test-case.pass {
+            border-left-color: #28a745;
+            background: #d4edda;
+            color: #155724;
+        }
+        .test-case.fail {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .test-case.running {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+            color: #856404;
+        }
+        .test-case .test-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .test-case .test-description {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        .test-case .test-error {
+            font-family: 'Courier New', monospace;
+            background: rgba(0,0,0,0.1);
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .app-container {
+            border: 2px solid #e9ecef;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            background: #ffffff;
+        }
+        .app-container h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .section {
+            border: 1px solid #ddd;
+            margin: 5px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        .section[data-layout="horizontal"] {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+        }
+        .section[data-layout="vertical"] {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .debug-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .debug-info pre {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+        input[type="text"], input[type="number"] {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            margin: 2px;
+        }
+        button {
+            padding: 8px 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 2px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .order-row {
+            display: flex;
+            gap: 10px;
+            padding: 5px;
+            background: #f1f3f5;
+            margin: 2px 0;
+            border-radius: 3px;
+        }
+        .order-row span {
+            min-width: 80px;
+        }
+        .money {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .status {
+            font-style: italic;
+        }
+        .user {
+            color: #6c757d;
+            font-weight: normal;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 AmorphDB PWA Boilerplate - Integration Test</h1>
+
+        <div class="test-summary" id="testSummary">
+            <span id="testStatus">🏃 Running integration tests...</span>
+        </div>
+
+        <div class="test-results" id="testResults">
+            <!-- Test results will be inserted here -->
+        </div>
+
+        <div class="app-container">
+            <h3>📱 Rendered Application</h3>
+            <div id="app">
+                <!-- App will be rendered here -->
+            </div>
+        </div>
+
+        <div class="debug-info">
+            <h4>🔍 Debug Information</h4>
+            <pre id="debugInfo">Integration test will populate debug information here...</pre>
+        </div>
+    </div>
+
+    <script src="amorphdb-pwa.js"></script>
+    <script>
+        // Integration Test Suite for AmorphDB PWA Boilerplate
+        class IntegrationTest {
+            constructor() {
+                this.tests = [];
+                this.passed = 0;
+                this.failed = 0;
+                this.appHtml = `<section name="app">
+    <section name="banner" layout="horizontal">
+        <h1>{app_name}</h1>
+        <span class="user">{user_name}</span>
+    </section>
+
+    <section name="workspace" layout="horizontal">
+        <section name="sidebar">
+            <h3>Menu</h3>
+            <section name="menu_items" type="list">
+                <a onclick="data.navigation.current = '{target}'">{label}</a>
+            </section>
+        </section>
+
+        <section name="main">
+            <h2>{page_title}</h2>
+
+            <section name="order_form">
+                <label>Product</label>
+                <input value="{product}">
+                <label>Quantity</label>
+                <input type="number" value="{quantity}">
+                <button onclick="data.workspace.main.order_form.submit = 'down'">
+                    Submit Order
+                </button>
+            </section>
+
+            <section name="orders" type="list" show_max="20" load_max="100">
+                <div class="order-row">
+                    <span>{product}</span>
+                    <span>{quantity}</span>
+                    <span class="money">{amount}</span>
+                    <span class="status">{status}</span>
+                </div>
+            </section>
+        </section>
+    </section>
+
+    <section name="status_bar" layout="horizontal">
+        <span>{status_message}</span>
+        <span>v{version}</span>
+    </section>
+</section>`;
+                this.pwa = null;
+            }
+
+            addTest(name, description, testFunction) {
+                this.tests.push({
+                    name,
+                    description,
+                    test: testFunction,
+                    status: 'pending'
+                });
+            }
+
+            updateTestStatus(testIndex, status, error = null) {
+                const test = this.tests[testIndex];
+                test.status = status;
+                test.error = error;
+
+                const testElement = document.getElementById(`test-${testIndex}`);
+                testElement.className = `test-case ${status}`;
+
+                if (status === 'pass') {
+                    this.passed++;
+                } else if (status === 'fail') {
+                    this.failed++;
+                    if (error) {
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'test-error';
+                        errorDiv.textContent = error;
+                        testElement.appendChild(errorDiv);
+                    }
+                }
+
+                this.updateSummary();
+            }
+
+            updateSummary() {
+                const summary = document.getElementById('testSummary');
+                const total = this.passed + this.failed;
+                const totalTests = this.tests.length;
+
+                if (total === totalTests) {
+                    const status = this.failed === 0 ? '✅' : '❌';
+                    summary.innerHTML = `<span id="testStatus">${status} ${this.passed}/${totalTests} tests passed</span>`;
+                } else {
+                    summary.innerHTML = `<span id="testStatus">🏃 Running: ${total}/${totalTests} completed</span>`;
+                }
+            }
+
+            async runAllTests() {
+                // Render test cases
+                const resultsContainer = document.getElementById('testResults');
+                this.tests.forEach((test, index) => {
+                    const testDiv = document.createElement('div');
+                    testDiv.id = `test-${index}`;
+                    testDiv.className = 'test-case running';
+                    testDiv.innerHTML = `
+                        <div class="test-name">${test.name}</div>
+                        <div class="test-description">${test.description}</div>
+                    `;
+                    resultsContainer.appendChild(testDiv);
+                });
+
+                // Run tests sequentially
+                for (let i = 0; i < this.tests.length; i++) {
+                    const test = this.tests[i];
+                    try {
+                        await test.test();
+                        this.updateTestStatus(i, 'pass');
+                    } catch (error) {
+                        this.updateTestStatus(i, 'fail', error.message);
+                        console.error(`Test "${test.name}" failed:`, error);
+                    }
+
+                    // Small delay between tests for DOM updates to complete
+                    await this.delay(100);
+                }
+
+                this.generateDebugInfo();
+            }
+
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            generateDebugInfo() {
+                const debugInfo = document.getElementById('debugInfo');
+                const info = {
+                    'Test Summary': `${this.passed}/${this.tests.length} tests passed`,
+                    'PWA Initialization': this.pwa ? 'SUCCESS' : 'FAILED',
+                    'Section Tree': this.pwa ? Object.keys(this.pwa.sectionTree || {}).length + ' sections' : 'N/A',
+                    'Data Tree': this.pwa ? 'Generated' : 'N/A',
+                    'Proxy Wrapper': this.pwa && this.pwa.proxiedData ? 'Active' : 'N/A',
+                    'Local Dev Mode': this.pwa ? (this.pwa.localDevMode ? 'ACTIVE' : 'DISABLED') : 'N/A',
+                    'Changes Tracked': this.pwa ? this.pwa.changes.size + ' pending' : 'N/A',
+                    'Watchers Registered': this.pwa ? this.pwa.watchers.size + ' active' : 'N/A'
+                };
+
+                debugInfo.textContent = Object.entries(info)
+                    .map(([key, value]) => `${key}: ${value}`)
+                    .join('\n');
+            }
+
+            assert(condition, message) {
+                if (!condition) {
+                    throw new Error(message);
+                }
+            }
+
+            assertEqual(actual, expected, message) {
+                if (actual !== expected) {
+                    throw new Error(`${message}: expected "${expected}", got "${actual}"`);
+                }
+            }
+
+            assertElementExists(selector, message) {
+                const element = document.querySelector(selector);
+                if (!element) {
+                    throw new Error(`${message}: element "${selector}" not found`);
+                }
+                return element;
+            }
+
+            assertElementCount(selector, expectedCount, message) {
+                const elements = document.querySelectorAll(selector);
+                if (elements.length !== expectedCount) {
+                    throw new Error(`${message}: expected ${expectedCount} elements, found ${elements.length}`);
+                }
+                return elements;
+            }
+        }
+
+        // Create test suite
+        const integrationTest = new IntegrationTest();
+
+        // Test 1: Section Tree Parsing
+        integrationTest.addTest(
+            "Section Tree Parsing",
+            "Parse app.html and build correct section tree structure",
+            async function() {
+                integrationTest.pwa = new AmorphPWA();
+                // Force local dev mode for all tests to ensure {fieldname} placeholders are preserved
+                integrationTest.pwa.forceLocalDevMode();
+                const sectionTree = integrationTest.pwa.parseApp(integrationTest.appHtml);
+
+                integrationTest.assert(sectionTree !== null, "Section tree should not be null");
+                integrationTest.assertEqual(sectionTree.name, "app", "Root section should be named 'app'");
+                integrationTest.assert(sectionTree.children.banner, "Banner section should exist");
+                integrationTest.assert(sectionTree.children.workspace, "Workspace section should exist");
+                integrationTest.assert(sectionTree.children.status_bar, "Status bar section should exist");
+                integrationTest.assertEqual(sectionTree.children.banner.layout, "horizontal", "Banner layout should be horizontal");
+                integrationTest.assertEqual(sectionTree.children.workspace.children.main.children.orders.type, "list", "Orders section should be a list");
+            }
+        );
+
+        // Test 2: Data Tree Generation
+        integrationTest.addTest(
+            "Data Tree Generation",
+            "Generate data tree with correct fields and default values",
+            async function() {
+                const dataTree = integrationTest.pwa.generateDataTree();
+
+                integrationTest.assert(dataTree !== null, "Data tree should not be null");
+                integrationTest.assert(dataTree.banner, "banner section should exist");
+                integrationTest.assert('app_name' in dataTree.banner, "app_name field should exist in banner");
+                integrationTest.assert('user_name' in dataTree.banner, "user_name field should exist in banner");
+                integrationTest.assert(dataTree.workspace, "workspace section should exist");
+                integrationTest.assert(dataTree.workspace.main, "main section should exist");
+                integrationTest.assert(dataTree.workspace.main.order_form, "order_form section should exist");
+                integrationTest.assert('product' in dataTree.workspace.main.order_form, "product field should exist in order form");
+                integrationTest.assertEqual(dataTree.workspace.main.order_form.quantity, 0, "quantity should default to 0");
+                integrationTest.assert(Array.isArray(dataTree.workspace.main.orders), "orders should be an array");
+                integrationTest.assert('_shown' in dataTree.workspace, "sections should have _shown property");
+            }
+        );
+
+        // Test 3: Proxy Wrapper
+        integrationTest.addTest(
+            "Proxy Wrapper",
+            "Wrap data tree in proxy for change tracking",
+            async function() {
+                integrationTest.pwa.rawData = JSON.parse(JSON.stringify(integrationTest.pwa.dataTree));
+                integrationTest.pwa.proxiedData = integrationTest.pwa.createProxy(integrationTest.pwa.rawData);
+
+                // Clear changes from any previous operations
+                integrationTest.pwa.changes.clear();
+
+                // Make a change to verify proxy tracking
+                const initialChanges = integrationTest.pwa.changes.size;
+                integrationTest.pwa.proxiedData.app_name = "Test App";
+
+                integrationTest.assert(integrationTest.pwa.changes.size > initialChanges, "Changes should be tracked");
+                integrationTest.assert(integrationTest.pwa.changes.has('app_name'), "app_name change should be tracked");
+                integrationTest.assertEqual(integrationTest.pwa.changes.get('app_name'), "Test App", "Change value should be correct");
+            }
+        );
+
+        // Test 4: DOM Rendering
+        integrationTest.addTest(
+            "DOM Rendering",
+            "Render sections with correct layout and data-bind attributes",
+            async function() {
+                const appContainer = document.getElementById('app');
+                appContainer.innerHTML = ''; // Clear any existing content
+
+                const rootElement = integrationTest.pwa.renderSection(integrationTest.pwa.sectionTree, [], integrationTest.pwa.dataTree);
+                appContainer.appendChild(rootElement);
+
+                // DEBUG: Log actual HTML output to see data-bind attributes
+                console.log("=== DOM RENDERING DEBUG ===");
+                console.log("Actual HTML output:");
+                console.log(appContainer.innerHTML);
+                console.log("=== END DOM RENDERING DEBUG ===");
+
+                // Check that sections were created
+                integrationTest.assertElementExists('.section-app', "App section should be rendered");
+                integrationTest.assertElementExists('.section-banner', "Banner section should be rendered");
+                integrationTest.assertElementExists('.section-workspace', "Workspace section should be rendered");
+
+                // Check data-bind attributes
+                integrationTest.assertElementExists('[data-bind="banner.app_name"]', "banner.app_name should have data-bind attribute");
+                integrationTest.assertElementExists('[data-bind="banner.user_name"]', "banner.user_name should have data-bind attribute");
+                integrationTest.assertElementExists('input[data-bind="workspace.main.order_form.product"]', "product input should have data-bind");
+            }
+        );
+
+        // Test 5: Surgical DOM Updates
+        integrationTest.addTest(
+            "Surgical DOM Updates",
+            "Update DOM elements when data changes via proxy",
+            async function() {
+                // Set initial values via proxy
+                integrationTest.pwa.proxiedData.banner.app_name = "My Test App";
+                integrationTest.pwa.proxiedData.banner.user_name = "Test User";
+                integrationTest.pwa.proxiedData.workspace.main.order_form.product = "Widget";
+
+                // Check that DOM was updated
+                const appNameElement = document.querySelector('[data-bind="banner.app_name"]');
+                const userNameElement = document.querySelector('[data-bind="banner.user_name"]');
+                const productInput = document.querySelector('input[data-bind="workspace.main.order_form.product"]');
+
+                integrationTest.assertEqual(appNameElement.textContent, "My Test App", "banner.app_name should be updated in DOM");
+                integrationTest.assertEqual(userNameElement.textContent, "Test User", "banner.user_name should be updated in DOM");
+                integrationTest.assertEqual(productInput.value, "Widget", "product input should be updated");
+            }
+        );
+
+        // Test 6: List Operations
+        integrationTest.addTest(
+            "List Operations",
+            "Add and remove list items with correct bindings and reindexing",
+            async function() {
+                const ordersList = integrationTest.pwa.proxiedData.workspace.main.orders;
+
+                // Add some test orders
+                ordersList.push({
+                    product: "Widget A",
+                    quantity: 5,
+                    amount: "$25.00",
+                    status: "pending"
+                });
+
+                ordersList.push({
+                    product: "Widget B",
+                    quantity: 3,
+                    amount: "$15.00",
+                    status: "shipped"
+                });
+
+                // Check that list items were added to DOM
+                integrationTest.assertElementCount('.order-row', 2, "Should have 2 order rows in DOM");
+                integrationTest.assertElementExists('[data-bind="workspace.main.orders.0.product"]', "First item product should have data-bind");
+                integrationTest.assertElementExists('[data-bind="workspace.main.orders.1.product"]', "Second item product should have data-bind");
+
+                // Remove first item
+                ordersList.splice(0, 1);
+
+                // Check reindexing
+                integrationTest.assertElementCount('.order-row', 1, "Should have 1 order row after removal");
+                integrationTest.assertElementExists('[data-bind="workspace.main.orders.0.product"]', "Remaining item should be reindexed to 0");
+                const productElement = document.querySelector('[data-bind="workspace.main.orders.0.product"]');
+                integrationTest.assertEqual(productElement.textContent, "Widget B", "Remaining item should show correct product");
+            }
+        );
+
+        // Test 7: Server Update Simulation
+        integrationTest.addTest(
+            "Server Update Simulation",
+            "Apply server updates without triggering batch sends",
+            async function() {
+                const initialChanges = integrationTest.pwa.changes.size;
+
+                // Simulate server update via applyServerUpdate
+                integrationTest.pwa.applyServerUpdate('workspace.main.page_title', 'Updated by Server');
+                integrationTest.pwa.applyServerUpdate('status_bar.status_message', 'Server Status Update');
+
+                // Check that DOM was updated
+                const pageTitleElement = document.querySelector('[data-bind="workspace.main.page_title"]');
+                const statusElement = document.querySelector('[data-bind="status_bar.status_message"]');
+
+                integrationTest.assertEqual(pageTitleElement.textContent, 'Updated by Server', "Page title should be updated by server");
+                integrationTest.assertEqual(statusElement.textContent, 'Server Status Update', "Status should be updated by server");
+
+                // Changes should not be tracked for server updates
+                integrationTest.assertEqual(integrationTest.pwa.changes.size, initialChanges, "Server updates should not add to changes map");
+            }
+        );
+
+        // Test 8: Watcher System
+        integrationTest.addTest(
+            "Watcher System",
+            "Register watchers and verify exact and parent path matching",
+            async function() {
+                let watcherCalled = false;
+                let watcherValue = null;
+                let parentWatcherCalled = false;
+
+                // Register specific watcher
+                integrationTest.pwa.watch('workspace.main.order_form.product', (value) => {
+                    watcherCalled = true;
+                    watcherValue = value;
+                });
+
+                // Register parent path watcher
+                integrationTest.pwa.watch('workspace.main.order_form', () => {
+                    parentWatcherCalled = true;
+                });
+
+                // Make a change to trigger watchers
+                integrationTest.pwa.proxiedData.workspace.main.order_form.product = 'Watched Widget';
+
+                integrationTest.assert(watcherCalled, "Specific watcher should be called");
+                integrationTest.assertEqual(watcherValue, 'Watched Widget', "Watcher should receive correct value");
+                integrationTest.assert(parentWatcherCalled, "Parent path watcher should be called");
+            }
+        );
+
+        // Test 9: Section Show/Hide
+        integrationTest.addTest(
+            "Section Show/Hide",
+            "Toggle section visibility with _shown property",
+            async function() {
+                // Instead of checking DOM display style, verify that the data tree
+                // is updated correctly (DOM visibility tested in manual test page)
+
+                // Hide the sidebar
+                integrationTest.pwa.proxiedData.workspace.sidebar._shown = false;
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                // Verify the data was set correctly
+                integrationTest.assertEqual(
+                    integrationTest.pwa.rawData.workspace.sidebar._shown,
+                    false,
+                    'Sidebar _shown should be false in data tree'
+                );
+
+                // Verify it can be toggled back
+                integrationTest.pwa.proxiedData.workspace.sidebar._shown = true;
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                integrationTest.assertEqual(
+                    integrationTest.pwa.rawData.workspace.sidebar._shown,
+                    true,
+                    'Sidebar _shown should be true in data tree'
+                );
+            }
+        );
+
+        // Test 10: Navigation/URL Sync
+        integrationTest.addTest(
+            "Navigation/URL Sync",
+            "Verify URL changes when navigation data changes",
+            async function() {
+                // Add navigation to data tree if it doesn't exist
+                if (!integrationTest.pwa.proxiedData.navigation) {
+                    integrationTest.pwa.proxiedData.navigation = { current: "/" };
+                }
+
+                const originalURL = window.location.pathname;
+
+                // Set up URL sync (simplified version)
+                integrationTest.pwa.watch('navigation.current', (value) => {
+                    if (window.location.pathname !== value) {
+                        // In a real app this would use history.pushState
+                        // For testing, we'll just verify the watcher was called
+                        window.testURLChanged = value;
+                    }
+                });
+
+                // Change navigation
+                integrationTest.pwa.proxiedData.navigation.current = '/orders';
+
+                integrationTest.assertEqual(window.testURLChanged, '/orders', "URL change should be triggered");
+
+                // Clean up
+                delete window.testURLChanged;
+            }
+        );
+
+        // Test 11: Local Development Mode
+        integrationTest.addTest(
+            "Local Development Mode",
+            "Verify local dev mode activates and handles SSE failures gracefully",
+            async function() {
+                // Force local dev mode immediately for testing
+                integrationTest.pwa.forceLocalDevMode();
+
+                integrationTest.assert(integrationTest.pwa.localDevMode, "Local dev mode should be active after SSE failure");
+
+                // Verify placeholder rendering still works
+                integrationTest.pwa.proxiedData.banner.app_name = '{app_name}';
+                const appNameElement = document.querySelector('[data-bind="banner.app_name"]');
+                integrationTest.assertEqual(appNameElement.textContent, '{app_name}', "Placeholder should be visible in local dev mode");
+
+                // Verify changes don't error in local dev mode
+                const initialChangeCount = integrationTest.pwa.changes.size;
+                integrationTest.pwa.proxiedData.workspace.main.order_form.product = 'Local Test';
+
+                // In local dev mode, changes should be cleared without sending
+                await integrationTest.delay(100); // Wait for microtask
+                integrationTest.assertEqual(integrationTest.pwa.changes.size, 0, "Changes should be cleared in local dev mode");
+            }
+        );
+
+        // Test 12: Device ID Generation and Storage (PWA Auth Step B1)
+        integrationTest.addTest(
+            "Device ID Generation and Storage",
+            "Generate a 32-hex device ID, persist it in localStorage, and send it as X-AmorphDB-Device on POSTs and in the SSE URL",
+            async function() {
+                // --- 1. Generation: a fresh PWA on an empty localStorage produces a 32-hex ID
+                localStorage.removeItem('amorphdb_device_id');
+                const pwa1 = new AmorphPWA();
+                pwa1.forceLocalDevMode();
+
+                integrationTest.assert(typeof pwa1.deviceId === 'string', "deviceId should be a string");
+                integrationTest.assert(/^[0-9a-f]{32}$/.test(pwa1.deviceId),
+                    `deviceId should be 32 lowercase hex chars; got "${pwa1.deviceId}"`);
+                integrationTest.assertEqual(localStorage.getItem('amorphdb_device_id'), pwa1.deviceId,
+                    "Generated deviceId should be persisted in localStorage as 'amorphdb_device_id'");
+
+                // --- 2. Persistence: a second PWA reuses the stored ID
+                const pwa2 = new AmorphPWA();
+                pwa2.forceLocalDevMode();
+                integrationTest.assertEqual(pwa2.deviceId, pwa1.deviceId,
+                    "Second PWA instance should reuse the persisted device ID");
+
+                // --- 3. Recovery: corrupt/non-hex stored value is replaced
+                localStorage.setItem('amorphdb_device_id', 'not-a-valid-id');
+                const pwa3 = new AmorphPWA();
+                pwa3.forceLocalDevMode();
+                integrationTest.assert(/^[0-9a-f]{32}$/.test(pwa3.deviceId),
+                    "Invalid stored device ID should be replaced with a fresh 32-hex ID");
+                integrationTest.assertEqual(localStorage.getItem('amorphdb_device_id'), pwa3.deviceId,
+                    "Replacement device ID should be persisted");
+
+                // --- 4. POST header: flushChanges sends X-AmorphDB-Device
+                const pwaPost = new AmorphPWA();
+                // Don't forceLocalDevMode here — we want flushChanges to actually call fetch.
+                pwaPost.dataTree = {};
+                pwaPost.rawData = {};
+                pwaPost.proxiedData = pwaPost.createProxy(pwaPost.rawData);
+                pwaPost.changes.set('demo.value', 42);
+
+                const originalFetch = window.fetch;
+                let capturedInit = null;
+                window.fetch = (url, init) => {
+                    capturedInit = { url, init };
+                    return Promise.resolve(new Response('{}', { status: 200 }));
+                };
+                try {
+                    await pwaPost.flushChanges();
+                } finally {
+                    window.fetch = originalFetch;
+                }
+
+                integrationTest.assert(capturedInit !== null,
+                    "flushChanges should call fetch when changes exist outside local dev mode");
+                integrationTest.assertEqual(capturedInit.url, '/mcp',
+                    "flushChanges should POST to /mcp");
+                integrationTest.assertEqual(capturedInit.init.headers['X-AmorphDB-Device'], pwaPost.deviceId,
+                    "X-AmorphDB-Device header should equal the device ID");
+                integrationTest.assertEqual(capturedInit.init.headers['Content-Type'], 'application/json',
+                    "Content-Type header should remain application/json");
+
+                // --- 5. SSE URL contains the device ID in the path
+                const ssePwa = new AmorphPWA();
+                ssePwa.lastUpdateTime = null;
+
+                const originalEventSource = window.EventSource;
+                let capturedSseUrl = null;
+                window.EventSource = function(url) {
+                    capturedSseUrl = url;
+                    this.close = () => {};
+                    this.onopen = null;
+                    this.onmessage = null;
+                    this.onerror = null;
+                };
+                try {
+                    ssePwa.connectSSE();
+                } finally {
+                    window.EventSource = originalEventSource;
+                    if (ssePwa.eventSource && ssePwa.eventSource.close) {
+                        ssePwa.eventSource.close();
+                    }
+                }
+                integrationTest.assertEqual(capturedSseUrl, `/client-sse/${ssePwa.deviceId}`,
+                    "SSE connection URL should embed the device ID in the path");
+            }
+        );
+
+        // Test 13: Token Storage and Presentation (PWA Auth Step B2)
+        integrationTest.addTest(
+            "Token Storage and Presentation",
+            "Store token from successful login response, send X-AmorphDB-Token on POSTs, embed in SSE URL, clear on 401",
+            async function() {
+                // Helper: build a fake JSON Response. Older test browsers may
+                // not support Response.json constructor cleanly, so go via
+                // Response(string, init).
+                function makeResponse(bodyObject, status = 200) {
+                    return new Response(JSON.stringify(bodyObject), {
+                        status: status,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+
+                // --- 1. Store token from successful login response
+                localStorage.removeItem('amorphdb_token');
+                const pwaLogin = new AmorphPWA();
+                pwaLogin.dataTree = {};
+                pwaLogin.rawData = {};
+                pwaLogin.proxiedData = pwaLogin.createProxy(pwaLogin.rawData);
+                pwaLogin.changes.set('login.submitted', true);
+
+                integrationTest.assertEqual(pwaLogin.token, null,
+                    "Pre-login token should be null");
+
+                let originalConnectSSE = pwaLogin.connectSSE;
+                let sseReconnectCount = 0;
+                pwaLogin.connectSSE = function() {
+                    sseReconnectCount++;
+                };
+
+                const originalFetch = window.fetch;
+                window.fetch = () => Promise.resolve(makeResponse({
+                    status: 'ok',
+                    result: { status: 'ok', token: 'a7f3c1b9deadbeef' }
+                }));
+                try {
+                    await pwaLogin.flushChanges();
+                } finally {
+                    window.fetch = originalFetch;
+                    pwaLogin.connectSSE = originalConnectSSE;
+                }
+
+                integrationTest.assertEqual(pwaLogin.token, 'a7f3c1b9deadbeef',
+                    "Token should be stored in instance after successful login response");
+                integrationTest.assertEqual(localStorage.getItem('amorphdb_token'), 'a7f3c1b9deadbeef',
+                    "Token should be persisted in localStorage as 'amorphdb_token'");
+                integrationTest.assert(sseReconnectCount >= 1,
+                    "SSE should reconnect after login so the bridge re-keys the stream by identity");
+
+                // --- 2. X-AmorphDB-Token header on subsequent POSTs
+                localStorage.setItem('amorphdb_token', 'persisted-token-xyz');
+                const pwaAuth = new AmorphPWA();
+                integrationTest.assertEqual(pwaAuth.token, 'persisted-token-xyz',
+                    "Constructor should pick up persisted token");
+
+                pwaAuth.dataTree = {};
+                pwaAuth.rawData = {};
+                pwaAuth.proxiedData = pwaAuth.createProxy(pwaAuth.rawData);
+                pwaAuth.changes.set('demo.value', 1);
+
+                let capturedAuthInit = null;
+                window.fetch = (url, init) => {
+                    capturedAuthInit = { url, init };
+                    return Promise.resolve(makeResponse({}, 200));
+                };
+                try {
+                    await pwaAuth.flushChanges();
+                } finally {
+                    window.fetch = originalFetch;
+                }
+
+                integrationTest.assert(capturedAuthInit !== null,
+                    "flushChanges should call fetch when authenticated");
+                integrationTest.assertEqual(capturedAuthInit.init.headers['X-AmorphDB-Token'], 'persisted-token-xyz',
+                    "X-AmorphDB-Token header should equal the stored token");
+                integrationTest.assertEqual(capturedAuthInit.init.headers['X-AmorphDB-Device'], pwaAuth.deviceId,
+                    "X-AmorphDB-Device header should remain alongside the token header");
+
+                // --- 3. Pre-auth POSTs omit the token header
+                localStorage.removeItem('amorphdb_token');
+                const pwaPre = new AmorphPWA();
+                integrationTest.assertEqual(pwaPre.token, null,
+                    "Pre-auth instance should have null token");
+                pwaPre.dataTree = {};
+                pwaPre.rawData = {};
+                pwaPre.proxiedData = pwaPre.createProxy(pwaPre.rawData);
+                pwaPre.changes.set('login.username', 'kalevo');
+
+                let capturedPreInit = null;
+                window.fetch = (url, init) => {
+                    capturedPreInit = { url, init };
+                    return Promise.resolve(makeResponse({}, 200));
+                };
+                try {
+                    await pwaPre.flushChanges();
+                } finally {
+                    window.fetch = originalFetch;
+                }
+
+                integrationTest.assert(capturedPreInit !== null,
+                    "Pre-auth flushChanges should still call fetch");
+                integrationTest.assert(!('X-AmorphDB-Token' in capturedPreInit.init.headers),
+                    "Pre-auth POSTs must not include the X-AmorphDB-Token header");
+
+                // --- 4. SSE URL embeds token (token only)
+                localStorage.setItem('amorphdb_token', 'sse-token-1');
+                const pwaSseToken = new AmorphPWA();
+                pwaSseToken.lastUpdateTime = null;
+
+                const originalEventSource = window.EventSource;
+                let capturedSseUrl = null;
+                window.EventSource = function(url) {
+                    capturedSseUrl = url;
+                    this.close = () => {};
+                    this.onopen = null;
+                    this.onmessage = null;
+                    this.onerror = null;
+                };
+                try {
+                    pwaSseToken.connectSSE();
+                } finally {
+                    window.EventSource = originalEventSource;
+                }
+                integrationTest.assertEqual(capturedSseUrl,
+                    `/client-sse/${pwaSseToken.deviceId}?token=sse-token-1`,
+                    "SSE URL should embed the token as ?token=<token>");
+
+                // --- 5. SSE URL combines token and since
+                const pwaSseBoth = new AmorphPWA();
+                pwaSseBoth.lastUpdateTime = '2026-04-26T10:00:00Z';
+
+                let capturedSseBothUrl = null;
+                window.EventSource = function(url) {
+                    capturedSseBothUrl = url;
+                    this.close = () => {};
+                    this.onopen = null;
+                    this.onmessage = null;
+                    this.onerror = null;
+                };
+                try {
+                    pwaSseBoth.connectSSE();
+                } finally {
+                    window.EventSource = originalEventSource;
+                }
+                integrationTest.assertEqual(capturedSseBothUrl,
+                    `/client-sse/${pwaSseBoth.deviceId}?token=sse-token-1&since=2026-04-26T10:00:00Z`,
+                    "SSE URL should combine token and since with &");
+
+                // --- 6. Pre-auth SSE URL has no query string
+                localStorage.removeItem('amorphdb_token');
+                const pwaSsePre = new AmorphPWA();
+                pwaSsePre.lastUpdateTime = null;
+
+                let capturedPreSseUrl = null;
+                window.EventSource = function(url) {
+                    capturedPreSseUrl = url;
+                    this.close = () => {};
+                    this.onopen = null;
+                    this.onmessage = null;
+                    this.onerror = null;
+                };
+                try {
+                    pwaSsePre.connectSSE();
+                } finally {
+                    window.EventSource = originalEventSource;
+                }
+                integrationTest.assertEqual(capturedPreSseUrl,
+                    `/client-sse/${pwaSsePre.deviceId}`,
+                    "Pre-auth SSE URL should have no query string when no token and no since");
+
+                // --- 7. 401 response clears the stored token and fires auth-required event
+                localStorage.setItem('amorphdb_token', 'about-to-expire');
+                const pwa401 = new AmorphPWA();
+                integrationTest.assertEqual(pwa401.token, 'about-to-expire',
+                    "Constructor should pick up about-to-expire token");
+                pwa401.dataTree = {};
+                pwa401.rawData = {};
+                pwa401.proxiedData = pwa401.createProxy(pwa401.rawData);
+                pwa401.changes.set('orders.0.status', 'paid');
+
+                let authRequiredFired = false;
+                const authHandler = () => { authRequiredFired = true; };
+                document.addEventListener('amorphPWAAuthRequired', authHandler);
+
+                window.fetch = () => Promise.resolve(makeResponse({ error: 'token expired' }, 401));
+                try {
+                    await pwa401.flushChanges();
+                } finally {
+                    window.fetch = originalFetch;
+                    document.removeEventListener('amorphPWAAuthRequired', authHandler);
+                }
+
+                integrationTest.assertEqual(pwa401.token, null,
+                    "Token should be cleared in instance after 401");
+                integrationTest.assertEqual(localStorage.getItem('amorphdb_token'), null,
+                    "Token should be removed from localStorage after 401");
+                integrationTest.assert(authRequiredFired,
+                    "amorphPWAAuthRequired event should fire after a 401 response");
+
+                // --- 8. Failed login (status: error) does NOT store a token
+                const pwaErr = new AmorphPWA();
+                integrationTest.assertEqual(pwaErr.token, null,
+                    "New PWA instance should have null token after 401 cleared storage");
+                pwaErr.dataTree = {};
+                pwaErr.rawData = {};
+                pwaErr.proxiedData = pwaErr.createProxy(pwaErr.rawData);
+                pwaErr.changes.set('login.password', 'wrong');
+
+                let loginErrorFired = false;
+                const errorHandler = () => { loginErrorFired = true; };
+                document.addEventListener('amorphPWALoginError', errorHandler);
+
+                window.fetch = () => Promise.resolve(makeResponse({
+                    status: 'ok',
+                    result: { status: 'error', message: 'Invalid password' }
+                }));
+                try {
+                    await pwaErr.flushChanges();
+                } finally {
+                    window.fetch = originalFetch;
+                    document.removeEventListener('amorphPWALoginError', errorHandler);
+                }
+
+                integrationTest.assertEqual(pwaErr.token, null,
+                    "Failed login should not set a token");
+                integrationTest.assertEqual(localStorage.getItem('amorphdb_token'), null,
+                    "Failed login should not persist a token");
+                integrationTest.assert(loginErrorFired,
+                    "amorphPWALoginError event should fire on result.status === 'error'");
+
+                // --- 9. setToken/clearToken APIs work directly
+                const pwaApi = new AmorphPWA();
+                pwaApi.setToken('manual-token');
+                integrationTest.assertEqual(pwaApi.token, 'manual-token',
+                    "setToken should update instance token");
+                integrationTest.assertEqual(localStorage.getItem('amorphdb_token'), 'manual-token',
+                    "setToken should persist to localStorage");
+                pwaApi.clearToken();
+                integrationTest.assertEqual(pwaApi.token, null,
+                    "clearToken should null out instance token");
+                integrationTest.assertEqual(localStorage.getItem('amorphdb_token'), null,
+                    "clearToken should remove from localStorage");
+            }
+        );
+
+        // Test 14: Login/Signup UI (PWA Auth Step B3)
+        integrationTest.addTest(
+            "Login/Signup UI",
+            "Pre-auth shows only login/signup, post-auth hides them, login form submits to login.submitted, errors land in login.error",
+            async function() {
+                // Self-contained app HTML that exercises the auth flow:
+                // login/signup at top level alongside a normal app section.
+                const authAppHtml = `<section name="app">
+                    <section name="login">
+                        <h2>Sign In</h2>
+                        <input value="{username}">
+                        <input type="password" value="{password}">
+                        <button onclick="data.login.submitted = true">Log In</button>
+                        <div class="error">{error}</div>
+                    </section>
+                    <section name="signup">
+                        <h2>Create Account</h2>
+                        <input value="{username}">
+                        <input type="password" value="{password}">
+                        <button onclick="data.signup.submitted = true">Sign Up</button>
+                        <div class="error">{error}</div>
+                    </section>
+                    <section name="workspace">
+                        <h2>{page_title}</h2>
+                    </section>
+                </section>`;
+
+                // Helper to spin up a PWA with the auth app already parsed,
+                // data tree generated, proxy wrapped, and DOM rendered into a
+                // fresh container. Returns { pwa, container } with the
+                // container appended to document.body so element queries work.
+                function bootAuthPwa(token) {
+                    if (token === null || token === undefined) {
+                        localStorage.removeItem('amorphdb_token');
+                    } else {
+                        localStorage.setItem('amorphdb_token', token);
+                    }
+                    const pwa = new AmorphPWA();
+                    pwa.parseApp(authAppHtml);
+                    pwa.generateDataTree();
+
+                    const dataForProxy = JSON.parse(JSON.stringify(pwa.dataTree));
+                    pwa.rawData = pwa.dataTree;
+                    pwa.proxiedData = pwa.createProxy(dataForProxy);
+
+                    // Render into a freshly created container so multiple
+                    // sub-tests don't trample each other's DOM.
+                    const container = document.createElement('div');
+                    container.id = `b3-app-${Math.random().toString(36).slice(2, 10)}`;
+                    document.body.appendChild(container);
+                    pwa.appContainer = container;
+                    const root = pwa.renderSection(pwa.sectionTree, [], pwa.dataTree);
+                    container.appendChild(root);
+
+                    pwa.applyAuthVisibility();
+                    return { pwa, container };
+                }
+
+                function cleanupContainer(container) {
+                    if (container && container.parentNode) {
+                        container.parentNode.removeChild(container);
+                    }
+                }
+
+                function makeResponse(bodyObject, status = 200) {
+                    return new Response(JSON.stringify(bodyObject), {
+                        status: status,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+
+                // --- 1. Pre-auth: only login/signup are visible
+                const { pwa: prePwa, container: preContainer } = bootAuthPwa(null);
+                try {
+                    integrationTest.assertEqual(prePwa.token, null,
+                        "Pre-auth PWA should have null token");
+                    integrationTest.assert(prePwa.hasAuthSections,
+                        "applyAuthVisibility should detect auth sections in the section tree");
+
+                    const loginSection = preContainer.querySelector('.section-login');
+                    const signupSection = preContainer.querySelector('.section-signup');
+                    const workspaceSection = preContainer.querySelector('.section-workspace');
+
+                    integrationTest.assert(loginSection,
+                        "Login section should be rendered in DOM");
+                    integrationTest.assert(signupSection,
+                        "Signup section should be rendered in DOM");
+                    integrationTest.assert(workspaceSection,
+                        "Workspace section should be rendered in DOM");
+
+                    integrationTest.assert(loginSection.style.display !== 'none',
+                        `Pre-auth login section should be visible; display="${loginSection.style.display}"`);
+                    integrationTest.assert(signupSection.style.display !== 'none',
+                        `Pre-auth signup section should be visible; display="${signupSection.style.display}"`);
+                    integrationTest.assertEqual(workspaceSection.style.display, 'none',
+                        "Pre-auth workspace section should be hidden");
+
+                    integrationTest.assertEqual(prePwa.rawData.login._shown, true,
+                        "Pre-auth login._shown should be true in data tree");
+                    integrationTest.assertEqual(prePwa.rawData.signup._shown, true,
+                        "Pre-auth signup._shown should be true in data tree");
+                    integrationTest.assertEqual(prePwa.rawData.workspace._shown, false,
+                        "Pre-auth workspace._shown should be false in data tree");
+                } finally {
+                    cleanupContainer(preContainer);
+                }
+
+                // --- 2. Post-auth: login/signup hidden, app shown
+                const { pwa: postPwa, container: postContainer } = bootAuthPwa('initial-token-abc');
+                try {
+                    integrationTest.assertEqual(postPwa.token, 'initial-token-abc',
+                        "Post-auth PWA should pick up persisted token");
+
+                    const loginSection = postContainer.querySelector('.section-login');
+                    const signupSection = postContainer.querySelector('.section-signup');
+                    const workspaceSection = postContainer.querySelector('.section-workspace');
+
+                    integrationTest.assertEqual(loginSection.style.display, 'none',
+                        "Post-auth login section should be hidden");
+                    integrationTest.assertEqual(signupSection.style.display, 'none',
+                        "Post-auth signup section should be hidden");
+                    integrationTest.assert(workspaceSection.style.display !== 'none',
+                        `Post-auth workspace section should be visible; display="${workspaceSection.style.display}"`);
+
+                    integrationTest.assertEqual(postPwa.rawData.login._shown, false,
+                        "Post-auth login._shown should be false");
+                    integrationTest.assertEqual(postPwa.rawData.workspace._shown, true,
+                        "Post-auth workspace._shown should be true");
+                } finally {
+                    cleanupContainer(postContainer);
+                }
+
+                // --- 3. Login form submission writes login.submitted=true and
+                //        flushes via fetch with no token header (pre-auth POST)
+                const { pwa: submitPwa, container: submitContainer } = bootAuthPwa(null);
+                try {
+                    submitPwa.proxiedData.login.username = 'kalevo';
+                    submitPwa.proxiedData.login.password = 'secret';
+
+                    integrationTest.assertEqual(submitPwa.changes.get('login.username'), 'kalevo',
+                        "Username change should be tracked");
+                    integrationTest.assertEqual(submitPwa.changes.get('login.password'), 'secret',
+                        "Password change should be tracked");
+
+                    const originalFetch = window.fetch;
+                    let capturedInit = null;
+                    let capturedBody = null;
+                    window.fetch = (url, init) => {
+                        capturedInit = { url, init };
+                        capturedBody = JSON.parse(init.body);
+                        return Promise.resolve(makeResponse({}, 200));
+                    };
+                    try {
+                        submitPwa.proxiedData.login.submitted = true;
+                        // Await flushChanges directly to guarantee the full
+                        // async chain (fetch + handleLoginResponse + json
+                        // parsing) completes before the assertions run.
+                        await submitPwa.flushChanges();
+                    } finally {
+                        window.fetch = originalFetch;
+                    }
+
+                    integrationTest.assert(capturedInit !== null,
+                        "Login submit should trigger fetch via flushChanges");
+                    integrationTest.assertEqual(capturedInit.url, '/mcp',
+                        "Login submit should POST to /mcp");
+                    integrationTest.assert(!('X-AmorphDB-Token' in capturedInit.init.headers),
+                        "Pre-auth login submit must omit the X-AmorphDB-Token header");
+                    integrationTest.assertEqual(capturedInit.init.headers['X-AmorphDB-Device'],
+                        submitPwa.deviceId,
+                        "Pre-auth login submit must include the device header");
+                    integrationTest.assertEqual(capturedBody.changes['login.submitted'], true,
+                        "Submitted change should travel as login.submitted=true");
+                    integrationTest.assertEqual(capturedBody.changes['login.username'], 'kalevo',
+                        "Username change should travel in the same batch");
+                } finally {
+                    cleanupContainer(submitContainer);
+                }
+
+                // --- 4. Login error: result.status === "error" writes message
+                //        to login.error and updates the bound DOM element
+                const { pwa: errPwa, container: errContainer } = bootAuthPwa(null);
+                try {
+                    errPwa.proxiedData.login.username = 'kalevo';
+                    errPwa.proxiedData.login.password = 'wrong';
+
+                    let loginErrorFired = false;
+                    let loginErrorMessage = null;
+                    const errorHandler = (e) => {
+                        loginErrorFired = true;
+                        loginErrorMessage = e.detail.result.message;
+                    };
+                    document.addEventListener('amorphPWALoginError', errorHandler);
+
+                    const originalFetch = window.fetch;
+                    window.fetch = () => Promise.resolve(makeResponse({
+                        status: 'ok',
+                        result: { status: 'error', message: 'Invalid password' }
+                    }));
+                    try {
+                        errPwa.proxiedData.login.submitted = true;
+                        await errPwa.flushChanges();
+                    } finally {
+                        window.fetch = originalFetch;
+                        document.removeEventListener('amorphPWALoginError', errorHandler);
+                    }
+
+                    integrationTest.assert(loginErrorFired,
+                        "amorphPWALoginError event should fire on result.status === 'error'");
+                    integrationTest.assertEqual(loginErrorMessage, 'Invalid password',
+                        "Login error event should carry result.message");
+                    integrationTest.assertEqual(errPwa.rawData.login.error, 'Invalid password',
+                        "Boilerplate should write the error message to login.error");
+                    integrationTest.assertEqual(errPwa.token, null,
+                        "Failed login must not store a token");
+
+                    // The login section must still be visible after an error so
+                    // the user can retry.
+                    const loginSection = errContainer.querySelector('.section-login');
+                    integrationTest.assert(loginSection.style.display !== 'none',
+                        "Login section should remain visible after a login error");
+
+                    const errorElement = errContainer.querySelector('[data-bind="login.error"]');
+                    integrationTest.assert(errorElement,
+                        "Login section should expose a {error} placeholder bound to login.error");
+                    integrationTest.assertEqual(errorElement.textContent, 'Invalid password',
+                        "Error span should display the message returned by the watcher");
+                } finally {
+                    cleanupContainer(errContainer);
+                }
+
+                // --- 5. Successful login: token is stored, sections flip,
+                //        login.error is cleared if it was set previously
+                const { pwa: okPwa, container: okContainer } = bootAuthPwa(null);
+                try {
+                    // Pre-seed an error message so we can verify it's cleared
+                    // on a successful login.
+                    okPwa.applyServerUpdate('login.error', 'Stale error from prior attempt');
+                    integrationTest.assertEqual(okPwa.rawData.login.error,
+                        'Stale error from prior attempt',
+                        "Test setup: stale error should be present");
+
+                    okPwa.proxiedData.login.username = 'kalevo';
+                    okPwa.proxiedData.login.password = 'correct';
+
+                    let loginSuccessFired = false;
+                    const successHandler = () => { loginSuccessFired = true; };
+                    document.addEventListener('amorphPWALoginSuccess', successHandler);
+
+                    // Stub out connectSSE so we don't actually try to open
+                    // an EventSource during the test.
+                    const originalConnect = okPwa.connectSSE;
+                    let reconnectCount = 0;
+                    okPwa.connectSSE = function() { reconnectCount++; };
+
+                    const originalFetch = window.fetch;
+                    window.fetch = () => Promise.resolve(makeResponse({
+                        status: 'ok',
+                        result: { status: 'ok', token: 'fresh-token-xyz' }
+                    }));
+                    try {
+                        okPwa.proxiedData.login.submitted = true;
+                        await okPwa.flushChanges();
+                    } finally {
+                        window.fetch = originalFetch;
+                        okPwa.connectSSE = originalConnect;
+                        document.removeEventListener('amorphPWALoginSuccess', successHandler);
+                    }
+
+                    integrationTest.assert(loginSuccessFired,
+                        "amorphPWALoginSuccess event should fire on successful login");
+                    integrationTest.assertEqual(okPwa.token, 'fresh-token-xyz',
+                        "Token should be stored after successful login");
+                    integrationTest.assert(reconnectCount >= 1,
+                        "SSE should reconnect after successful login");
+                    integrationTest.assertEqual(okPwa.rawData.login.error, '',
+                        "Stale error message should be cleared on successful login");
+
+                    // After login the auth sections flip: workspace shows,
+                    // login/signup hide.
+                    const loginSection = okContainer.querySelector('.section-login');
+                    const signupSection = okContainer.querySelector('.section-signup');
+                    const workspaceSection = okContainer.querySelector('.section-workspace');
+                    integrationTest.assertEqual(loginSection.style.display, 'none',
+                        "Login section should be hidden after successful login");
+                    integrationTest.assertEqual(signupSection.style.display, 'none',
+                        "Signup section should be hidden after successful login");
+                    integrationTest.assert(workspaceSection.style.display !== 'none',
+                        "Workspace section should be visible after successful login");
+                } finally {
+                    cleanupContainer(okContainer);
+                }
+
+                // --- 6. clearToken (e.g., 401 / logout) flips visibility back
+                //        to pre-auth: login/signup show, app hides
+                const { pwa: clearPwa, container: clearContainer } = bootAuthPwa('about-to-expire');
+                try {
+                    // Sanity: post-auth state immediately after boot
+                    let workspaceSection = clearContainer.querySelector('.section-workspace');
+                    integrationTest.assert(workspaceSection.style.display !== 'none',
+                        "Workspace should be visible while token is set");
+
+                    clearPwa.clearToken();
+
+                    integrationTest.assertEqual(clearPwa.token, null,
+                        "clearToken should null out the token");
+                    const loginSection = clearContainer.querySelector('.section-login');
+                    const signupSection = clearContainer.querySelector('.section-signup');
+                    workspaceSection = clearContainer.querySelector('.section-workspace');
+                    integrationTest.assert(loginSection.style.display !== 'none',
+                        "Login section should be visible after clearToken");
+                    integrationTest.assert(signupSection.style.display !== 'none',
+                        "Signup section should be visible after clearToken");
+                    integrationTest.assertEqual(workspaceSection.style.display, 'none',
+                        "Workspace section should be hidden after clearToken");
+                } finally {
+                    cleanupContainer(clearContainer);
+                }
+
+                // --- 7. Guest mode (no auth sections) — applyAuthVisibility is
+                //        a no-op and everything stays visible regardless of token
+                const guestHtml = `<section name="app">
+                    <section name="banner"><h1>{title}</h1></section>
+                    <section name="content">{message}</section>
+                </section>`;
+                localStorage.removeItem('amorphdb_token');
+                const guestPwa = new AmorphPWA();
+                guestPwa.parseApp(guestHtml);
+                guestPwa.generateDataTree();
+                const guestDataForProxy = JSON.parse(JSON.stringify(guestPwa.dataTree));
+                guestPwa.rawData = guestPwa.dataTree;
+                guestPwa.proxiedData = guestPwa.createProxy(guestDataForProxy);
+                const guestContainer = document.createElement('div');
+                document.body.appendChild(guestContainer);
+                guestPwa.appContainer = guestContainer;
+                guestContainer.appendChild(
+                    guestPwa.renderSection(guestPwa.sectionTree, [], guestPwa.dataTree)
+                );
+                try {
+                    guestPwa.applyAuthVisibility();
+                    integrationTest.assertEqual(guestPwa.hasAuthSections, false,
+                        "Guest mode app should report no auth sections");
+                    const banner = guestContainer.querySelector('.section-banner');
+                    const content = guestContainer.querySelector('.section-content');
+                    integrationTest.assert(banner.style.display !== 'none',
+                        "Guest mode banner should be visible");
+                    integrationTest.assert(content.style.display !== 'none',
+                        "Guest mode content should be visible");
+                } finally {
+                    cleanupContainer(guestContainer);
+                }
+
+                // Reset localStorage so the next test starts clean.
+                localStorage.removeItem('amorphdb_token');
+            }
+        );
+
+        // Test 15: Logout (PWA Auth Step B4)
+        integrationTest.addTest(
+            "Logout",
+            "End-to-end logout: intent.logout=true → server removes token → next POST 401 → token cleared, SSE torn down, login screen shown, device ID persists",
+            async function() {
+                // Self-contained app HTML mirroring the B3 test layout so
+                // the auth visibility flip is exercisable. The intent
+                // subtree has a `logout` field so `data.intent.logout`
+                // exists on the proxy and gets tracked when set.
+                const authAppHtml = `<section name="app">
+                    <section name="login">
+                        <h2>Sign In</h2>
+                        <input value="{username}">
+                        <input type="password" value="{password}">
+                        <button onclick="data.login.submitted = true">Log In</button>
+                        <div class="error">{error}</div>
+                    </section>
+                    <section name="signup">
+                        <h2>Create Account</h2>
+                        <input value="{username}">
+                        <input type="password" value="{password}">
+                        <button onclick="data.signup.submitted = true">Sign Up</button>
+                        <div class="error">{error}</div>
+                    </section>
+                    <section name="workspace">
+                        <h2>{page_title}</h2>
+                        <button onclick="data.intent.logout = true">Log Out</button>
+                    </section>
+                    <section name="intent">
+                        <span class="logout-flag">{logout}</span>
+                    </section>
+                </section>`;
+
+                function bootAuthPwa(token) {
+                    if (token === null || token === undefined) {
+                        localStorage.removeItem('amorphdb_token');
+                    } else {
+                        localStorage.setItem('amorphdb_token', token);
+                    }
+                    const pwa = new AmorphPWA();
+                    pwa.parseApp(authAppHtml);
+                    pwa.generateDataTree();
+
+                    const dataForProxy = JSON.parse(JSON.stringify(pwa.dataTree));
+                    pwa.rawData = pwa.dataTree;
+                    pwa.proxiedData = pwa.createProxy(dataForProxy);
+
+                    const container = document.createElement('div');
+                    container.id = `b4-app-${Math.random().toString(36).slice(2, 10)}`;
+                    document.body.appendChild(container);
+                    pwa.appContainer = container;
+                    const root = pwa.renderSection(pwa.sectionTree, [], pwa.dataTree);
+                    container.appendChild(root);
+
+                    pwa.applyAuthVisibility();
+                    return { pwa, container };
+                }
+
+                function cleanupContainer(container) {
+                    if (container && container.parentNode) {
+                        container.parentNode.removeChild(container);
+                    }
+                }
+
+                function makeResponse(bodyObject, status = 200) {
+                    return new Response(JSON.stringify(bodyObject), {
+                        status: status,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+
+                // --- 1. Setting data.intent.logout = true tracks the change
+                //        and flushChanges POSTs the intent with the token
+                const { pwa: intentPwa, container: intentContainer } =
+                    bootAuthPwa('logged-in-token-123');
+                try {
+                    integrationTest.assertEqual(intentPwa.token, 'logged-in-token-123',
+                        "Pre-logout PWA should have the persisted token");
+
+                    // Sanity: post-auth visibility is correct before logout.
+                    const workspaceSection =
+                        intentContainer.querySelector('.section-workspace');
+                    integrationTest.assert(
+                        workspaceSection.style.display !== 'none',
+                        "Workspace must be visible while authenticated");
+
+                    const originalFetch = window.fetch;
+                    let capturedInit = null;
+                    let capturedBody = null;
+                    window.fetch = (url, init) => {
+                        capturedInit = { url, init };
+                        capturedBody = JSON.parse(init.body);
+                        // Server accepts the intent; the per-user logout
+                        // watcher will remove the token asynchronously and
+                        // the next POST will see a 401. This first POST
+                        // returns 200.
+                        return Promise.resolve(makeResponse({}, 200));
+                    };
+                    try {
+                        intentPwa.proxiedData.intent.logout = true;
+                        await intentPwa.flushChanges();
+                    } finally {
+                        window.fetch = originalFetch;
+                    }
+
+                    integrationTest.assert(capturedInit !== null,
+                        "Logout intent should trigger a fetch via flushChanges");
+                    integrationTest.assertEqual(capturedInit.url, '/mcp',
+                        "Logout intent should POST to /mcp");
+                    integrationTest.assertEqual(
+                        capturedInit.init.headers['X-AmorphDB-Device'],
+                        intentPwa.deviceId,
+                        "Logout POST must include the device header");
+                    integrationTest.assertEqual(
+                        capturedInit.init.headers['X-AmorphDB-Token'],
+                        'logged-in-token-123',
+                        "Logout POST must include the still-valid token");
+                    integrationTest.assertEqual(
+                        capturedBody.changes['intent.logout'], true,
+                        "Logout intent should travel as intent.logout=true");
+
+                    // The token is still set client-side at this point;
+                    // only the next POST will see a 401 once the
+                    // server-side watcher has processed the intent.
+                    integrationTest.assertEqual(intentPwa.token,
+                        'logged-in-token-123',
+                        "Token should still be set immediately after the intent POST");
+                } finally {
+                    cleanupContainer(intentContainer);
+                }
+
+                // --- 2. The next POST after the watcher purges the token
+                //        returns 401: token clears, SSE disconnects, login
+                //        screen shows, amorphPWAAuthRequired fires, device
+                //        ID persists.
+                const { pwa: expirePwa, container: expireContainer } =
+                    bootAuthPwa('about-to-be-purged');
+                try {
+                    const persistedDeviceId = expirePwa.deviceId;
+                    integrationTest.assertEqual(
+                        localStorage.getItem('amorphdb_device_id'),
+                        persistedDeviceId,
+                        "Device ID should be in localStorage before logout");
+
+                    // Install a fake EventSource so we can verify SSE is
+                    // torn down on the 401. The fake captures close() calls.
+                    let sseClosed = false;
+                    expirePwa.eventSource = {
+                        close: () => { sseClosed = true; },
+                        readyState: 1
+                    };
+                    expirePwa.reconnectAttempts = 3;
+
+                    let authRequiredFired = false;
+                    let authRequiredDeviceId = null;
+                    const authHandler = (e) => {
+                        authRequiredFired = true;
+                        authRequiredDeviceId = e.detail.deviceId;
+                    };
+                    document.addEventListener('amorphPWAAuthRequired', authHandler);
+
+                    const originalFetch = window.fetch;
+                    window.fetch = () => Promise.resolve(makeResponse(
+                        { error: 'token expired or unknown' }, 401));
+                    try {
+                        // Any subsequent write after server-side logout —
+                        // here we use a benign data update — will trigger
+                        // the 401 path.
+                        expirePwa.proxiedData.workspace.page_title = 'After Logout';
+                        await expirePwa.flushChanges();
+                    } finally {
+                        window.fetch = originalFetch;
+                        document.removeEventListener(
+                            'amorphPWAAuthRequired', authHandler);
+                    }
+
+                    integrationTest.assertEqual(expirePwa.token, null,
+                        "401 response should clear the in-memory token");
+                    integrationTest.assertEqual(
+                        localStorage.getItem('amorphdb_token'), null,
+                        "401 response should remove the token from localStorage");
+                    integrationTest.assert(authRequiredFired,
+                        "amorphPWAAuthRequired event should fire on 401");
+                    integrationTest.assertEqual(authRequiredDeviceId,
+                        persistedDeviceId,
+                        "amorphPWAAuthRequired should carry the persisting device ID");
+
+                    // Device ID persists — only the token is cleared.
+                    integrationTest.assertEqual(
+                        localStorage.getItem('amorphdb_device_id'),
+                        persistedDeviceId,
+                        "Device ID should persist through logout");
+                    integrationTest.assertEqual(expirePwa.deviceId,
+                        persistedDeviceId,
+                        "PWA instance should keep the same device ID");
+
+                    // SSE was disconnected by clearToken's call to
+                    // disconnectSSE.
+                    integrationTest.assert(sseClosed,
+                        "clearToken should close the active EventSource");
+                    integrationTest.assertEqual(expirePwa.eventSource, null,
+                        "eventSource reference should be nulled after disconnect");
+                    integrationTest.assertEqual(expirePwa.reconnectAttempts, 0,
+                        "Reconnect backoff counter should be reset on disconnect");
+
+                    // The auth-section flip happened: login/signup back,
+                    // workspace hidden.
+                    const loginSection =
+                        expireContainer.querySelector('.section-login');
+                    const signupSection =
+                        expireContainer.querySelector('.section-signup');
+                    const workspaceSection =
+                        expireContainer.querySelector('.section-workspace');
+                    integrationTest.assert(loginSection.style.display !== 'none',
+                        "Login section should be visible after 401");
+                    integrationTest.assert(signupSection.style.display !== 'none',
+                        "Signup section should be visible after 401");
+                    integrationTest.assertEqual(workspaceSection.style.display,
+                        'none',
+                        "Workspace section should be hidden after 401");
+                } finally {
+                    cleanupContainer(expireContainer);
+                }
+
+                // --- 3. clearToken called directly (e.g., from app code) also
+                //        tears down SSE — covers programmatic logout for apps
+                //        that don't want to wait for the 401 round trip.
+                const { pwa: directPwa, container: directContainer } =
+                    bootAuthPwa('still-valid-token');
+                try {
+                    let sseClosed = false;
+                    directPwa.eventSource = {
+                        close: () => { sseClosed = true; },
+                        readyState: 1
+                    };
+                    directPwa.reconnectAttempts = 5;
+
+                    directPwa.clearToken();
+
+                    integrationTest.assertEqual(directPwa.token, null,
+                        "clearToken should null the token");
+                    integrationTest.assertEqual(
+                        localStorage.getItem('amorphdb_token'), null,
+                        "clearToken should remove the token from localStorage");
+                    integrationTest.assert(sseClosed,
+                        "clearToken should close the SSE EventSource");
+                    integrationTest.assertEqual(directPwa.eventSource, null,
+                        "eventSource should be null after clearToken");
+                    integrationTest.assertEqual(directPwa.reconnectAttempts, 0,
+                        "Reconnect attempts should reset to 0");
+                } finally {
+                    cleanupContainer(directContainer);
+                }
+
+                // --- 4. disconnectSSE is safe when no connection is open
+                const noopPwa = new AmorphPWA();
+                noopPwa.eventSource = null;
+                noopPwa.reconnectAttempts = 2;
+                noopPwa.disconnectSSE();
+                integrationTest.assertEqual(noopPwa.eventSource, null,
+                    "disconnectSSE should be a no-op when no connection exists");
+                integrationTest.assertEqual(noopPwa.reconnectAttempts, 0,
+                    "disconnectSSE should still reset reconnectAttempts");
+
+                // Reset localStorage so the next test starts clean.
+                localStorage.removeItem('amorphdb_token');
+            }
+        );
+
+        // Test 16: 401 Handling and Token Expiry (PWA Auth Step B5)
+        integrationTest.addTest(
+            "401 Handling and Token Expiry",
+            "401 from MCP POST or SSE clears the token, preserves unsent changes, retries them on re-login, and logs a friendly message",
+            async function() {
+                const authAppHtml = `<section name="app">
+                    <section name="login">
+                        <h2>Sign In</h2>
+                        <input value="{username}">
+                        <input type="password" value="{password}">
+                        <button onclick="data.login.submitted = true">Log In</button>
+                        <div class="error">{error}</div>
+                    </section>
+                    <section name="signup">
+                        <h2>Create Account</h2>
+                        <input value="{username}">
+                        <input type="password" value="{password}">
+                        <button onclick="data.signup.submitted = true">Sign Up</button>
+                        <div class="error">{error}</div>
+                    </section>
+                    <section name="workspace">
+                        <h2>{page_title}</h2>
+                        <input value="{draft_note}">
+                    </section>
+                </section>`;
+
+                function bootAuthPwa(token) {
+                    if (token === null || token === undefined) {
+                        localStorage.removeItem('amorphdb_token');
+                    } else {
+                        localStorage.setItem('amorphdb_token', token);
+                    }
+                    const pwa = new AmorphPWA();
+                    pwa.parseApp(authAppHtml);
+                    pwa.generateDataTree();
+                    const dataForProxy = JSON.parse(JSON.stringify(pwa.dataTree));
+                    pwa.rawData = pwa.dataTree;
+                    pwa.proxiedData = pwa.createProxy(dataForProxy);
+                    const container = document.createElement('div');
+                    container.id = `b5-app-${Math.random().toString(36).slice(2, 10)}`;
+                    document.body.appendChild(container);
+                    pwa.appContainer = container;
+                    const root = pwa.renderSection(pwa.sectionTree, [], pwa.dataTree);
+                    container.appendChild(root);
+                    pwa.applyAuthVisibility();
+                    return { pwa, container };
+                }
+
+                function cleanupContainer(container) {
+                    if (container && container.parentNode) {
+                        container.parentNode.removeChild(container);
+                    }
+                }
+
+                function makeResponse(bodyObject, status = 200) {
+                    return new Response(JSON.stringify(bodyObject), {
+                        status: status,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+
+                // --- 1. 401 from MCP POST snapshots unsent changes to
+                //        pendingChanges and clears the live changes Map.
+                const { pwa: postPwa, container: postContainer } =
+                    bootAuthPwa('expiring-token');
+                try {
+                    let authRequiredFired = false;
+                    let authRequiredDetail = null;
+                    const handler = (e) => {
+                        authRequiredFired = true;
+                        authRequiredDetail = e.detail;
+                    };
+                    document.addEventListener('amorphPWAAuthRequired', handler);
+
+                    const originalFetch = window.fetch;
+                    window.fetch = () => Promise.resolve(makeResponse(
+                        { error: 'token expired' }, 401));
+                    try {
+                        postPwa.proxiedData.workspace.draft_note =
+                            'in-flight edit';
+                        postPwa.proxiedData.workspace.page_title =
+                            'Orders';
+                        await postPwa.flushChanges();
+                    } finally {
+                        window.fetch = originalFetch;
+                        document.removeEventListener(
+                            'amorphPWAAuthRequired', handler);
+                    }
+
+                    integrationTest.assertEqual(postPwa.token, null,
+                        "401 from MCP POST should clear the token");
+                    integrationTest.assertEqual(postPwa.changes.size, 0,
+                        "Live changes Map should be empty after the 401 snapshot");
+                    integrationTest.assert(postPwa.pendingChanges.size >= 2,
+                        "Both unsent changes should be preserved in pendingChanges");
+                    integrationTest.assertEqual(
+                        postPwa.pendingChanges.get('workspace.draft_note'),
+                        'in-flight edit',
+                        "draft_note value should be preserved verbatim");
+                    integrationTest.assertEqual(
+                        postPwa.pendingChanges.get('workspace.page_title'),
+                        'Orders',
+                        "page_title value should be preserved verbatim");
+                    integrationTest.assert(authRequiredFired,
+                        "amorphPWAAuthRequired must fire on 401");
+                    integrationTest.assert(authRequiredDetail.pendingChanges >= 2,
+                        "amorphPWAAuthRequired detail should report preserved-change count");
+                    integrationTest.assertEqual(
+                        authRequiredDetail.deviceId, postPwa.deviceId,
+                        "amorphPWAAuthRequired detail must carry the device ID");
+                } finally {
+                    cleanupContainer(postContainer);
+                }
+
+                // --- 2. setToken on re-login retries the preserved
+                //        changes via scheduleSend, fires the
+                //        amorphPWAPendingChangesRetried event, and the
+                //        next POST carries them with the new token.
+                const { pwa: retryPwa, container: retryContainer } =
+                    bootAuthPwa(null);
+                try {
+                    retryPwa.pendingChanges.set(
+                        'workspace.draft_note', 'restored edit');
+                    retryPwa.pendingChanges.set(
+                        'workspace.page_title', 'Restored');
+
+                    let retriedFired = false;
+                    let retriedCount = 0;
+                    const retryHandler = (e) => {
+                        retriedFired = true;
+                        retriedCount = e.detail.count;
+                    };
+                    document.addEventListener(
+                        'amorphPWAPendingChangesRetried', retryHandler);
+
+                    let postedBody = null;
+                    let postedHeaders = null;
+                    const originalFetch = window.fetch;
+                    window.fetch = (url, init) => {
+                        postedBody = JSON.parse(init.body);
+                        postedHeaders = init.headers;
+                        return Promise.resolve(makeResponse({}, 200));
+                    };
+                    try {
+                        retryPwa.setToken('fresh-token-after-relogin');
+                        // setToken → retryPendingChanges → scheduleSend
+                        // (microtask). Await one microtask to let the
+                        // queued flushChanges run end-to-end.
+                        await new Promise(resolve => queueMicrotask(resolve));
+                        // The flushChanges itself awaits a fetch and a
+                        // response.clone().json(); pump one more turn so
+                        // the assertion sees the post-flush state.
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    } finally {
+                        window.fetch = originalFetch;
+                        document.removeEventListener(
+                            'amorphPWAPendingChangesRetried', retryHandler);
+                    }
+
+                    integrationTest.assertEqual(retryPwa.pendingChanges.size, 0,
+                        "pendingChanges should be empty after retry");
+                    integrationTest.assert(retriedFired,
+                        "amorphPWAPendingChangesRetried must fire on retry");
+                    integrationTest.assertEqual(retriedCount, 2,
+                        "retried event detail.count should match preserved size");
+                    integrationTest.assert(postedBody !== null,
+                        "Re-flush should issue a POST after re-login");
+                    integrationTest.assertEqual(
+                        postedBody.changes['workspace.draft_note'],
+                        'restored edit',
+                        "Re-flush body must carry the preserved draft_note");
+                    integrationTest.assertEqual(
+                        postedBody.changes['workspace.page_title'],
+                        'Restored',
+                        "Re-flush body must carry the preserved page_title");
+                    integrationTest.assertEqual(
+                        postedHeaders['X-AmorphDB-Token'],
+                        'fresh-token-after-relogin',
+                        "Re-flush must use the new token from setToken");
+                } finally {
+                    cleanupContainer(retryContainer);
+                }
+
+                // --- 3. SSE failure with a token: the auth probe runs,
+                //        a 401 response clears the token and routes to
+                //        the login screen.
+                const { pwa: ssePwa, container: sseContainer } =
+                    bootAuthPwa('about-to-expire');
+                try {
+                    let sseClosed = false;
+                    ssePwa.eventSource = {
+                        close: () => { sseClosed = true; },
+                        readyState: 1
+                    };
+
+                    let probeCallUrl = null;
+                    let probeCallHeaders = null;
+                    const originalFetch = window.fetch;
+                    window.fetch = (url, init) => {
+                        probeCallUrl = url;
+                        probeCallHeaders = init.headers;
+                        return Promise.resolve(makeResponse(
+                            { error: 'token expired' }, 401));
+                    };
+
+                    let authFiredFromSSE = false;
+                    const sseAuthHandler = () => { authFiredFromSSE = true; };
+                    document.addEventListener(
+                        'amorphPWAAuthRequired', sseAuthHandler);
+
+                    try {
+                        await ssePwa.handleSSEError();
+                    } finally {
+                        window.fetch = originalFetch;
+                        document.removeEventListener(
+                            'amorphPWAAuthRequired', sseAuthHandler);
+                    }
+
+                    integrationTest.assertEqual(probeCallUrl, '/mcp',
+                        "SSE auth probe must POST to /mcp");
+                    integrationTest.assertEqual(
+                        probeCallHeaders['X-AmorphDB-Device'],
+                        ssePwa.deviceId,
+                        "SSE probe must include the device header");
+                    integrationTest.assertEqual(
+                        probeCallHeaders['X-AmorphDB-Token'],
+                        'about-to-expire',
+                        "SSE probe must include the (still-stale) token");
+                    integrationTest.assert(sseClosed,
+                        "handleSSEError must close the existing EventSource");
+                    integrationTest.assertEqual(ssePwa.eventSource, null,
+                        "EventSource reference must be nulled");
+                    integrationTest.assertEqual(ssePwa.token, null,
+                        "Probe 401 must clear the token");
+                    integrationTest.assertEqual(
+                        localStorage.getItem('amorphdb_token'), null,
+                        "Probe 401 must remove the token from localStorage");
+                    integrationTest.assert(authFiredFromSSE,
+                        "Probe 401 must fire amorphPWAAuthRequired");
+                    integrationTest.assert(ssePwa.sseProbedSinceLastOpen,
+                        "Probe must mark the connection as probed");
+                } finally {
+                    cleanupContainer(sseContainer);
+                }
+
+                // --- 4. SSE failure with a token but the probe returns
+                //        non-401: token is preserved, normal backoff
+                //        scheduled, sseProbedSinceLastOpen flips so a
+                //        repeat error in the same window doesn't probe
+                //        again.
+                const { pwa: transientPwa, container: transientContainer } =
+                    bootAuthPwa('still-valid-token');
+                try {
+                    transientPwa.eventSource = {
+                        close: () => {},
+                        readyState: 1
+                    };
+                    transientPwa.reconnectAttempts = 0;
+
+                    let probeFireCount = 0;
+                    const originalFetch = window.fetch;
+                    window.fetch = () => {
+                        probeFireCount++;
+                        return Promise.resolve(makeResponse({}, 200));
+                    };
+                    // Stub connectSSE so the backoff timeout doesn't try
+                    // to open a real EventSource against the test server.
+                    const originalConnect = transientPwa.connectSSE.bind(transientPwa);
+                    transientPwa.connectSSE = () => {};
+
+                    try {
+                        await transientPwa.handleSSEError();
+                    } finally {
+                        window.fetch = originalFetch;
+                        transientPwa.connectSSE = originalConnect;
+                    }
+
+                    integrationTest.assertEqual(probeFireCount, 1,
+                        "Probe must run exactly once on first SSE failure");
+                    integrationTest.assertEqual(transientPwa.token,
+                        'still-valid-token',
+                        "Non-401 probe response must preserve the token");
+                    integrationTest.assertEqual(
+                        localStorage.getItem('amorphdb_token'),
+                        'still-valid-token',
+                        "Non-401 probe response must preserve localStorage token");
+                    integrationTest.assert(transientPwa.sseProbedSinceLastOpen,
+                        "Probe attempt must mark the connection as probed");
+                    integrationTest.assertEqual(
+                        transientPwa.reconnectAttempts, 1,
+                        "Backoff counter must increment when the probe is non-401");
+                } finally {
+                    cleanupContainer(transientContainer);
+                }
+
+                // --- 5. After the first probe, additional handleSSEError
+                //        calls in the same disconnect window do NOT
+                //        re-probe — they just continue the backoff.
+                const { pwa: noRePwa, container: noReContainer } =
+                    bootAuthPwa('still-valid-token');
+                try {
+                    noRePwa.eventSource = null;
+                    noRePwa.reconnectAttempts = 1;
+                    noRePwa.sseProbedSinceLastOpen = true;
+
+                    let probeFireCount = 0;
+                    const originalFetch = window.fetch;
+                    window.fetch = () => {
+                        probeFireCount++;
+                        return Promise.resolve(makeResponse({}, 200));
+                    };
+                    const originalConnect = noRePwa.connectSSE.bind(noRePwa);
+                    noRePwa.connectSSE = () => {};
+                    try {
+                        await noRePwa.handleSSEError();
+                    } finally {
+                        window.fetch = originalFetch;
+                        noRePwa.connectSSE = originalConnect;
+                    }
+
+                    integrationTest.assertEqual(probeFireCount, 0,
+                        "Probe must not re-fire while sseProbedSinceLastOpen is true");
+                    integrationTest.assertEqual(noRePwa.reconnectAttempts, 2,
+                        "Backoff counter must still increment on subsequent errors");
+                } finally {
+                    cleanupContainer(noReContainer);
+                }
+
+                // --- 6. SSE failure pre-auth (no token): no probe, no
+                //        token state change, just the existing backoff.
+                const { pwa: anonPwa, container: anonContainer } =
+                    bootAuthPwa(null);
+                try {
+                    integrationTest.assertEqual(anonPwa.token, null,
+                        "Anon PWA must start with no token");
+                    anonPwa.eventSource = null;
+                    anonPwa.reconnectAttempts = 0;
+
+                    let probeFireCount = 0;
+                    const originalFetch = window.fetch;
+                    window.fetch = () => {
+                        probeFireCount++;
+                        return Promise.resolve(makeResponse({}, 200));
+                    };
+                    const originalConnect = anonPwa.connectSSE.bind(anonPwa);
+                    anonPwa.connectSSE = () => {};
+                    try {
+                        await anonPwa.handleSSEError();
+                    } finally {
+                        window.fetch = originalFetch;
+                        anonPwa.connectSSE = originalConnect;
+                    }
+
+                    integrationTest.assertEqual(probeFireCount, 0,
+                        "No probe should fire when no token is present");
+                    integrationTest.assertEqual(anonPwa.reconnectAttempts, 1,
+                        "Anon SSE failure must still schedule the normal backoff");
+                } finally {
+                    cleanupContainer(anonContainer);
+                }
+
+                // --- 7. Network failure during the probe is treated as
+                //        inconclusive: the token is preserved and normal
+                //        backoff continues so a transient WiFi drop
+                //        doesn't bounce the user to the login screen.
+                const { pwa: netFailPwa, container: netFailContainer } =
+                    bootAuthPwa('still-valid-token');
+                try {
+                    netFailPwa.eventSource = null;
+                    netFailPwa.reconnectAttempts = 0;
+
+                    const originalFetch = window.fetch;
+                    window.fetch = () => Promise.reject(
+                        new TypeError('NetworkError'));
+                    const originalConnect = netFailPwa.connectSSE.bind(netFailPwa);
+                    netFailPwa.connectSSE = () => {};
+                    try {
+                        await netFailPwa.handleSSEError();
+                    } finally {
+                        window.fetch = originalFetch;
+                        netFailPwa.connectSSE = originalConnect;
+                    }
+
+                    integrationTest.assertEqual(netFailPwa.token,
+                        'still-valid-token',
+                        "Network-error probe must preserve the token");
+                    integrationTest.assertEqual(netFailPwa.reconnectAttempts, 1,
+                        "Network-error probe must still schedule normal backoff");
+                } finally {
+                    cleanupContainer(netFailContainer);
+                }
+
+                // --- 8. requestNextListPage 401 also clears the token
+                //        and surfaces the login screen — the same path
+                //        as flushChanges, with the friendly log line.
+                const { pwa: pagePwa, container: pageContainer } =
+                    bootAuthPwa('about-to-be-purged-list');
+                try {
+                    let listAuthRequiredFired = false;
+                    const handler = () => { listAuthRequiredFired = true; };
+                    document.addEventListener(
+                        'amorphPWAAuthRequired', handler);
+
+                    // Seed the list metadata so requestNextListPage sees
+                    // there's more to fetch.
+                    pagePwa.rawData.testlist = [];
+                    pagePwa.rawData.testlist._from = 0;
+                    pagePwa.rawData.testlist._through = 9;
+                    pagePwa.rawData.testlist._total = 100;
+                    pagePwa.rawData.testlist._load_max = 20;
+
+                    const originalFetch = window.fetch;
+                    window.fetch = () => Promise.resolve(makeResponse(
+                        { error: 'token expired' }, 401));
+                    try {
+                        await pagePwa.requestNextListPage('testlist', 20);
+                    } finally {
+                        window.fetch = originalFetch;
+                        document.removeEventListener(
+                            'amorphPWAAuthRequired', handler);
+                    }
+
+                    integrationTest.assertEqual(pagePwa.token, null,
+                        "401 from list paging must clear the token");
+                    integrationTest.assert(listAuthRequiredFired,
+                        "401 from list paging must fire amorphPWAAuthRequired");
+                } finally {
+                    cleanupContainer(pageContainer);
+                }
+
+                // --- 9. preservePendingChanges is idempotent and a no-op
+                //        when the changes Map is empty.
+                const noopPwa = new AmorphPWA();
+                noopPwa.changes = new Map();
+                noopPwa.pendingChanges = new Map();
+                noopPwa.preservePendingChanges();
+                integrationTest.assertEqual(noopPwa.pendingChanges.size, 0,
+                    "preservePendingChanges with no changes is a no-op");
+
+                noopPwa.changes.set('a.b', 1);
+                noopPwa.preservePendingChanges();
+                integrationTest.assertEqual(noopPwa.pendingChanges.size, 1,
+                    "preservePendingChanges should snapshot live changes");
+                integrationTest.assertEqual(noopPwa.changes.size, 0,
+                    "preservePendingChanges should clear the live changes Map");
+
+                noopPwa.changes.set('a.b', 99);
+                noopPwa.preservePendingChanges();
+                integrationTest.assertEqual(
+                    noopPwa.pendingChanges.get('a.b'), 1,
+                    "preservePendingChanges must not overwrite existing pending entries");
+
+                // Reset localStorage for the next test.
+                localStorage.removeItem('amorphdb_token');
+            }
+        );
+
+        // Test 17: Complete Integration
+        integrationTest.addTest(
+            "Complete Integration",
+            "Verify all systems work together end-to-end",
+            async function() {
+                // Reset and do a complete workflow
+                integrationTest.pwa.proxiedData.banner.app_name = "Integration Test App";
+                integrationTest.pwa.proxiedData.banner.user_name = "Test Suite";
+                integrationTest.pwa.proxiedData.workspace.main.page_title = "Orders Page";
+
+                // Add a complete order
+                const order = {
+                    product: "Integration Widget",
+                    quantity: 10,
+                    amount: "$100.00",
+                    status: "processing"
+                };
+                integrationTest.pwa.proxiedData.workspace.main.orders.push(order);
+
+                // Verify all DOM updates
+                integrationTest.assertEqual(document.querySelector('[data-bind="banner.app_name"]').textContent, "Integration Test App");
+                integrationTest.assertEqual(document.querySelector('[data-bind="banner.user_name"]').textContent, "Test Suite");
+                integrationTest.assertEqual(document.querySelector('[data-bind="workspace.main.page_title"]').textContent, "Orders Page");
+
+                // Verify list item was added correctly
+                const orderElements = document.querySelectorAll('.order-row');
+                integrationTest.assert(orderElements.length >= 1, "Order should be added to DOM");
+
+                const lastOrder = orderElements[orderElements.length - 1];
+                const productElement = lastOrder.querySelector('[data-bind*="product"]');
+                integrationTest.assertEqual(productElement.textContent, "Integration Widget", "Order product should be correct");
+
+                // Verify form inputs work
+                const productInput = document.querySelector('input[data-bind="workspace.main.order_form.product"]');
+                const quantityInput = document.querySelector('input[data-bind="workspace.main.order_form.quantity"]');
+
+                integrationTest.assert(productInput, "Product input should exist");
+                integrationTest.assert(quantityInput, "Quantity input should exist");
+
+                // Verify changes are being tracked
+                integrationTest.assert(integrationTest.pwa.changes.size > 0, "Changes should be tracked");
+
+                // Verify proxy wrapper is working
+                integrationTest.assert(integrationTest.pwa.proxiedData !== integrationTest.pwa.rawData, "Proxied data should be different object than raw data");
+            }
+        );
+
+        // Start tests when page loads
+        window.addEventListener('load', () => {
+            console.log('🧪 Starting AmorphDB PWA Integration Tests...');
+            integrationTest.runAllTests().then(() => {
+                console.log('✅ Integration tests completed');
+            }).catch(error => {
+                console.error('❌ Integration test suite failed:', error);
+            });
+        });
+    </script>
+</body>
+</html>

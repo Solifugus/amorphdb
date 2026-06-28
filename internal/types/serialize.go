@@ -40,6 +40,15 @@ func SerializeValue(value interface{}) []byte {
 		return Number{Value: float64(v)}.Serialize()
 	case int64:
 		return Number{Value: float64(v)}.Serialize()
+	case int32:
+		return Number{Value: float64(v)}.Serialize()
+	case uint:
+		return Number{Value: float64(v)}.Serialize()
+	case uint32:
+		return Number{Value: float64(v)}.Serialize()
+	case uint64:
+		// Agent/author IDs are uint64; represent as Number.
+		return Number{Value: float64(v)}.Serialize()
 	case bool:
 		return Boolean{Value: v}.Serialize()
 	case []interface{}:
@@ -59,4 +68,3 @@ func SerializeValue(value interface{}) []byte {
 		return data
 	}
 }
-

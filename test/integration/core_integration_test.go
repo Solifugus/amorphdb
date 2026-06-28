@@ -174,15 +174,17 @@ func testDirectStorageOperations(t *testing.T, service *service.Service) {
 }
 
 func testProtocolOperations(t *testing.T, client *CoreTestClient) {
-	// Write test data via protocol
+	// Write test data via protocol. Per spec §Defaults, world.* writes default to
+	// (Nothing) — an agent may only write to its own home (~) without an explicit
+	// grant, so this round-trip uses a ~-rooted path.
 	textValue := &types.Text{Value: "Protocol test value"}
-	err := client.Write([]string{"world", "protocol", "test", "value"}, textValue, 1000)
+	err := client.Write([]string{"~", "protocol", "test", "value"}, textValue, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write via protocol: %v", err)
 	}
 
 	// Read it back via protocol
-	readValue, err := client.Read([]string{"world", "protocol", "test", "value"})
+	readValue, err := client.Read([]string{"~", "protocol", "test", "value"})
 	if err != nil {
 		t.Fatalf("Failed to read via protocol: %v", err)
 	}
@@ -205,7 +207,7 @@ func testDataPersistenceAcrossRestart(t *testing.T, dataDir string) {
 	client1 := connectCoreClient(t, service1)
 
 	persistentValue := &types.Text{Value: "Persistent across restart"}
-	err := client1.Write([]string{"world", "persistent", "data"}, persistentValue, 1000)
+	err := client1.Write([]string{"~", "persistent", "data"}, persistentValue, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write persistent data: %v", err)
 	}
@@ -222,7 +224,7 @@ func testDataPersistenceAcrossRestart(t *testing.T, dataDir string) {
 	defer client2.Close()
 
 	// Read the persistent data
-	readValue, err := client2.Read([]string{"world", "persistent", "data"})
+	readValue, err := client2.Read([]string{"~", "persistent", "data"})
 	if err != nil {
 		t.Fatalf("Failed to read persistent data after restart: %v", err)
 	}
@@ -354,12 +356,12 @@ func testNestedPaths(t *testing.T, tree storage.Tree) {
 func testReadWriteProtocol(t *testing.T, client *CoreTestClient) {
 	// Test writing and reading various types (use ~ path for default permissions)
 	textVal := &types.Text{Value: "Protocol text test"}
-	err := client.Write([]string{"world", "proto", "text"}, textVal, 1000)
+	err := client.Write([]string{"~", "proto", "text"}, textVal, 1000)
 	if err != nil {
 		t.Fatalf("Protocol write failed: %v", err)
 	}
 
-	readVal, err := client.Read([]string{"world", "proto", "text"})
+	readVal, err := client.Read([]string{"~", "proto", "text"})
 	if err != nil {
 		t.Fatalf("Protocol read failed: %v", err)
 	}
@@ -370,12 +372,12 @@ func testReadWriteProtocol(t *testing.T, client *CoreTestClient) {
 
 	// Test number (using integer to avoid protocol precision issues)
 	numVal := &types.Number{Value: 42}
-	err = client.Write([]string{"world", "proto", "number"}, numVal, 1000)
+	err = client.Write([]string{"~", "proto", "number"}, numVal, 1000)
 	if err != nil {
 		t.Fatalf("Protocol number write failed: %v", err)
 	}
 
-	readNumVal, err := client.Read([]string{"world", "proto", "number"})
+	readNumVal, err := client.Read([]string{"~", "proto", "number"})
 	if err != nil {
 		t.Fatalf("Protocol number read failed: %v", err)
 	}

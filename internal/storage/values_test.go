@@ -101,14 +101,14 @@ func TestDetermineTier(t *testing.T) {
 		size         int
 		expectedTier int
 	}{
-		{10, 0},      // Small value -> tier 0
-		{64, 0},      // Boundary value -> tier 0
-		{65, 1},      // Just over boundary -> tier 1
-		{512, 1},     // Tier 1 boundary
-		{513, 2},     // Just over tier 1 -> tier 2
-		{4096, 2},    // Tier 2 boundary
-		{4097, 3},    // Large value -> tier 3
-		{100000, 3},  // Very large value -> tier 3
+		{10, 0},     // Small value -> tier 0
+		{64, 0},     // Boundary value -> tier 0
+		{65, 1},     // Just over boundary -> tier 1
+		{512, 1},    // Tier 1 boundary
+		{513, 2},    // Just over tier 1 -> tier 2
+		{4096, 2},   // Tier 2 boundary
+		{4097, 3},   // Large value -> tier 3
+		{100000, 3}, // Very large value -> tier 3
 	}
 
 	for _, tc := range testCases {
@@ -190,11 +190,11 @@ func TestIsVariableLength(t *testing.T) {
 		{TypeText, true},
 		{TypeNumber, false},
 		{TypeTime, false},
-		{TypeMoney, false},
+		{TypeMoney, true}, // arbitrary-precision, stored as variable-length data
 		{TypePicture, true},
-		{TypeReference, false},
+		{TypeReference, true}, // a reference is a path; length varies
 		{TypeProcedure, true},
-		{TypeWatcher, false},
+		{TypeWatcher, true}, // a watcher carries procedure source; length varies
 		{TypeEmbed, true},
 		{TypeNothing, false},
 		{TypeUnknown, true},

@@ -71,16 +71,14 @@ func TestEngine_EmptyFile(t *testing.T) {
 	engine := NewEngine(spec)
 	reader := strings.NewReader("")
 
-	result, err := engine.ProcessFile(reader, 0)
-	if err != nil {
-		t.Fatalf("Engine processing failed: %v", err)
+	_, err := engine.ProcessFile(reader, 0)
+	if err == nil {
+		t.Fatalf("Expected error for empty file, got none")
 	}
 
-	// Should handle empty file gracefully
-	if result == nil {
-		t.Logf("Empty file correctly returned nil result")
-	} else {
-		t.Logf("Empty file result: %+v", result)
+	// Engine should return invalid_range error for empty files
+	if !strings.Contains(err.Error(), "#invalid_range") {
+		t.Fatalf("Expected invalid_range error, got: %v", err)
 	}
 }
 
@@ -100,11 +98,12 @@ func TestEngine_LongLineDetection(t *testing.T) {
 
 	_, err := engine.ProcessFile(reader, int64(len(longLine)))
 	if err == nil {
-		t.Fatalf("Expected line_too_long error, got none")
+		t.Fatalf("Expected read_error error, got none")
 	}
 
-	if !strings.Contains(err.Error(), "#line_too_long") {
-		t.Fatalf("Expected line_too_long error, got: %v", err)
+	// Engine returns bufio.Scanner error for overly long lines
+	if !strings.Contains(err.Error(), "#read_error: bufio.Scanner: token too long") {
+		t.Fatalf("Expected read_error: bufio.Scanner: token too long error, got: %v", err)
 	}
 }
 

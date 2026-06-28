@@ -1,126 +1,83 @@
 package interpreter
 
 import (
-	"strings"
 	"testing"
 
+	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/types"
 )
 
-func TestCatchElseExceptionHandling(t *testing.T) {
-	tree := &MockTree{}
-	interpreter := New(tree, 1001)
+func TestCatchElse_CatchBodySucceeds(t *testing.T) {
+	// Test 1: catch body succeeds — else block skipped
+	program := `catch:
+    x = 5`
 
-	t.Run("Successful execution - no else taken", func(t *testing.T) {
-		input := `catch:
-    my.result = "success"
-    my.result
+	result, err := parseAndEvaluate(program)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	// Result should be 5 (the value assigned), else block never runs
+	if numValue, ok := result.(types.Number); ok {
+		if numValue.Value != 5 {
+			t.Errorf("Expected result 5, got %f", numValue.Value)
+		}
+	} else {
+		t.Errorf("Expected types.Number(5), got %T: %v", result, result)
+	}
+}
+
+func TestCatchElse_CatchBodyProducesUnknown(t *testing.T) {
+	// Test 2: catch body produces Unknown — else block runs
+	program := `catch:
+    unknown("something_broke")
 else unknown:
-    "Operation failed: " & unknown
-else queued:
-    "Operation delayed: " & queued`
+    "caught: " & unknown`
 
-		result, err := interpreter.EvaluateExpression(input)
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+	result, err := parseAndEvaluate(program)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	// Result should be "caught: something_broke"
+	if textValue, ok := result.(types.Text); ok {
+		expected := "caught: something_broke"
+		if textValue.Value != expected {
+			t.Errorf("Expected result '%s', got '%s'", expected, textValue.Value)
 		}
+	} else {
+		t.Errorf("Expected types.Text('caught: something_broke'), got %T: %v", result, result)
+	}
+}
 
-		// Should return "success" since no exception occurred
-		if text, ok := result.(types.Text); ok {
-			if text.Value != "success" {
-				t.Errorf("Expected 'success', got %s", text.Value)
-			}
-		} else {
-			t.Errorf("Expected Text result, got %T: %v", result, result)
-		}
-	})
-
-	t.Run("Unknown handler - catches Unknown result", func(t *testing.T) {
-		input := `catch:
-    undefined_function()
+func TestCatchElse_CatchBodyMultipleStatementsLastUnknown(t *testing.T) {
+	// Test 3: catch body has multiple statements, last one is Unknown
+	program := `catch:
+    x = 5
+    unknown("fail")
 else unknown:
-    "caught unknown: " & unknown
-else queued:
-    "caught queued: " & queued`
+    "error was: " & unknown`
 
-		result, err := interpreter.EvaluateExpression(input)
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+	result, err := parseAndEvaluate(program)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	// Result should be "error was: fail"
+	if textValue, ok := result.(types.Text); ok {
+		expected := "error was: fail"
+		if textValue.Value != expected {
+			t.Errorf("Expected result '%s', got '%s'", expected, textValue.Value)
 		}
+	} else {
+		t.Errorf("Expected types.Text('error was: fail'), got %T: %v", result, result)
+	}
+}
 
-		// Should catch the Unknown from undefined_function() and return the handler result
-		if text, ok := result.(types.Text); ok {
-			if !strings.Contains(text.Value, "caught unknown:") {
-				t.Errorf("Expected 'caught unknown:' in result, got %s", text.Value)
-			}
-		} else {
-			t.Errorf("Expected Text result from handler, got %T: %v", result, result)
-		}
-	})
+// Helper function to parse and evaluate MBL code
+func parseAndEvaluate(program string) (interface{}, error) {
+	tree := storage.NewMemoryTree()
+	interpreter := New(tree, 1) // agent 1
 
-	t.Run("Unknown not caught - propagates when no handler", func(t *testing.T) {
-		input := `catch:
-    undefined_function()
-else queued:
-    "caught queued: " & queued`
-
-		result, err := interpreter.EvaluateExpression(input)
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-
-		// Should return the Unknown since no else unknown handler
-		if unknown, ok := result.(types.Unknown); ok {
-			if !strings.Contains(unknown.Reason, "undefined_function") {
-				t.Errorf("Expected undefined_function error, got: %s", unknown.Reason)
-			}
-		} else {
-			t.Errorf("Expected Unknown result, got %T: %v", result, result)
-		}
-	})
-
-	t.Run("Multiple expression catch body", func(t *testing.T) {
-		input := `catch:
-    my.step1 = "first"
-    my.step2 = "second"
-    undefined_function()
-    my.step3 = "third"
-else unknown:
-    "handled error after: " & my.step2`
-
-		result, err := interpreter.EvaluateExpression(input)
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-
-		// Should catch Unknown and execute handler
-		if text, ok := result.(types.Text); ok {
-			if !strings.Contains(text.Value, "handled error after: second") {
-				t.Errorf("Expected 'handled error after: second', got %s", text.Value)
-			}
-		} else {
-			t.Errorf("Expected Text result from handler, got %T: %v", result, result)
-		}
-	})
-
-	t.Run("Unknown variable available in handler", func(t *testing.T) {
-		input := `catch:
-    undefined_function()
-else unknown:
-    "Error: " & unknown`
-
-		result, err := interpreter.EvaluateExpression(input)
-		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
-		}
-
-		// Should return concatenated result using the Unknown value
-		if text, ok := result.(types.Text); ok {
-			if !strings.Contains(text.Value, "Error:") && !strings.Contains(text.Value, "undefined_function") {
-				t.Errorf("Expected 'Error:' and 'undefined_function' in result, got: %s", text.Value)
-			}
-		} else {
-			t.Errorf("Expected Text result from concatenation, got %T: %v", result, result)
-		}
-	})
+	return interpreter.EvaluateExpression(program)
 }

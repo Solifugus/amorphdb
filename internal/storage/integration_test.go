@@ -59,11 +59,11 @@ func testServiceLifecycleSimulation(t *testing.T, dataDir string) {
 
 	// Test basic operations after startup
 	basicData := map[string]string{
-		"my.agent.name":       "Test Agent",
-		"my.agent.identity":   "agent-12345",
-		"my.computer.output":  "Hello from AmorphDB",
-		"world.config.debug":  "true",
-		"world.config.port":   "5000",
+		"my.agent.name":      "Test Agent",
+		"my.agent.identity":  "agent-12345",
+		"my.computer.output": "Hello from AmorphDB",
+		"world.config.debug": "true",
+		"world.config.port":  "5000",
 	}
 
 	// Write data (simulating client operations)
@@ -176,7 +176,9 @@ func testTemporalQueryFunctionality(t *testing.T, dataDir string) {
 			t.Fatalf("Failed to write status %s: %v", status, err)
 		}
 
-		timestamps[i] = time.Now().Unix()
+		// Instances are timestamped in microseconds (see instances.go), so the
+		// query times below must also be in microseconds to match the chain.
+		timestamps[i] = time.Now().UnixMicro()
 		if i < len(statusSequence)-1 {
 			time.Sleep(200 * time.Millisecond) // Ensure different timestamps
 		}
@@ -250,28 +252,28 @@ func testComplexDataOperations(t *testing.T, dataDir string) {
 		"customers.enterprise.acme.usage.storage":       "100GB",
 
 		// Product catalog
-		"products.database.amorphdb.name":        "AmorphDB",
-		"products.database.amorphdb.version":     "1.0.0",
-		"products.database.amorphdb.pricing.starter":   "99",
-		"products.database.amorphdb.pricing.pro":       "299",
+		"products.database.amorphdb.name":               "AmorphDB",
+		"products.database.amorphdb.version":            "1.0.0",
+		"products.database.amorphdb.pricing.starter":    "99",
+		"products.database.amorphdb.pricing.pro":        "299",
 		"products.database.amorphdb.pricing.enterprise": "999",
 		"products.database.amorphdb.features.temporal":  "true",
 		"products.database.amorphdb.features.mesh":      "true",
 		"products.database.amorphdb.features.reactive":  "true",
 
 		// Transaction tracking
-		"transactions.2024.03.07.1000.customer":    "acme",
-		"transactions.2024.03.07.1000.amount":      "5000",
-		"transactions.2024.03.07.1000.currency":    "USD",
-		"transactions.2024.03.07.1000.status":      "completed",
-		"transactions.2024.03.07.1000.processor":   "stripe",
-		"transactions.2024.03.07.1000.reference":   "tx_abc123",
+		"transactions.2024.03.07.1000.customer":  "acme",
+		"transactions.2024.03.07.1000.amount":    "5000",
+		"transactions.2024.03.07.1000.currency":  "USD",
+		"transactions.2024.03.07.1000.status":    "completed",
+		"transactions.2024.03.07.1000.processor": "stripe",
+		"transactions.2024.03.07.1000.reference": "tx_abc123",
 
 		// Operational metrics
-		"metrics.realtime.active_connections": "150",
-		"metrics.realtime.queries_per_second": "2500",
-		"metrics.realtime.memory_usage":       "8GB",
-		"metrics.realtime.disk_usage":         "45GB",
+		"metrics.realtime.active_connections":    "150",
+		"metrics.realtime.queries_per_second":    "2500",
+		"metrics.realtime.memory_usage":          "8GB",
+		"metrics.realtime.disk_usage":            "45GB",
 		"metrics.daily.2024.03.07.total_queries": "5000000",
 		"metrics.daily.2024.03.07.peak_qps":      "3200",
 		"metrics.daily.2024.03.07.downtime":      "0",
@@ -303,10 +305,10 @@ func testComplexDataOperations(t *testing.T, dataDir string) {
 
 	// Test complex updates (simulate business logic changes)
 	updates := map[string]string{
-		"customers.enterprise.acme.usage.queries": "1500000", // Usage increased
-		"customers.enterprise.acme.billing.monthly_fee": "5500", // Price increase
-		"metrics.realtime.active_connections": "175", // More connections
-		"products.database.amorphdb.version": "1.0.1", // New version
+		"customers.enterprise.acme.usage.queries":       "1500000", // Usage increased
+		"customers.enterprise.acme.billing.monthly_fee": "5500",    // Price increase
+		"metrics.realtime.active_connections":           "175",     // More connections
+		"products.database.amorphdb.version":            "1.0.1",   // New version
 	}
 
 	for pathStr, newValue := range updates {

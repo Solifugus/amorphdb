@@ -21,10 +21,10 @@ const (
 
 // Agent represents an agent with properties for permission evaluation
 type Agent struct {
-	Identity  string                 // Unique agent identifier (CV syllable format)
-	Stamp     map[string]interface{} // Agent's stamp attributes (role, clearance, etc.)
-	Tree      storage.ExtendedTree           // Access to storage
-	AgentID   uint64                 // Internal agent ID
+	Identity string                 // Unique agent identifier (CV syllable format)
+	Stamp    map[string]interface{} // Agent's stamp attributes (role, clearance, etc.)
+	Tree     storage.ExtendedTree   // Access to storage
+	AgentID  uint64                 // Internal agent ID
 }
 
 // GetProperty returns a property from the agent's stamp for condition evaluation
@@ -66,7 +66,7 @@ func (pe *PermissionEvaluator) CheckPermission(agent *Agent, path []string, perm
 	// Evaluate the permission condition against the agent
 	result, err := pe.evaluateCondition(condition, agent)
 	if err != nil {
-		return false, fmt.Errorf("failed to evaluate permission condition: %v", err)
+		return false, fmt.Errorf("failed to evaluate permission condition (type: %T): %v", condition, err)
 	}
 
 	return result, nil
@@ -84,8 +84,9 @@ func (pe *PermissionEvaluator) getEffectivePermission(path []string, permType Pe
 		permAttr := "@" + string(permType)
 
 		// Look for permission at this level
-		attrHash := storage.HashPath(append(currentPath, permAttr))
-		instance, err := pe.tree.GetInstance(attrHash, agentID)
+		fullPath := append(currentPath, permAttr)
+		attrHash := storage.HashPath(fullPath)
+		instance, err := pe.tree.GetInstance(attrHash, 0) // Query system agent for global permissions
 		if err != nil {
 			continue // No permission at this level, continue upward
 		}
@@ -96,8 +97,25 @@ func (pe *PermissionEvaluator) getEffectivePermission(path []string, permType Pe
 			continue
 		}
 
-		// Deserialize and return the condition
-		valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; condition, _ := types.DeserializeValue(valueStruct)
+		// Deserialize the condition using the stored TypeTag
+		if len(value) < 1 {
+			return nil, fmt.Errorf("stored value too short")
+		}
+
+		// First byte is the TypeTag, rest is the data
+		typeTag := value[0]
+		data := value[1:]
+
+		serializedValue := types.SerializedValue{
+			TypeTag: typeTag,
+			Data:    data,
+		}
+
+		condition, err := types.DeserializeValue(serializedValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize condition: %v", err)
+		}
+
 		return condition, nil
 	}
 
@@ -107,10 +125,11 @@ func (pe *PermissionEvaluator) getEffectivePermission(path []string, permType Pe
 
 // getDefaultPermission returns the default permission for a path based on context
 func (pe *PermissionEvaluator) getDefaultPermission(path []string, permType PermissionType, agent *Agent) bool {
-	// Under ~ (agent's home): all permissions default to owner-only
+	// Under ~ (agent's home): all permissions default to owner-only.
+	// ~ is self-relative — it always resolves to the requesting agent's own
+	// home, so that agent is by definition the owner and holds every default
+	// permission on it.
 	if len(path) > 0 && path[0] == "~" {
-		// Only the owner has permission
-		// TODO: Implement proper owner checking - for now, assume agent is always owner of their ~ space
 		return true
 	}
 
@@ -120,9 +139,7 @@ func (pe *PermissionEvaluator) getDefaultPermission(path []string, permType Perm
 		case ReadPermission:
 			return true // @read defaults to (Anything) - open to all
 		case WritePermission:
-			// TODO: For integration testing, temporarily allow writes to world paths
-			// In production, this should be false and require explicit permissions
-			return true
+			return false // @write defaults to (Nothing) - no agent can write without explicit grant
 		case ExpandPermission, GrantPermission, PurgePermission:
 			return false // All other permissions default to (Nothing) - closed
 		}
@@ -146,10 +163,20 @@ func (pe *PermissionEvaluator) evaluateCondition(condition interface{}, agent *A
 		case "(Nothing)":
 			return false, nil
 		default:
-			// TODO: Parse and evaluate complex condition expressions
-			// For now, treat unknown text conditions as false
-			return false, nil
+			// Check if agent identity matches the condition
+			return agent.Identity == cond.Value, nil
 		}
+
+	case types.List:
+		// Check if agent identity is in the list
+		for _, element := range cond.Elements {
+			if elementText, ok := element.(types.Text); ok {
+				if agent.Identity == elementText.Value {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
 
 	case types.Nothing:
 		return false, nil
@@ -172,18 +199,41 @@ func (pe *PermissionEvaluator) SetPermission(path []string, permType PermissionT
 	permAttr := "@" + string(permType)
 	fullPath := append(path, permAttr)
 
-	// Serialize the condition
-	value := types.SerializeValue(condition)
+	// Determine TypeTag and serialize the condition
+	var typeTag byte
+	var data []byte
+
+	switch cond := condition.(type) {
+	case types.Text:
+		typeTag = types.TypeText
+		data = cond.Serialize()
+	case types.Boolean:
+		typeTag = types.TypeBoolean
+		data = cond.Serialize()
+	case types.List:
+		typeTag = types.TypeList
+		data = cond.Serialize()
+	case types.Nothing:
+		typeTag = types.TypeNothing
+		data = cond.Serialize()
+	default:
+		return fmt.Errorf("unsupported permission condition type: %T", condition)
+	}
+
+	// Create value with TypeTag as first byte, followed by data
+	value := make([]byte, 1+len(data))
+	value[0] = typeTag
+	copy(value[1:], data)
 
 	// Store in the tree
 	attrHash := storage.HashPath(fullPath)
 	valueHash := storage.HashValue(value)
 
-	// Create the instance
+	// Create the instance - permissions are stored globally (agent 0)
 	instance := storage.SecurityInstance{
 		AttributeHash: attrHash,
 		ValueHash:     valueHash,
-		Agent:         agentID,
+		Agent:         0, // Global storage for permissions
 		Timestamp:     storage.GetCurrentTimestamp(),
 	}
 

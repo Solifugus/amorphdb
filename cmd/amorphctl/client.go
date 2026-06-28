@@ -246,6 +246,8 @@ func (c *ControlClient) SendCommand(command string, payload []byte) ([]byte, err
 		msgType = protocol.CREATE_BRIDGE
 	case "detach":
 		msgType = protocol.DETACH
+	case "extract":
+		msgType = protocol.EXTRACT
 	default:
 		return nil, fmt.Errorf("unknown command: %s", command)
 	}

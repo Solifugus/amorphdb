@@ -142,6 +142,37 @@ func (ba *BridgeAuth) AuthenticateToMesh(meshName, sessionID string, connection 
 	return session, nil
 }
 
+// AuthenticateIncomingAgent creates a bridge authentication session for an
+// incoming agent. Unlike AuthenticateToMesh (used by the initiator, which
+// authenticates outbound using a locally-held mobile identity), the receiver
+// has no local identity for the remote agent. It challenges the agent using the
+// public key the agent presented in its handshake request. The resulting
+// session's Identity is nil — only the AuthSession (carrying the presented
+// public key) is needed to issue and verify the challenge.
+func (ba *BridgeAuth) AuthenticateIncomingAgent(sourceMesh, sessionID, agentIdentity string, agentPublicKey *big.Int, connection interface{}) (*BridgeSession, error) {
+	ba.mu.Lock()
+	defer ba.mu.Unlock()
+
+	// Check if session already exists
+	if existing, exists := ba.activeSessions[sessionID]; exists {
+		return existing, nil
+	}
+
+	// Create authentication session bound to the agent's presented public key.
+	authSession := security.NewAuthenticationSession(agentIdentity, agentPublicKey)
+
+	session := &BridgeSession{
+		SessionID:   sessionID,
+		MeshName:    sourceMesh,
+		AuthSession: authSession,
+		Status:      "authenticating",
+		Connection:  connection,
+	}
+
+	ba.activeSessions[sessionID] = session
+	return session, nil
+}
+
 // CreateChallenge creates an authentication challenge for this bridge session
 func (ba *BridgeAuth) CreateChallenge(sessionID string) (*security.AuthChallengeMessage, error) {
 	ba.mu.RLock()

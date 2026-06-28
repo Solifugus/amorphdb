@@ -1,0 +1,46 @@
+/* myapp — minimal default styles.
+   The boilerplate's own minimal styles are at /amorphdb/pwa.css; this
+   file is loaded after the boilerplate and overrides as needed. */
+
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 1rem;
+    background-color: #f5f5f5;
+    color: #1a1a1a;
+}
+
+h1, h2, h3 {
+    margin-top: 0;
+}
+
+[layout="horizontal"] {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+label {
+    display: block;
+    margin-top: 0.5rem;
+    font-weight: 500;
+}
+
+input {
+    padding: 0.4rem;
+    margin: 0.2rem 0;
+    width: 100%;
+    max-width: 24rem;
+    box-sizing: border-box;
+}
+
+button {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+}
+
+.error {
+    color: #b00020;
+    margin: 0.5rem 0;
+    min-height: 1.2em;
+}

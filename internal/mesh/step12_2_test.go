@@ -151,7 +151,7 @@ func testMeshIdentityValidation(t *testing.T) {
 	validIdentities := []string{
 		"ko-lu-ven",
 		"ta-gi-mor",
-		"be-hu-los-ex",
+		"be-hu-los-ven",
 		"mi-ka-zon-ret",
 	}
 

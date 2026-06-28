@@ -694,6 +694,15 @@ func CreateValue(mblType interface{}) (Value, error) {
 		return Number{Value: float64(v)}, nil
 	case int64:
 		return Number{Value: float64(v)}, nil
+	case int32:
+		return Number{Value: float64(v)}, nil
+	case uint:
+		return Number{Value: float64(v)}, nil
+	case uint32:
+		return Number{Value: float64(v)}, nil
+	case uint64:
+		// Agent/author IDs are uint64 throughout the system; represent as Number.
+		return Number{Value: float64(v)}, nil
 	case bool:
 		return Boolean{Value: v}, nil
 

@@ -368,3 +368,93 @@ func TestLargePayload(t *testing.T) {
 		t.Errorf("Large path mismatch")
 	}
 }
+
+func TestExecuteMessageRoundTrip(t *testing.T) {
+	original := &ExecuteMessage{
+		Code: "my.value = 42\nmy.value",
+	}
+
+	// Encode
+	encoded, err := EncodeExecuteMessage(original)
+	if err != nil {
+		t.Fatalf("Failed to encode ExecuteMessage: %v", err)
+	}
+
+	// Decode
+	decoded, err := DecodeExecuteMessage(encoded)
+	if err != nil {
+		t.Fatalf("Failed to decode ExecuteMessage: %v", err)
+	}
+
+	// Verify
+	if decoded.Code != original.Code {
+		t.Errorf("Code mismatch: expected %s, got %s", original.Code, decoded.Code)
+	}
+}
+
+func TestExecuteResponseMessageRoundTrip(t *testing.T) {
+	// Test successful response with result
+	original := &ExecuteResponseMessage{
+		Success: true,
+		Result: storage.Value{
+			Data:    []byte("test result"),
+			TypeTag: 1,
+		},
+		Error: "",
+	}
+
+	// Encode
+	encoded, err := EncodeExecuteResponseMessage(original)
+	if err != nil {
+		t.Fatalf("Failed to encode ExecuteResponseMessage: %v", err)
+	}
+
+	// Decode
+	decoded, err := DecodeExecuteResponseMessage(encoded)
+	if err != nil {
+		t.Fatalf("Failed to decode ExecuteResponseMessage: %v", err)
+	}
+
+	// Verify
+	if decoded.Success != original.Success {
+		t.Errorf("Success mismatch: expected %t, got %t", original.Success, decoded.Success)
+	}
+	if !reflect.DeepEqual(decoded.Result, original.Result) {
+		t.Errorf("Result mismatch: expected %v, got %v", original.Result, decoded.Result)
+	}
+	if decoded.Error != original.Error {
+		t.Errorf("Error mismatch: expected %s, got %s", original.Error, decoded.Error)
+	}
+}
+
+func TestExecuteResponseMessageRoundTripError(t *testing.T) {
+	// Test error response
+	original := &ExecuteResponseMessage{
+		Success: false,
+		Result:  storage.Value{}, // Empty value for error case
+		Error:   "undefined_function is not a recognized function",
+	}
+
+	// Encode
+	encoded, err := EncodeExecuteResponseMessage(original)
+	if err != nil {
+		t.Fatalf("Failed to encode ExecuteResponseMessage: %v", err)
+	}
+
+	// Decode
+	decoded, err := DecodeExecuteResponseMessage(encoded)
+	if err != nil {
+		t.Fatalf("Failed to decode ExecuteResponseMessage: %v", err)
+	}
+
+	// Verify
+	if decoded.Success != original.Success {
+		t.Errorf("Success mismatch: expected %t, got %t", original.Success, decoded.Success)
+	}
+	if len(decoded.Result.Data) != 0 || decoded.Result.TypeTag != 0 {
+		t.Errorf("Result should be empty for error response, got %v", decoded.Result)
+	}
+	if decoded.Error != original.Error {
+		t.Errorf("Error mismatch: expected %s, got %s", original.Error, decoded.Error)
+	}
+}

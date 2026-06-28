@@ -1,0 +1,70 @@
+# Test: type-first procedure definition syntax (Step 2.6)
+#
+# Demonstrates `procedure name(args): body` as a primary definition form.
+# Both type-first and path-first forms are valid and equivalent.
+#
+# Spec: docs/syntax_changes_development_plan.md §Phase 2 (Steps 2.1, 2.2, 2.5)
+#       docs/amorphdb_design.md §Type-First Definitions
+#
+# Implementation notes:
+#   1. A pre-existing parser bug splits `f(x)` inside any procedure body
+#      into `f` and `(x)` (see Step 2.2 followup). Procedures here
+#      therefore compose at the call site, not inside bodies.
+#   2. MBL strings do not support `\"` escapes — strings open and close
+#      with matched quote counts. Output labels avoid embedded quotes.
+
+output("=== Type-first procedure definitions ===")
+
+# --- single-line type-first procedure, simple name binds at my.<name> ---
+
+procedure double(x): return x * 2
+
+result1 = double(21)
+output("double(21) -> ", result1)                    # 42
+
+# --- multi-line block body with intermediate statement ---
+
+procedure calculate_tax(income, rate):
+    base = income * rate
+    return base
+
+result2 = calculate_tax(100, 0.25)
+output("calculate_tax(100, 0.25) -> ", result2)      # 25
+
+# --- zero-parameter type-first procedure ---
+
+procedure ping(): return "pong"
+
+result3 = ping()
+output("ping() -> ", result3)                        # "pong"
+
+# --- string concatenation in body ---
+
+procedure greet(name): return "hello, " & name
+
+result4 = greet("World")
+output("greet result -> ", result4)                  # "hello, World"
+
+# --- compose two type-first procedures at the call site ---
+
+procedure square(x): return x * x
+procedure plus_one(y): return y + 1
+
+result5 = plus_one(square(4))
+output("plus_one(square(4)) -> ", result5)           # 17
+
+# --- path-first form must still work (equivalent to type-first) ---
+
+my.functions.triple: procedure(x): return x * 3
+
+result6 = my.functions.triple(7)
+output("my.functions.triple(7) -> ", result6)        # 21
+
+# --- anonymous procedure assignment to a deep path ---
+
+my.handlers.negate = procedure(n): return 0 - n
+
+result7 = my.handlers.negate(5)
+output("my.handlers.negate(5) -> ", result7)         # -5
+
+output("=== End of type-first procedure demo ===")

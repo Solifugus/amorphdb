@@ -19,7 +19,7 @@ type StampManager struct {
 // StampSnapshot represents a frozen stamp that can be embedded in instances
 type StampSnapshot struct {
 	Attributes map[string]interface{} // The effective stamp attributes
-	Hash       storage.Hash          // Hash of this snapshot for caching
+	Hash       storage.Hash           // Hash of this snapshot for caching
 }
 
 // NewStampManager creates a new stamp manager
@@ -82,6 +82,84 @@ func (sm *StampManager) CollectStamps(writePath []string, agentID uint64) (*Stam
 	return snapshot, nil
 }
 
+// SetPersonalStamp sets the agent's personal stamp at ~.stamp
+func (sm *StampManager) SetPersonalStamp(stampFields map[string]interface{}, agentID uint64) error {
+	// Create a record with the stamp fields
+	stampRecord := types.Record{
+		Fields: stampFields,
+	}
+
+	// Store at ~.stamp
+	stampPath := []string{"~", "stamp"}
+	attrHash := storage.HashPath(stampPath)
+
+	// Serialize the stamp record
+	value := types.SerializeValue(stampRecord)
+	valueHash := storage.HashValue(value)
+
+	// Create the instance
+	instance := storage.SecurityInstance{
+		AttributeHash: attrHash,
+		ValueHash:     valueHash,
+		Agent:         agentID,
+		Timestamp:     storage.GetCurrentTimestamp(),
+	}
+
+	// Store value and instance
+	err := sm.tree.PutValue(valueHash, value)
+	if err != nil {
+		return fmt.Errorf("failed to store stamp value: %v", err)
+	}
+
+	err = sm.tree.PutInstance(attrHash, instance)
+	if err != nil {
+		return fmt.Errorf("failed to store stamp instance: %v", err)
+	}
+
+	return nil
+}
+
+// SetHierarchicalStamp sets a stamp at a specific hierarchical level
+func (sm *StampManager) SetHierarchicalStamp(path []string, stampFields map[string]interface{}, agentID uint64) error {
+	// Create a record with the stamp fields
+	stampRecord := types.Record{
+		Fields: stampFields,
+	}
+
+	// Store at path/@stamp
+	stampPath := append(path, "@stamp")
+	attrHash := storage.HashPath(stampPath)
+
+	// Serialize the stamp record
+	value := types.SerializeValue(stampRecord)
+	valueHash := storage.HashValue(value)
+
+	// A hierarchical @stamp is a property of the path itself: it applies to data
+	// written at or under this path by any agent. Like permissions, it is stored
+	// globally (agent 0) rather than under the setting agent, so every agent's
+	// CollectStamps can find it. The agentID parameter records intent only.
+	_ = agentID
+	instance := storage.SecurityInstance{
+		AttributeHash: attrHash,
+		ValueHash:     valueHash,
+		Agent:         0,
+		Timestamp:     storage.GetCurrentTimestamp(),
+	}
+
+	// Store value and instance
+	err := sm.tree.PutValue(valueHash, value)
+	if err != nil {
+		return fmt.Errorf("failed to store hierarchical stamp value: %v", err)
+	}
+
+	err = sm.tree.PutInstance(attrHash, instance)
+	if err != nil {
+		return fmt.Errorf("failed to store hierarchical stamp instance: %v", err)
+	}
+
+	return nil
+}
+
 // getPersonalStamp retrieves the agent's personal stamp from ~.stamp
 func (sm *StampManager) getPersonalStamp(agentID uint64) (map[string]interface{}, error) {
 	// Get ~.stamp for this agent
@@ -99,7 +177,8 @@ func (sm *StampManager) getPersonalStamp(agentID uint64) (map[string]interface{}
 	}
 
 	// Deserialize the stamp
-	valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; stampValue, _ := types.DeserializeValue(valueStruct)
+	valueStruct := types.SerializedValue{TypeTag: types.TypeRecord, Data: value}
+	stampValue, _ := types.DeserializeValue(valueStruct)
 	if record, ok := stampValue.(types.Record); ok {
 		return record.Fields, nil
 	}
@@ -109,11 +188,13 @@ func (sm *StampManager) getPersonalStamp(agentID uint64) (map[string]interface{}
 
 // getHierarchicalStamp retrieves @stamp at a specific path level
 func (sm *StampManager) getHierarchicalStamp(path []string, agentID uint64) (map[string]interface{}, error) {
-	// Look for @stamp meta-attribute at this path
+	// Look for @stamp meta-attribute at this path. Hierarchical stamps are
+	// stored globally (agent 0), so query there regardless of the active agent.
+	_ = agentID
 	stampPath := append(path, "@stamp")
 	attrHash := storage.HashPath(stampPath)
 
-	instance, err := sm.tree.GetInstance(attrHash, agentID)
+	instance, err := sm.tree.GetInstance(attrHash, 0)
 	if err != nil {
 		return nil, err // No stamp at this level
 	}
@@ -124,7 +205,8 @@ func (sm *StampManager) getHierarchicalStamp(path []string, agentID uint64) (map
 	}
 
 	// Deserialize the stamp
-	valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; stampValue, _ := types.DeserializeValue(valueStruct)
+	valueStruct := types.SerializedValue{TypeTag: types.TypeRecord, Data: value}
+	stampValue, _ := types.DeserializeValue(valueStruct)
 	if record, ok := stampValue.(types.Record); ok {
 		return record.Fields, nil
 	}
@@ -152,30 +234,74 @@ func (sm *StampManager) getSnapshot(snapshotHash storage.Hash) (*StampSnapshot, 
 	return nil, fmt.Errorf("snapshot not found")
 }
 
-// EmbedStamp applies stamp attributes to an instance, respecting (protected) attributes
+// EmbedStamp applies stamp attributes to an instance, respecting collision rules:
+// - Host attributes win over embed attributes
+// - Later embed attributes win over earlier embed attributes
 func (sm *StampManager) EmbedStamp(instance map[string]interface{}, stamp *StampSnapshot) map[string]interface{} {
 	result := make(map[string]interface{})
 
-	// First, copy all original instance attributes
-	for key, value := range instance {
-		result[key] = value
+	// Track which attributes are embedded vs original host
+	embeddedAttrs := make(map[string]bool)
+	hadPreviousEmbeds := false
+
+	// Check if instance already has embedded attribute metadata
+	if embeddedMeta, exists := instance["@embedded_attrs"]; exists {
+		if embeddedMap, ok := embeddedMeta.(map[string]bool); ok {
+			embeddedAttrs = embeddedMap
+			hadPreviousEmbeds = true
+		}
 	}
 
-	// Then, add stamp attributes if they don't conflict or aren't protected
+	// First, copy all original instance attributes (except metadata)
+	for key, value := range instance {
+		if key != "@embedded_attrs" {
+			result[key] = value
+		}
+	}
+
+	// Then, add stamp attributes with proper collision handling
 	for key, value := range stamp.Attributes {
 		// Check if instance already has this attribute
 		if existingValue, exists := result[key]; exists {
-			// Instance attribute wins - check if it's marked as protected
+			// Check if it's marked as protected
 			if sm.isProtectedAttribute(existingValue) {
 				// Protected attribute cannot be overridden by stamp
 				continue
 			}
-			// If not protected, instance attribute still wins over stamp
-			continue
-		}
 
-		// No conflict, add stamp attribute
-		result[key] = value
+			// Check if existing attribute was embedded (not original host)
+			if embeddedAttrs[key] {
+				// Later embed wins over earlier embed
+				result[key] = value
+				embeddedAttrs[key] = true
+			} else {
+				// Existing is a host attribute - host wins, don't replace
+				continue
+			}
+		} else {
+			// No conflict, add stamp attribute as embedded
+			result[key] = value
+			embeddedAttrs[key] = true
+		}
+	}
+
+	// Store metadata about which attributes are embedded
+	// Only add metadata if this is a subsequent embed (there were previous embeds)
+	// or if we're adding embeds that will be used in future embed calls
+	if hadPreviousEmbeds {
+		result["@embedded_attrs"] = embeddedAttrs
+	} else {
+		// First embed - only add metadata if there were actual embedded attributes added
+		hasNewEmbedded := false
+		for _, isEmbedded := range embeddedAttrs {
+			if isEmbedded {
+				hasNewEmbedded = true
+				break
+			}
+		}
+		if hasNewEmbedded {
+			result["@embedded_attrs"] = embeddedAttrs
+		}
 	}
 
 	return result
@@ -192,76 +318,6 @@ func (sm *StampManager) isProtectedAttribute(value interface{}) bool {
 		}
 	}
 	return false
-}
-
-// SetPersonalStamp sets an agent's personal stamp at ~.stamp
-func (sm *StampManager) SetPersonalStamp(stamp map[string]interface{}, agentID uint64) error {
-	stampPath := []string{"~", "stamp"}
-	attrHash := storage.HashPath(stampPath)
-
-	// Serialize the stamp
-	stampRecord := types.Record{Fields: stamp}
-	value := types.SerializeValue(stampRecord)
-	valueHash := storage.HashValue(value)
-
-	// Create instance
-	instance := storage.SecurityInstance{
-		AttributeHash: attrHash,
-		ValueHash:     valueHash,
-		Agent:         agentID,
-		Timestamp:     storage.GetCurrentTimestamp(),
-	}
-
-	// Store value and instance
-	err := sm.tree.PutValue(valueHash, value)
-	if err != nil {
-		return fmt.Errorf("failed to store stamp value: %v", err)
-	}
-
-	err = sm.tree.PutInstance(attrHash, instance)
-	if err != nil {
-		return fmt.Errorf("failed to store stamp instance: %v", err)
-	}
-
-	// Invalidate cache for this agent's stamps
-	sm.invalidateStampCache()
-
-	return nil
-}
-
-// SetHierarchicalStamp sets a hierarchical stamp at a specific path
-func (sm *StampManager) SetHierarchicalStamp(path []string, stamp map[string]interface{}, agentID uint64) error {
-	stampPath := append(path, "@stamp")
-	attrHash := storage.HashPath(stampPath)
-
-	// Serialize the stamp
-	stampRecord := types.Record{Fields: stamp}
-	value := types.SerializeValue(stampRecord)
-	valueHash := storage.HashValue(value)
-
-	// Create instance
-	instance := storage.SecurityInstance{
-		AttributeHash: attrHash,
-		ValueHash:     valueHash,
-		Agent:         agentID,
-		Timestamp:     storage.GetCurrentTimestamp(),
-	}
-
-	// Store value and instance
-	err := sm.tree.PutValue(valueHash, value)
-	if err != nil {
-		return fmt.Errorf("failed to store stamp value: %v", err)
-	}
-
-	err = sm.tree.PutInstance(attrHash, instance)
-	if err != nil {
-		return fmt.Errorf("failed to store stamp instance: %v", err)
-	}
-
-	// Invalidate cache since hierarchy changed
-	sm.invalidateStampCache()
-
-	return nil
 }
 
 // invalidateStampCache clears the stamp cache when stamps change
@@ -286,4 +342,55 @@ func GetAttributeValue(attr interface{}) interface{} {
 		}
 	}
 	return attr
+}
+
+// QueryByStamp searches for data that matches stamp criteria
+// This implements stamp queries like my.projects[@stamp.department = "engineering"]
+func (sm *StampManager) QueryByStamp(data map[string]interface{}, stampKey string, stampValue interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	for key, value := range data {
+		// Check if this item has the matching stamp
+		if instanceWithStamp, ok := value.(map[string]interface{}); ok {
+			// Look for the stamp attribute
+			if actualStampValue, exists := instanceWithStamp[stampKey]; exists {
+				// Check if stamp values match
+				if sm.stampValuesEqual(actualStampValue, stampValue) {
+					result[key] = value
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// stampValuesEqual compares stamp values for equality
+func (sm *StampManager) stampValuesEqual(a, b interface{}) bool {
+	switch va := a.(type) {
+	case types.Text:
+		if vb, ok := b.(types.Text); ok {
+			return va.Value == vb.Value
+		}
+	case types.Number:
+		if vb, ok := b.(types.Number); ok {
+			return va.Value == vb.Value
+		}
+	case types.Boolean:
+		if vb, ok := b.(types.Boolean); ok {
+			return va.Value == vb.Value
+		}
+	case uint64:
+		if vb, ok := b.(uint64); ok {
+			return va == vb
+		}
+	case string:
+		if vb, ok := b.(string); ok {
+			return va == vb
+		}
+		if vb, ok := b.(types.Text); ok {
+			return va == vb.Value
+		}
+	}
+	return false
 }

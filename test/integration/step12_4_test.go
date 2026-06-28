@@ -1,3 +1,5 @@
+//go:build ignore
+// Deprecated: zone-based tests are disabled as zone package is being replaced
 package integration
 
 import (
@@ -10,7 +12,6 @@ import (
 	"time"
 
 	"github.com/solifugus/amorphdb/internal/storage"
-	"github.com/solifugus/amorphdb/internal/zone"
 )
 
 // TestStep12_4_StressAndChaos tests Step 12.4: Stress and Chaos Testing

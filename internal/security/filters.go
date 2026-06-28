@@ -11,9 +11,9 @@ import (
 
 // FilterManager handles filter storage and application
 type FilterManager struct {
-	tree            storage.ExtendedTree
-	permissionEval  *PermissionEvaluator
-	filterCache     map[uint64]*FilterCondition // Cache of parsed filters by agent
+	tree           storage.ExtendedTree
+	permissionEval *PermissionEvaluator
+	filterCache    map[uint64]*FilterCondition // Cache of parsed filters by agent
 }
 
 // FilterCondition represents a parsed filter condition
@@ -45,26 +45,36 @@ func (fm *FilterManager) ApplyFilters(agent *Agent, instanceWithStamp map[string
 	// Get agent's filter condition
 	filterCondition, err := fm.getFilterCondition(agent.AgentID)
 	if err != nil {
-		return false, fmt.Errorf("failed to get filter condition: %v", err)
+		return false, fmt.Errorf("failed to get filter condition for agent %d: %v", agent.AgentID, err)
 	}
 
 	// If no filter, everything is visible (within permission bounds)
-	if filterCondition == nil || len(filterCondition.Expressions) == 0 {
-		return true, nil
+	if filterCondition == nil {
+		return true, nil // No filter condition found
+	}
+	if len(filterCondition.Expressions) == 0 {
+		return true, nil // Empty filter condition
 	}
 
 	// Apply each filter expression
+	// If data matches ALL filter expressions, it should be HIDDEN (return false)
+	allMatch := true
 	for _, expr := range filterCondition.Expressions {
 		match, err := fm.evaluateFilterExpression(expr, instanceWithStamp)
 		if err != nil {
 			return false, fmt.Errorf("failed to evaluate filter expression: %v", err)
 		}
 		if !match {
-			return false, nil // Instance doesn't pass filter
+			allMatch = false
+			break
 		}
 	}
 
-	return true, nil // All filter expressions passed
+	if allMatch {
+		return false, nil // Instance matches all filter criteria, so HIDE it
+	}
+
+	return true, nil // Not all filter expressions matched, so data is visible
 }
 
 // getFilterCondition retrieves and parses an agent's filter from ~.filter
@@ -89,7 +99,18 @@ func (fm *FilterManager) getFilterCondition(agentID uint64) (*FilterCondition, e
 	}
 
 	// Deserialize the filter
-	valueStruct := types.SerializedValue{TypeTag: storage.TypeText, Data: value}; filterValue, _ := types.DeserializeValue(valueStruct)
+	valueStruct := types.SerializedValue{TypeTag: types.TypeRecord, Data: value}
+	filterValue, err := types.DeserializeValue(valueStruct)
+	if err != nil {
+		// Try other types in case it's not a Record
+		valueStruct2 := types.SerializedValue{TypeTag: types.TypeNothing, Data: value}
+		_, err2 := types.DeserializeValue(valueStruct2)
+		if err2 == nil {
+			// Filter was cleared (empty)
+			return nil, nil
+		}
+		return nil, err
+	}
 
 	// Parse the filter condition
 	condition, err := fm.parseFilterCondition(filterValue)
@@ -209,27 +230,50 @@ func (fm *FilterManager) evaluateFilterExpression(expr FilterExpression, instanc
 	}
 }
 
-// valuesEqual compares two MBL values for equality
+// valuesEqual compares two MBL values for equality. Numeric values are compared
+// by magnitude regardless of representation, because IDs such as @author are
+// uint64 in a live stamp but round-trip through serialization as types.Number.
 func (fm *FilterManager) valuesEqual(a, b interface{}) bool {
 	switch va := a.(type) {
 	case types.Text:
 		if vb, ok := b.(types.Text); ok {
 			return va.Value == vb.Value
 		}
-	case types.Number:
-		if vb, ok := b.(types.Number); ok {
-			return va.Value == vb.Value
-		}
 	case types.Boolean:
 		if vb, ok := b.(types.Boolean); ok {
 			return va.Value == vb.Value
 		}
-	case uint64:
-		if vb, ok := b.(uint64); ok {
-			return va == vb
+	}
+
+	// Fall back to numeric comparison for any numeric pairing.
+	if an, aok := numericValue(a); aok {
+		if bn, bok := numericValue(b); bok {
+			return an == bn
 		}
 	}
 	return false
+}
+
+// numericValue extracts a float64 magnitude from the numeric forms a stamp or a
+// serialized filter value may take, reporting whether the value was numeric.
+func numericValue(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case types.Number:
+		return n.Value, true
+	case uint64:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case float64:
+		return n, true
+	}
+	return 0, false
 }
 
 // SetFilter sets an agent's personal filter at ~.filter
@@ -302,8 +346,34 @@ func (fm *FilterManager) ClearFilter(agentID uint64) error {
 	// Remove from cache
 	delete(fm.filterCache, agentID)
 
-	// In a full implementation, would also remove from storage
-	// For now, just clear cache
+	// Remove from storage - store empty filter or delete the attribute
+	filterPath := []string{"~", "filter"}
+	attrHash := storage.HashPath(filterPath)
+
+	// Create an empty filter to effectively clear it
+	emptyFilter := types.Nothing{}
+	value := types.SerializeValue(emptyFilter)
+	valueHash := storage.HashValue(value)
+
+	// Create instance with empty filter
+	instance := storage.SecurityInstance{
+		AttributeHash: attrHash,
+		ValueHash:     valueHash,
+		Agent:         agentID,
+		Timestamp:     storage.GetCurrentTimestamp(),
+	}
+
+	// Store empty value and instance
+	err := fm.tree.PutValue(valueHash, value)
+	if err != nil {
+		return fmt.Errorf("failed to store empty filter value: %v", err)
+	}
+
+	err = fm.tree.PutInstance(attrHash, instance)
+	if err != nil {
+		return fmt.Errorf("failed to store empty filter instance: %v", err)
+	}
+
 	return nil
 }
 

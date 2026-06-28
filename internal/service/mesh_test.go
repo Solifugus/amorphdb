@@ -72,6 +72,8 @@ func createTestMeshManager() (*mesh.MeshManager, error) {
 			StorageDir: "/tmp/test",
 		},
 		Network: config.NetworkConfig{
+			HTTPPort:  8080,
+			HTTPSPort: 8443,
 			LocalSocketPath: "/tmp/test.sock",
 			Port:            5000,
 		},

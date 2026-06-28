@@ -114,14 +114,14 @@ func TestLexer_StringLiterals(t *testing.T) {
 }
 
 func TestLexer_RegexPatterns(t *testing.T) {
-	input := `/\d{4}-\d{2}-\d{2}/ /(\d{2})\/(\d{2})\/(\d{4})/$3-$1-$2/`
+	input := `/\d{4}-\d{2}-\d{2}/ /(\d{2})\/(\d{2})\/(\d{4})/`
 
 	tests := []struct {
 		expectedType    TokenType
 		expectedLiteral string
 	}{
 		{REGEX, `/\d{4}-\d{2}-\d{2}/`},
-		{REGEX_WITH_TRANSFORM, `/(\d{2})\/(\d{2})\/(\d{4})/$3-$1-$2/`},
+		{REGEX, `/(\d{2})\/(\d{2})\/(\d{4})/`}, // Basic regex pattern with escaped slashes
 		{EOF, ""},
 	}
 

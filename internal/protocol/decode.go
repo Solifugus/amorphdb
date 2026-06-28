@@ -486,6 +486,14 @@ func readString(reader *bytes.Reader) (string, error) {
 	return string(data), nil
 }
 
+func readBool(reader *bytes.Reader) (bool, error) {
+	b, err := reader.ReadByte()
+	if err != nil {
+		return false, fmt.Errorf("failed to read bool byte: %w", err)
+	}
+	return b != 0, nil
+}
+
 func readValue(reader *bytes.Reader) (storage.Value, error) {
 	// Read type tag
 	typeTag, err := reader.ReadByte()
@@ -971,6 +979,150 @@ func DecodeCreateBridgeAckMessage(payload []byte) (*CreateBridgeAckMessage, erro
 				return nil, fmt.Errorf("failed to decode bridge status: %w", err)
 			}
 			msg.BridgeStatus = bridgeStatus
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeExecuteMessage decodes an ExecuteMessage from payload
+func DecodeExecuteMessage(payload []byte) (*ExecuteMessage, error) {
+	msg := &ExecuteMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // MBL source code
+			code, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode code: %w", err)
+			}
+			msg.Code = code
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeExecuteResponseMessage decodes an ExecuteResponseMessage from payload
+func DecodeExecuteResponseMessage(payload []byte) (*ExecuteResponseMessage, error) {
+	msg := &ExecuteResponseMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Success flag
+			success, err := readBool(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = success
+
+		case 0x02: // Result value
+			result, err := readValue(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode result: %w", err)
+			}
+			msg.Result = result
+
+		case 0x03: // Error message
+			errMsg, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode error: %w", err)
+			}
+			msg.Error = errMsg
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeExtractMessage decodes an ExtractMessage from payload
+func DecodeExtractMessage(payload []byte) (*ExtractMessage, error) {
+	msg := &ExtractMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Path to extract from
+			path, err := readStringSlice(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode path: %w", err)
+			}
+			msg.Path = path
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeExtractResponseMessage decodes an ExtractResponseMessage from payload
+func DecodeExtractResponseMessage(payload []byte) (*ExtractResponseMessage, error) {
+	msg := &ExtractResponseMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Success flag
+			success, err := readBool(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = success
+
+		case 0x02: // MBL script
+			script, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode script: %w", err)
+			}
+			msg.Script = script
+
+		case 0x03: // Error message
+			errMsg, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode error: %w", err)
+			}
+			msg.Error = errMsg
 
 		default:
 			if err := skipField(reader, tag); err != nil {

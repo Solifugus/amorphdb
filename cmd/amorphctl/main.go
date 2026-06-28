@@ -23,13 +23,30 @@ func main() {
 		return
 	}
 
-	// Get local socket path
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get user home directory: %v\n", err)
-		os.Exit(1)
+	// init-pwa is a local file-system operation; it does not need to
+	// connect to the amorphd service.
+	if command == "init-pwa" {
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "Usage: %s init-pwa <appname> <directory>\n", os.Args[0])
+			os.Exit(1)
+		}
+		if err := handleInitPWA(os.Args[2], os.Args[3]); err != nil {
+			fmt.Fprintf(os.Stderr, "Command failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
-	socketPath := filepath.Join(homeDir, ".amorph", "socket")
+
+	// Get local socket path - check environment variable first
+	socketPath := os.Getenv("AMORPH_SOCKET")
+	if socketPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to get user home directory: %v\n", err)
+			os.Exit(1)
+		}
+		socketPath = filepath.Join(homeDir, ".amorph", "socket")
+	}
 
 	// Create client connection to local socket only
 	client, err := NewControlClient(socketPath)
@@ -78,6 +95,12 @@ func main() {
 			meshName = os.Args[2]
 		}
 		err = handleDetach(client, meshName)
+	case "extract":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "Usage: %s extract <path> [-o output_file]\n", os.Args[0])
+			os.Exit(1)
+		}
+		err = handleExtract(client, os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		fmt.Fprintf(os.Stderr, "Run '%s help' for usage information.\n", os.Args[0])
@@ -157,6 +180,32 @@ func handleDetach(client *ControlClient, meshName string) error {
 	return detachCommand.DetachFromMesh(meshName)
 }
 
+func handleInitPWA(appName, targetDir string) error {
+	cmd := NewInitPWACommand(appName, targetDir)
+	return cmd.Run()
+}
+
+func handleExtract(client *ControlClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("extract command requires a path")
+	}
+
+	path := args[0]
+	var outputFile string
+
+	// Parse optional -o flag
+	if len(args) >= 3 && args[1] == "-o" {
+		outputFile = args[2]
+	} else if len(args) == 2 && args[1] != "-o" {
+		return fmt.Errorf("invalid extract arguments. Usage: extract <path> [-o output_file]")
+	} else if len(args) > 3 {
+		return fmt.Errorf("too many arguments for extract command")
+	}
+
+	extractCommand := NewExtractCommand(client)
+	return extractCommand.ExtractSubtree(path, outputFile)
+}
+
 func formatDuration(seconds int64) string {
 	duration := time.Duration(seconds) * time.Second
 	days := int(duration.Hours()) / 24
@@ -212,6 +261,8 @@ func showHelp() {
 	fmt.Println("  join <address>    Join an existing mesh at the given address")
 	fmt.Println("  bridge <address>  Create a bridge to another mesh")
 	fmt.Println("  detach [mesh]     Detach from mesh (or primary mesh if no name given)")
+	fmt.Println("  extract <path> [-o file]  Extract subtree as MBL script")
+	fmt.Println("  init-pwa <appname> <directory>  Scaffold a new PWA project")
 	fmt.Println("  help              Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -222,8 +273,11 @@ func showHelp() {
 	fmt.Printf("  %s join 192.168.1.10   # Join mesh at address\n", os.Args[0])
 	fmt.Printf("  %s bridge 10.0.0.5     # Bridge to another mesh\n", os.Args[0])
 	fmt.Printf("  %s detach              # Leave current mesh\n", os.Args[0])
+	fmt.Printf("  %s extract world.myapp -o backup.mbl  # Extract to file\n", os.Args[0])
+	fmt.Printf("  %s extract world.myapp # Extract to stdout\n", os.Args[0])
+	fmt.Printf("  %s init-pwa myapp ~/projects/myapp/  # Create starter PWA project\n", os.Args[0])
 	fmt.Println()
-	fmt.Println("Note: All commands connect via local UNIX socket only for security.")
+	fmt.Println("Note: Most commands connect via local UNIX socket; init-pwa is local-only.")
 	fmt.Println("The AmorphDB service (amorphd) must be running.")
 	fmt.Println()
 }

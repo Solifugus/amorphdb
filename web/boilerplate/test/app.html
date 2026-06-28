@@ -1,0 +1,71 @@
+<section name="app">
+
+    <section name="login">
+        <h2>Sign In</h2>
+        <label>Username</label>
+        <input value="{username}">
+        <label>Password</label>
+        <input type="password" value="{password}">
+        <button onclick="data.login.submitted = true">
+            Log In
+        </button>
+        <div class="error">{error}</div>
+    </section>
+
+    <section name="signup">
+        <h2>Create Account</h2>
+        <label>Username</label>
+        <input value="{username}">
+        <label>Password</label>
+        <input type="password" value="{password}">
+        <button onclick="data.signup.submitted = true">
+            Sign Up
+        </button>
+        <div class="error">{error}</div>
+    </section>
+
+    <section name="banner" layout="horizontal">
+        <h1>{app_name}</h1>
+        <span class="user">{user_name}</span>
+    </section>
+
+    <section name="workspace" layout="horizontal">
+
+        <section name="sidebar">
+            <h3>Menu</h3>
+            <section name="menu_items" type="list">
+                <a onclick="data.navigation.current = '{target}'">{label}</a>
+            </section>
+        </section>
+
+        <section name="main">
+            <h2>{page_title}</h2>
+
+            <section name="order_form">
+                <label>Product</label>
+                <input value="{product}">
+                <label>Quantity</label>
+                <input type="number" value="{quantity}">
+                <button onclick="data.workspace.main.order_form.submit = 'down'">
+                    Submit Order
+                </button>
+            </section>
+
+            <section name="orders" type="list" show_max="20" load_max="100">
+                <div class="order-row">
+                    <span>{product}</span>
+                    <span>{quantity}</span>
+                    <span class="money">{amount}</span>
+                    <span class="status">{status}</span>
+                </div>
+            </section>
+        </section>
+
+    </section>
+
+    <section name="status_bar" layout="horizontal">
+        <span>{status_message}</span>
+        <span>v{version}</span>
+    </section>
+
+</section>

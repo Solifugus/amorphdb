@@ -158,10 +158,11 @@ func (he *HeartbeatEngine) executeTick() *TickResult {
 
 	// Determine if rollback is needed
 	if hasUnhandledUnknown {
-		// Rollback: discard any staged writes and mark as rolled back
+		// Rollback: discard any staged writes and pending cascade changes
 		if coordinator := he.watcherEngine.GetCoordinator(); coordinator != nil {
 			coordinator.DiscardAll()
 		}
+		he.watcherEngine.DiscardCascadeChanges()
 		result.RolledBack = true
 		result.Errors = append(result.Errors, "Tick rolled back due to unhandled Unknown values")
 
@@ -174,11 +175,15 @@ func (he *HeartbeatEngine) executeTick() *TickResult {
 		if err := coordinator.FlushAll(); err != nil {
 			// If coordinator flush fails, treat as rollback
 			coordinator.DiscardAll()
+			he.watcherEngine.DiscardCascadeChanges()
 			result.RolledBack = true
 			result.Errors = append(result.Errors, fmt.Sprintf("Coordinator flush failed: %v", err))
 			return result
 		}
 	}
+
+	// Cascade: Record written paths for next-tick triggering of dependent watchers
+	he.watcherEngine.CommitCascadeChanges()
 
 	he.watcherEngine.Tick()
 	he.watcherEngine.ClearChangeLog()

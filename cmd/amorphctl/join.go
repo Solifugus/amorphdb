@@ -56,8 +56,8 @@ func (jc *JoinCommand) JoinMesh(seedAddress string) error {
 		if response.MeshInfo != nil {
 			fmt.Printf("   Mesh: %s\n", response.MeshInfo.Name)
 			fmt.Printf("   Status: Member\n")
-			if response.MeshInfo.AssignedZone != "" {
-				fmt.Printf("   Assigned Zone: %s\n", response.MeshInfo.AssignedZone)
+			if response.MeshInfo.PathAuthorities != "" {
+				fmt.Printf("   Path Authorities: %s\n", response.MeshInfo.PathAuthorities)
 			}
 			if response.MeshInfo.MemberCount > 0 {
 				fmt.Printf("   Total Members: %d\n", response.MeshInfo.MemberCount)
@@ -131,7 +131,7 @@ type JoinMeshResponse struct {
 // JoinedMeshInfo represents information about the joined mesh
 type JoinedMeshInfo struct {
 	Name           string    `json:"name"`
-	AssignedZone   string    `json:"assigned_zone,omitempty"`
+	PathAuthorities string   `json:"path_authorities,omitempty"`
 	MemberCount    int       `json:"member_count"`
 	JoinedAt       time.Time `json:"joined_at"`
 }

@@ -213,16 +213,24 @@ func TestAgentHandshake_ProcessHandshakeResponse(t *testing.T) {
 		t.Fatalf("Failed to create handshake session: %v", err)
 	}
 
+	// Build a REAL challenge the way a remote mesh would: encrypt against the
+	// public key this agent presented for the target mesh. Fabricated ciphertext
+	// can't be decrypted by RespondToChallenge, so the challenge must be genuine.
+	challenger := security.NewAuthenticationSession(
+		session.MobileIdentity.Identity.ID,
+		session.MobileIdentity.KeyPair.Public,
+	)
+	realChallenge, err := challenger.CreateChallenge()
+	if err != nil {
+		t.Fatalf("Failed to create challenge: %v", err)
+	}
+
 	// Test challenge response
 	challengeResponse := &HandshakeResponse{
 		SessionID: session.SessionID,
 		Status:    "challenge",
 		MeshName:  "target-mesh",
-		Challenge: &security.AuthChallengeMessage{
-			AgentIdentity: session.MobileIdentity.Identity.ID,
-			ChallengeID:   []byte("test-challenge-id"),
-			EncryptedData: []byte("encrypted-challenge-data"),
-		},
+		Challenge: realChallenge,
 		Timestamp: time.Now().Unix(),
 	}
 

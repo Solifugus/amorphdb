@@ -1,0 +1,81 @@
+# AmorphDB PWA — Reference Signup Watcher
+#
+# Reference implementation shipped with the AmorphDB PWA boilerplate.
+# `amorphctl init-pwa` copies this file into new projects (Phase C4 of
+# docs/pwa_auth_development_plan.md) and substitutes the placeholder app
+# name `myapp` with the project's chosen app name.
+#
+# Behavior:
+#   - Observes the pre-auth devices subtree.
+#   - When a browser writes device.signup.submitted = true, looks up the
+#     credentials at world.apps.myapp.auth.credentials.<username>.
+#   - If the username is already taken: writes
+#     { status: "error", message: "User already exists" } to
+#     device.signup.result and stops.
+#   - Otherwise: hashes the password with Argon2id, stores the hash and
+#     salt under auth.credentials.<username>, marks the user's data
+#     subtree as shown, calls the app-provided setup_user_watchers
+#     procedure to register per-user watchers, generates an auth token,
+#     installs it under tokens.<token>, and writes
+#     { status: "ok", token: token } to device.signup.result. This is
+#     the auto-login step — the browser stores the returned token and
+#     proceeds to the authenticated app on the next request.
+#
+# The Go bridge detects device.signup.result and forwards the parsed JSON
+# back to the browser (Step A4 of docs/pwa_auth_development_plan.md).
+# The browser stores the token in localStorage and presents it on
+# subsequent MCP requests via the X-AmorphDB-Token header (Phase B2).
+#
+# Apps that need OAuth, SAML, SSO, invite-only signup, or email
+# verification replace this watcher entirely. The hand-off shape (writing
+# to tokens.<token> with .identity and .device, and to
+# users.<username>._shown = true) and the platform's write boundary are
+# unchanged — only the credential creation logic differs. See
+# docs/pwa_identity_auth_draft.md for OAuth and SSO examples.
+#
+# Configuration read at runtime:
+#   world.apps.myapp.app._token_ttl  — token lifetime in seconds, or 0
+#                                      to never expire. Set by the
+#                                      boilerplate from the token_ttl
+#                                      attribute on the root <section>
+#                                      in app.html.
+#
+# Application contract:
+#   my.app.setup_user_watchers(username) — procedure provided by the
+#       application (typically in setup.mbl). Called once per new user
+#       to register the per-user watchers that handle that user's
+#       intents. The reference watcher invokes it after credentials are
+#       written and before the auto-login token is issued, so the new
+#       user's watchers are live by the time their first authenticated
+#       request arrives.
+
+watch my.app.auth.signup_handler(world.apps.myapp.devices):
+    for device in world.apps.myapp.devices:
+        if device.signup.submitted = true:
+            username = device.signup.username
+            password = device.signup.password
+
+            existing = world.apps.myapp.auth.credentials[username]
+            if not is_unknown(existing):
+                device.signup.result = { status: "error",
+                                         message: "User already exists" }
+            else:
+                hashed = my.computer.crypto.hash_password(password)
+                world.apps.myapp.auth.credentials[username].password_hash = hashed.hash
+                world.apps.myapp.auth.credentials[username].salt = hashed.salt
+
+                world.apps.myapp.users[username]._shown = true
+
+                my.app.setup_user_watchers(username)
+
+                token = my.computer.crypto.generate_token()
+                ttl = world.apps.myapp.app._token_ttl
+
+                world.apps.myapp.tokens[token].identity = username
+                world.apps.myapp.tokens[token].device = device
+                if ttl > 0:
+                    world.apps.myapp.tokens[token].@ttl = ttl
+
+                device.signup.result = { status: "ok", token: token }
+
+            device.signup.submitted = (quietly) false

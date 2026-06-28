@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/solifugus/amorphdb/internal/mbl/lexer"
+	"github.com/solifugus/amorphdb/internal/types"
 )
 
 // Operator precedence levels (lowest to highest)
@@ -102,7 +103,6 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.FALSE, p.parseBooleanLiteral)
 	p.registerPrefix(lexer.NOTHING, p.parseNothingLiteral)
 	p.registerPrefix(lexer.UNKNOWN, p.parseUnknownLiteral)
-	p.registerPrefix(lexer.QUEUED, p.parseQueuedLiteral)
 	p.registerPrefix(lexer.ANYTHING, p.parseAnythingLiteral)
 	p.registerPrefix(lexer.PI, p.parsePiLiteral)
 	p.registerPrefix(lexer.EULER, p.parseEulerLiteral)
@@ -110,6 +110,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.QUOTE, p.parseQuoteLiteral)
 	p.registerPrefix(lexer.TAB, p.parseTabLiteral)
 	p.registerPrefix(lexer.NEWLINE_LITERAL, p.parseNewlineLiteral)
+	p.registerPrefix(lexer.LINK, p.parseLinkReference)
 	p.registerPrefix(lexer.MINUS, p.parseUnaryExpression)
 	p.registerPrefix(lexer.PLUS, p.parseUnaryExpression)
 	p.registerPrefix(lexer.NOT, p.parseUnaryExpression)
@@ -120,6 +121,11 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.DEFINE, p.parseDefinitionExpression)
 	p.registerPrefix(lexer.WATCH, p.parseWatchExpression)
 	p.registerPrefix(lexer.PROCEDURE, p.parseProcedureExpression)
+	p.registerPrefix(lexer.COPY, p.parseModifierExpression)
+	p.registerPrefix(lexer.RESET, p.parseModifierExpression)
+	p.registerPrefix(lexer.EXCLUDE, p.parseModifierExpression)
+	p.registerPrefix(lexer.CASCADE, p.parseModifierExpression)
+	p.registerPrefix(lexer.NEW, p.parseNewExpression)
 
 	// Initialize infix parse functions
 	p.infixParseFns = make(map[lexer.TokenType]infixParseFn)
@@ -352,12 +358,23 @@ func (p *Parser) parseStatement() Statement {
 		return p.parseConsiderStatement()
 	case lexer.WATCH:
 		return p.parseWatchStatement()
+	case lexer.PROCEDURE:
+		// Type-first procedure definition: `procedure name(args): body`.
+		// Anonymous procedure expressions (`procedure(args): body`) fall
+		// through to the expression-statement path, where the PROCEDURE
+		// prefix function (parseProcedureExpression) handles them.
+		if p.peekToken.Type == lexer.IDENT {
+			return p.parseTypeFirstProcedureStatement()
+		}
+		return p.parseExpressionStatement()
 	case lexer.CATCH:
 		return p.parseCatchStatement()
 	case lexer.RETURN:
 		return p.parseReturnStatement()
 	case lexer.PASS:
 		return p.parsePassStatement()
+	case lexer.BREAK:
+		return p.parseBreakStatement()
 	case lexer.NEW:
 		return p.parseInstantiationStatement()
 	case lexer.EMBED:
@@ -383,11 +400,6 @@ func (p *Parser) parseStatement() Statement {
 				return p.parseWatchStatement()
 			} else if p.isScopeStatement() {
 				return p.parseScopeStatement()
-			}
-		} else if p.currentToken.Type == lexer.PLUS {
-			// Check for append assignment (+my.path = value)
-			if p.isAppendAssignment() {
-				return p.parseAppendAssignmentStatement()
 			}
 		}
 		// Fall back to expression statement
@@ -518,7 +530,7 @@ func (p *Parser) isScopeStatement() bool {
 	// Use lexer lookahead to find these patterns
 	return p.lexer.ContainsPattern(".:") ||      // scope with body
 		p.lexer.ContainsPattern(".\n:") ||    // multi-line scope with body
-		p.lexer.ContainsPattern(".") && !p.lexer.ContainsPattern("[") // scope set (but not bracket filters)
+		p.lexer.EndsWithPattern(".") && !p.lexer.ContainsPattern("[") // scope set (but not bracket filters)
 }
 
 // parseScopeStatement parses scope setting statements like my.path.
@@ -576,17 +588,6 @@ func (p *Parser) parseScopeStatement() Statement {
 	return stmt
 }
 
-// isAppendAssignment checks for append assignment patterns (+my.path = value)
-func (p *Parser) isAppendAssignment() bool {
-	// Should start with + followed by path
-	if p.currentToken.Type != lexer.PLUS {
-		return false
-	}
-	// Check if next token starts a path
-	return p.peekToken.Type == lexer.IDENT ||
-		p.peekToken.Type == lexer.MY ||
-		p.peekToken.Type == lexer.WORLD
-}
 
 // isDefinition checks if the current statement is a definition (using : colon)
 func (p *Parser) isDefinition() bool {
@@ -605,6 +606,12 @@ func (p *Parser) isDefinition() bool {
 
 	// If next token is immediate definition, check if this looks like a path definition
 	if p.peekToken.Type == lexer.DEFINE {
+		// A watch statement (name: watch ...) is not a definition; let the
+		// watch-statement parser handle it. Mirrors the guard in
+		// isSimpleAssignment so dispatch order can't swallow watch statements.
+		if p.lexer.ContainsPattern("watch") {
+			return false
+		}
 		return true
 	}
 
@@ -613,30 +620,6 @@ func (p *Parser) isDefinition() bool {
 	return p.lexer.ContainsPattern(": ") && !p.lexer.ContainsPattern("= ")
 }
 
-// parseAppendAssignmentStatement parses append assignments (+my.list = item)
-func (p *Parser) parseAppendAssignmentStatement() Statement {
-	stmt := &AppendAssignmentStatement{Token: p.currentToken} // PLUS token
-
-	// Move past the PLUS to parse the path
-	p.nextToken()
-	pathExpr := p.parsePathExpression()
-	stmt.Name = pathExpr
-
-	// Expect assignment operator
-	if !p.expectPeek(lexer.ASSIGN) {
-		return nil
-	}
-
-	p.nextToken()
-	stmt.Value = p.parseExpression(LOWEST)
-
-	// Consume optional semicolon or newline
-	if p.peekToken.Type == lexer.NEWLINE {
-		p.nextToken()
-	}
-
-	return stmt
-}
 
 // parseAssignmentStatement parses variable assignments
 func (p *Parser) parseAssignmentStatement() Statement {
@@ -761,9 +744,8 @@ func (p *Parser) parsePathExpression() *PathExpression {
 func (p *Parser) parseIfStatement() *IfStatement {
 	stmt := &IfStatement{Token: p.currentToken}
 
-	if !p.expectPeek(lexer.IDENT) && !p.currentTokenIs(lexer.LPAREN) {
-		p.nextToken()
-	}
+	// Move to the condition expression
+	p.nextToken()
 
 	stmt.Condition = p.parseExpression(LOWEST)
 
@@ -985,32 +967,59 @@ func (p *Parser) parsePassStatement() *PassStatement {
 	return stmt
 }
 
+func (p *Parser) parseBreakStatement() *BreakStatement {
+	stmt := &BreakStatement{Token: p.currentToken}
+
+	// Consume optional semicolon or newline
+	if p.peekToken.Type == lexer.SEMICOLON {
+		p.nextToken()
+	} else if p.peekToken.Type == lexer.NEWLINE {
+		p.nextToken()
+	}
+
+	return stmt
+}
+
 // parseWatchStatement parses watch statements
 func (p *Parser) parseWatchStatement() Statement {
 	stmt := &WatchStatement{Token: p.currentToken}
 
-	// Check if we're parsing from WATCH token (old style) or from identifier (new style)
+	// Check if we're parsing from WATCH token (alternate style) or from identifier (new style)
 	if p.currentToken.Type == lexer.WATCH {
-		// Old style: just a standalone watch token
-		// For now, return a simple expression statement to maintain compatibility
-		return p.parseExpressionStatement()
+		// Check if this is alternate style: watch name(paths):
+		if p.peekToken.Type == lexer.IDENT || p.peekToken.Type == lexer.MY || p.peekToken.Type == lexer.WORLD {
+			// This is alternate syntax: watch name(paths):
+			p.nextToken() // consume WATCH, move to name
+
+			// Parse just the path name (before the parentheses)
+			// Use parsePathExpression to parse paths like my.monitor
+			pathExpr := p.parsePathExpression()
+			stmt.Name = strings.Join(pathExpr.Parts, ".")
+
+			// The rest should be handled like normal watcher parsing
+			// Continue to the normal parsing logic below
+		} else {
+			// Old style: just a standalone watch token
+			// For now, return a simple expression statement to maintain compatibility
+			return p.parseExpressionStatement()
+		}
+	} else {
+		// New style: name: watch(...) syntax
+		// Parse the name (identifier before the colon)
+		stmt.Name = p.currentToken.Literal
+
+		// Expect DEFINE ":"
+		if !p.expectPeek(lexer.DEFINE) {
+			return nil
+		}
+
+		// Expect WATCH keyword
+		if !p.expectPeek(lexer.WATCH) {
+			return nil
+		}
 	}
 
-	// New style: name: watch(...) syntax
-	// Parse the name (identifier before the colon)
-	stmt.Name = p.currentToken.Literal
-
-	// Expect DEFINE ":"
-	if !p.expectPeek(lexer.DEFINE) {
-		return nil
-	}
-
-	// Expect WATCH keyword
-	if !p.expectPeek(lexer.WATCH) {
-		return nil
-	}
-
-	stmt.Token = p.currentToken // Set token to WATCH
+	stmt.Token = p.currentToken // Set token to current (should be WATCH now)
 
 	// Check if this is an append watcher
 	if p.peekToken.Type == lexer.APPEND {
@@ -1213,6 +1222,98 @@ func (p *Parser) parseProcedureStatement() *ProcedureStatement {
 	}
 
 	return stmt
+}
+
+// parseTypeFirstProcedureStatement parses `procedure name(args): body`.
+// It produces a *DefinitionStatement matching the AST of the equivalent
+// path-first form `name: procedure(args): body` — Name is a single-segment
+// PathExpression and Value is a *ProcedureExpression. This mirrors the
+// path-first form so that downstream evaluation does not need a new node
+// type for type-first definitions.
+func (p *Parser) parseTypeFirstProcedureStatement() Statement {
+	procToken := p.currentToken // PROCEDURE keyword
+
+	// Advance to the name identifier.
+	if !p.expectPeek(lexer.IDENT) {
+		return nil
+	}
+
+	namePath := &PathExpression{
+		Token: p.currentToken,
+		Parts: []string{p.currentToken.Literal},
+	}
+
+	// Build the ProcedureExpression for the value side. Token is the
+	// PROCEDURE keyword so its position points at the start of the form.
+	pe := &ProcedureExpression{Token: procToken}
+
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil
+	}
+
+	// Parse parameter list (matches parseProcedureExpression).
+	if p.peekToken.Type != lexer.RPAREN {
+		if !p.expectPeek(lexer.IDENT) {
+			return nil
+		}
+		pe.Parameters = []string{p.currentToken.Literal}
+
+		for p.peekToken.Type == lexer.COMMA {
+			p.nextToken() // consume comma
+			if !p.expectPeek(lexer.IDENT) {
+				return nil
+			}
+			pe.Parameters = append(pe.Parameters, p.currentToken.Literal)
+		}
+	}
+
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil
+	}
+
+	if !p.expectPeek(lexer.DEFINE) {
+		return nil
+	}
+
+	// Body — same logic as parseProcedureExpression.
+	if p.peekToken.Type == lexer.NEWLINE {
+		// Multi-line: skip NEWLINEs and expect INDENT.
+		for p.peekToken.Type == lexer.NEWLINE {
+			p.nextToken()
+		}
+
+		if !p.expectPeek(lexer.INDENT) {
+			return nil
+		}
+
+		pe.Body = p.parseBlockStatement()
+	} else {
+		// Single-line: parse a single statement after the colon.
+		p.nextToken()
+
+		if p.currentToken.Type == lexer.EOF {
+			msg := fmt.Sprintf("empty procedure body at line %d, column %d. Procedures must have a body",
+				p.currentToken.Line, p.currentToken.Column)
+			p.errors = append(p.errors, msg)
+			return nil
+		}
+
+		stmt := p.parseStatement()
+		if stmt == nil {
+			return nil
+		}
+
+		pe.Body = &BlockStatement{
+			Token:      p.currentToken,
+			Statements: []Statement{stmt},
+		}
+	}
+
+	return &DefinitionStatement{
+		Token: procToken,
+		Name:  namePath,
+		Value: pe,
+	}
 }
 
 // parseExpressionStatement parses standalone expressions
@@ -1487,19 +1588,52 @@ func (p *Parser) parseNothingLiteral() Expression {
 
 // parseUnknownLiteral parses Unknown literal
 func (p *Parser) parseUnknownLiteral() Expression {
+	unknownToken := p.currentToken
+
+	// Check if this is unknown with reason: unknown("reason")
+	if p.peekToken.Type == lexer.LPAREN {
+		// This is unknown("reason") syntax
+		p.nextToken() // consume 'unknown'
+		p.nextToken() // consume '('
+
+		if p.currentToken.Type != lexer.TEXT {
+			msg := fmt.Sprintf("expected string reason after unknown( at line %d, column %d", unknownToken.Line, unknownToken.Column)
+			p.errors = append(p.errors, msg)
+			return nil
+		}
+
+		// Extract reason from string literal (remove quotes)
+		reasonLiteral := p.currentToken.Literal
+		reason := reasonLiteral
+		if len(reasonLiteral) >= 2 && reasonLiteral[0] == '"' && reasonLiteral[len(reasonLiteral)-1] == '"' {
+			reason = reasonLiteral[1 : len(reasonLiteral)-1]
+		}
+
+		// Expect closing paren
+		if !p.peekTokenIs(lexer.RPAREN) {
+			msg := fmt.Sprintf("expected ) after unknown reason at line %d, column %d", p.currentToken.Line, p.currentToken.Column)
+			p.errors = append(p.errors, msg)
+			return nil
+		}
+		// Pratt protocol: the prefix function leaves currentToken at the
+		// LAST token of the prefix expression (here the closing ')'), so
+		// the surrounding parseExpression loop can see the next infix
+		// operator via peekToken. Advance once to land on ')'.
+		p.nextToken() // current = ')', peek = whatever follows
+
+		return &LiteralExpression{
+			Token: unknownToken,
+			Value: types.Unknown{Reason: reason},
+		}
+	}
+
+	// Bare unknown keyword
 	return &LiteralExpression{
-		Token: p.currentToken,
-		Value: "Unknown",
+		Token: unknownToken,
+		Value: types.Unknown{Reason: "unknown"},
 	}
 }
 
-// parseQueuedLiteral parses Queued literal
-func (p *Parser) parseQueuedLiteral() Expression {
-	return &LiteralExpression{
-		Token: p.currentToken,
-		Value: p.currentToken.Literal, // Use the actual token literal (e.g., "?tomorrow")
-	}
-}
 
 // parseAnythingLiteral parses Anything literal
 func (p *Parser) parseAnythingLiteral() Expression {
@@ -1554,6 +1688,27 @@ func (p *Parser) parseNewlineLiteral() Expression {
 	return &LiteralExpression{
 		Token: p.currentToken,
 		Value: "\n",
+	}
+}
+
+// parseLinkReference parses (link)path reference expressions
+func (p *Parser) parseLinkReference() Expression {
+	linkToken := p.currentToken
+
+	// Move to the next token which should be the path
+	p.nextToken()
+
+	// Parse the path expression that follows (link)
+	pathExpr := p.parseExpression(LOWEST)
+	if pathExpr == nil {
+		msg := fmt.Sprintf("expected path expression after (link) at line %d, column %d", linkToken.Line, linkToken.Column)
+		p.errors = append(p.errors, msg)
+		return nil
+	}
+
+	return &ReferenceExpression{
+		Token: linkToken,
+		Path:  pathExpr,
 	}
 }
 
@@ -1788,29 +1943,27 @@ func (p *Parser) parseBinaryExpression(left Expression) Expression {
 
 // parseCollectionOperation parses collection operations like x..count, x..remove(), x..combine()
 func (p *Parser) parseCollectionOperation(left Expression) Expression {
-	// Check if this is a collection operation (..count, ..remove, ..combine)
-	if p.peekToken.Type == lexer.IDENT {
-		nextToken := p.peekToken.Literal
-		if nextToken == "count" || nextToken == "remove" || nextToken == "combine" {
-			// This is a collection operation
-			p.nextToken() // consume RANGE token (..)
-			methodName := p.currentToken.Literal
+	// Check if this is a collection operation (..count, ..remove, ..combine, ..append, ..prepend)
+	nextToken := p.peekToken.Literal
+	if nextToken == "count" || nextToken == "remove" || nextToken == "combine" || nextToken == "append" || nextToken == "prepend" {
+		// This is a collection operation
+		p.nextToken() // consume RANGE token (..)
+		methodName := p.currentToken.Literal
 
-			expr := &CollectionOperationExpression{
-				Token:      p.currentToken,
-				Object:     left,
-				Method:     methodName,
-				Arguments:  []Expression{},
-			}
-
-			// Check if this method has arguments (remove, combine do; count doesn't)
-			if p.peekToken.Type == lexer.LPAREN {
-				p.nextToken() // consume method name, move to LPAREN
-				expr.Arguments = p.parseExpressionList(lexer.RPAREN)
-			}
-
-			return expr
+		expr := &CollectionOperationExpression{
+			Token:      p.currentToken,
+			Object:     left,
+			Method:     methodName,
+			Arguments:  []Expression{},
 		}
+
+		// Check if this method has arguments (remove, combine do; count doesn't)
+		if p.peekToken.Type == lexer.LPAREN {
+			p.nextToken() // consume method name, move to LPAREN
+			expr.Arguments = p.parseExpressionList(lexer.RPAREN)
+		}
+
+		return expr
 	}
 
 	// Not a collection operation, fall back to binary expression
@@ -1834,6 +1987,18 @@ func (p *Parser) parseCallExpression(left Expression) Expression {
 		// Create a new path expression or extend existing one
 		if pathExpr, ok := left.(*PathExpression); ok {
 			pathExpr.Parts = append(pathExpr.Parts, p.currentToken.Literal)
+
+			// Check if this path is followed by parentheses (function call)
+			if p.peekToken.Type == lexer.LPAREN {
+				p.nextToken() // consume LPAREN
+				call := &CallExpression{
+					Token:     p.currentToken,
+					Function:  pathExpr,
+					Arguments: p.parseExpressionList(lexer.RPAREN),
+				}
+				return call
+			}
+
 			return pathExpr
 		} else {
 			// Convert to a call expression for method chaining
@@ -2149,10 +2314,17 @@ func (p *Parser) parseCatchStatement() Statement {
 
 		clause := &ElseClause{Token: p.currentToken}
 
-		// Check for error type (can be IDENT or special keywords like UNKNOWN, QUEUED)
-		if p.peekToken.Type == lexer.IDENT || p.peekToken.Type == lexer.UNKNOWN || p.peekToken.Type == lexer.QUEUED {
+		// Check for error type (only 'unknown' is supported per spec)
+		if p.peekToken.Type == lexer.UNKNOWN {
 			p.nextToken()
 			clause.ErrorType = p.currentToken.Literal
+		} else if p.peekToken.Type == lexer.IDENT && p.peekToken.Literal == "unknown" {
+			p.nextToken()
+			clause.ErrorType = p.currentToken.Literal
+		} else {
+			// Invalid error type
+			p.noPrefixParseFnError(p.peekToken.Type)
+			return cs
 		}
 
 		if !p.expectPeek(lexer.DEFINE) {
@@ -2277,4 +2449,58 @@ func (p *Parser) parseScopeRelativeAssignment() Statement {
 	stmt.Value = value
 
 	return stmt
+}
+
+// parseModifierExpression parses modifier expressions like (copy) value or (reset 0) value
+func (p *Parser) parseModifierExpression() Expression {
+	modifierToken := p.currentToken
+
+	// Check if there's a following expression (the value to be modified)
+	if p.peekToken.Type == lexer.TEXT || p.peekToken.Type == lexer.NUMBER ||
+		p.peekToken.Type == lexer.IDENT || p.peekToken.Type == lexer.MY ||
+		p.peekToken.Type == lexer.WORLD || p.peekToken.Type == lexer.LBRACE ||
+		p.peekToken.Type == lexer.LBRACKET {
+
+		p.nextToken() // move to the value expression
+		valueExpr := p.parseExpression(LOWEST)
+
+		// Create a modifier expression that combines the modifier with the value
+		return &ModifierExpression{
+			Token:    modifierToken,
+			Modifier: modifierToken.Literal, // includes the full (copy) or (reset 0) text
+			Value:    valueExpr,
+		}
+	}
+
+	// If no following expression, treat as a literal
+	return &LiteralExpression{
+		Token: modifierToken,
+		Value: modifierToken.Literal,
+	}
+}
+
+// parseNewExpression parses new() instantiation expressions
+func (p *Parser) parseNewExpression() Expression {
+	newToken := p.currentToken
+
+	// Expect opening parenthesis
+	if !p.expectPeek(lexer.LPAREN) {
+		return nil
+	}
+
+	// Parse the template expression inside the parentheses
+	p.nextToken()
+	templateExpr := p.parseExpression(LOWEST)
+
+	// Expect closing parenthesis
+	if !p.expectPeek(lexer.RPAREN) {
+		return nil
+	}
+
+	// Create a call expression for new(template)
+	return &CallExpression{
+		Token:     newToken,
+		Function:  &PathExpression{Token: newToken, Parts: []string{"new"}},
+		Arguments: []Expression{templateExpr},
+	}
 }

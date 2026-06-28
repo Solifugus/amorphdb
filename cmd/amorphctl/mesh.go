@@ -99,7 +99,7 @@ func (mc *MeshCommand) GetMeshStatus() error {
 		fmt.Printf("  Role: %s\n", mc.getRoleDescription(status.IsFounder))
 		fmt.Printf("  Node Identity: %s\n", status.NodeIdentity)
 		fmt.Printf("  Members: %d\n", status.MemberCount)
-		fmt.Printf("  Zones: %d\n", status.ZoneCount)
+		fmt.Printf("  Path Authorities: %d\n", status.AuthorityCount)
 
 		if status.FoundedAt != nil {
 			fmt.Printf("  Founded: %s\n", formatTimestamp(*status.FoundedAt))
@@ -148,7 +148,7 @@ type MeshStatusResponse struct {
 	IsFounder     bool                          `json:"is_founder"`
 	NodeIdentity  string                        `json:"node_identity"`
 	MemberCount   int                           `json:"member_count"`
-	ZoneCount     int                           `json:"zone_count"`
+	AuthorityCount int                          `json:"authority_count"`
 	FoundedAt     *int64                        `json:"founded_at,omitempty"`
 	Bridges       map[string]BridgeStatusInfo   `json:"bridges"`
 }

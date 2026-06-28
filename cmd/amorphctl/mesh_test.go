@@ -126,7 +126,7 @@ func TestMeshCommand_GetMeshStatus_Standalone(t *testing.T) {
 		IsFounder:    false,
 		NodeIdentity: "node-456",
 		MemberCount:  1,
-		ZoneCount:    1,
+		AuthorityCount:    1,
 		Bridges:      make(map[string]BridgeStatusInfo),
 	}
 	responseData, _ := json.Marshal(statusResponse)
@@ -156,7 +156,7 @@ func TestMeshCommand_GetMeshStatus_WithMesh(t *testing.T) {
 		IsFounder:    true,
 		NodeIdentity: "node-789",
 		MemberCount:  3,
-		ZoneCount:    2,
+		AuthorityCount:    2,
 		FoundedAt:    &foundedAt,
 		Bridges:      make(map[string]BridgeStatusInfo),
 	}
@@ -182,7 +182,7 @@ func TestMeshCommand_GetMeshStatus_WithBridges(t *testing.T) {
 		IsFounder:    false,
 		NodeIdentity: "node-101",
 		MemberCount:  2,
-		ZoneCount:    1,
+		AuthorityCount:    1,
 		Bridges: map[string]BridgeStatusInfo{
 			"partner-mesh": {
 				Address:     "192.168.1.10:5000",

@@ -6,24 +6,40 @@ import (
 	"sync"
 	"time"
 
+	"github.com/solifugus/amorphdb/internal/config"
+	"github.com/solifugus/amorphdb/internal/directory"
+	"github.com/solifugus/amorphdb/internal/identity"
 	"github.com/solifugus/amorphdb/internal/protocol"
 	"github.com/solifugus/amorphdb/internal/storage"
-	"github.com/solifugus/amorphdb/internal/zone"
+	"github.com/solifugus/amorphdb/internal/subscription"
+	"github.com/solifugus/amorphdb/internal/zone_deprecated" // TODO: Remove legacy zone references
 )
 
-// ReplicationManager handles zone data replication between authority and replica nodes
+// ReplicationManager handles data replication between nodes using subscription-based model
 type ReplicationManager struct {
 	mu              sync.RWMutex
 	nodeIdentity    string
+	config          *config.Config
+
+	// Legacy zone-based components (TODO: Remove after cleanup)
 	hashRing        *zone.HashRing
 	authorityZones  map[string]*AuthorityZone  // Zones where this node is authority
 	replicaZones    map[string]*ReplicaZone    // Zones where this node is replica
-	pendingWrites   map[string][]*PendingWrite // Writes waiting for replication
-	replicationRate time.Duration              // How often to sync with replicas
+	pendingWrites   map[string][]*PendingWrite // Writes waiting for replication (zone-based)
+	onZoneTransfer  func(string, []byte) error // Callback for receiving zone data
+
+	// Subscription-based replication components
+	pathDirectory   *directory.Directory               // Path-to-authority mapping
+	subscriptionReg *subscription.SubscriptionRegistry // Subscription tracking
+	nodeId          *identity.Identity                 // Full node identity
+	pendingPathWrites map[string][]*PendingPathWrite   // Writes waiting for replication
+	subscribedPaths map[string]*SubscribedPath         // Local subscribed data
+
+	// Common components
+	replicationRate time.Duration              // How often to sync with replicas/subscribers
 	isRunning       bool
 	stopChannel     chan struct{}
 	storageTree     storage.Tree // Local storage
-	onZoneTransfer  func(string, []byte) error // Callback for receiving zone data
 }
 
 // AuthorityZone represents a zone where this node is the authority
@@ -57,7 +73,7 @@ type ReplicaStatus struct {
 	PendingWrites   int       // Number of unacknowledged writes
 }
 
-// PendingWrite represents a write operation waiting for replication
+// PendingWrite represents a write operation waiting for replication (zone-based)
 type PendingWrite struct {
 	Path      []string      // Storage path
 	Value     storage.Value // Value to write
@@ -67,19 +83,59 @@ type PendingWrite struct {
 	Attempts  int           // Replication attempts
 }
 
-// NewReplicationManager creates a new replication manager
-func NewReplicationManager(nodeIdentity string, hashRing *zone.HashRing, storageTree storage.Tree) *ReplicationManager {
-	return &ReplicationManager{
-		nodeIdentity:    nodeIdentity,
-		hashRing:        hashRing,
-		authorityZones:  make(map[string]*AuthorityZone),
-		replicaZones:    make(map[string]*ReplicaZone),
-		pendingWrites:   make(map[string][]*PendingWrite),
-		replicationRate: time.Second,
-		stopChannel:     make(chan struct{}),
-		storageTree:     storageTree,
-	}
+// PendingPathWrite represents a write operation waiting for subscription-based replication
+type PendingPathWrite struct {
+	Path        []string          // Storage path
+	Value       storage.Value     // Value to write
+	Author      uint64            // Agent who performed the write
+	Timestamp   int64             // Write timestamp
+	Subscribers []*identity.Identity // Subscriber nodes to push to
+	Attempts    int               // Replication attempts
 }
+
+// SubscribedPath represents a path this node subscribes to
+type SubscribedPath struct {
+	Path          []string          // Subscribed path
+	Authority     *identity.Identity // Current authority for this path
+	LastReceived  time.Time         // Last update received
+	IsCurrent     bool              // Whether local copy is up-to-date
+	DataSize      int64             // Local subscribed data size
+}
+
+// NewReplicationManager creates a new replication manager
+func NewReplicationManager(
+	nodeIdentity string,
+	cfg *config.Config,
+	hashRing *zone.HashRing,
+	storageTree storage.Tree,
+	pathDirectory *directory.Directory,
+	subscriptionReg *subscription.SubscriptionRegistry,
+	nodeId *identity.Identity,
+) *ReplicationManager {
+	rm := &ReplicationManager{
+		nodeIdentity:      nodeIdentity,
+		config:            cfg,
+		storageTree:       storageTree,
+		replicationRate:   time.Second,
+		stopChannel:       make(chan struct{}),
+
+		// Legacy zone-based components (TODO: Remove after cleanup)
+		hashRing:          hashRing,
+		authorityZones:    make(map[string]*AuthorityZone),
+		replicaZones:      make(map[string]*ReplicaZone),
+		pendingWrites:     make(map[string][]*PendingWrite),
+
+		// Subscription-based components
+		pathDirectory:     pathDirectory,
+		subscriptionReg:   subscriptionReg,
+		nodeId:            nodeId,
+		pendingPathWrites: make(map[string][]*PendingPathWrite),
+		subscribedPaths:   make(map[string]*SubscribedPath),
+	}
+
+	return rm
+}
+
 
 // Start begins the replication process
 func (rm *ReplicationManager) Start() {
@@ -167,32 +223,8 @@ func (rm *ReplicationManager) RemoveZone(zoneID string) {
 
 // RecordWrite records a write operation for replication
 func (rm *ReplicationManager) RecordWrite(path []string, value storage.Value, author uint64, zoneID string) error {
-	rm.mu.Lock()
-	defer rm.mu.Unlock()
-
-	// Check if this node is authority for the zone
-	zone, isAuthority := rm.authorityZones[zoneID]
-	if !isAuthority {
-		return fmt.Errorf("node is not authority for zone %s", zoneID)
-	}
-
-	// Create pending write
-	pendingWrite := &PendingWrite{
-		Path:      path,
-		Value:     value,
-		Author:    author,
-		Timestamp: time.Now().UnixNano(),
-		ZoneID:    zoneID,
-		Attempts:  0,
-	}
-
-	// Add to pending writes
-	rm.pendingWrites[zoneID] = append(rm.pendingWrites[zoneID], pendingWrite)
-
-	// Update zone statistics
-	zone.WriteCount++
-
-	return nil
+	// Use subscription-based replication (only model supported)
+	return rm.RecordPathWrite(path, value, author)
 }
 
 // HandleReplicationRequest processes a replication request from authority
@@ -245,6 +277,12 @@ func (rm *ReplicationManager) replicationLoop() {
 
 // processReplicationRound handles one round of replication
 func (rm *ReplicationManager) processReplicationRound() {
+	// Use subscription-based replication (only model supported)
+	rm.processSubscriptionReplication()
+}
+
+// processZoneReplication handles zone-based replication (legacy)
+func (rm *ReplicationManager) processZoneReplication() {
 	rm.mu.RLock()
 	zones := make([]*AuthorityZone, 0, len(rm.authorityZones))
 	for _, zone := range rm.authorityZones {
@@ -625,27 +663,313 @@ func (rm *ReplicationManager) GetReplicationStats() map[string]interface{} {
 	defer rm.mu.RUnlock()
 
 	stats := make(map[string]interface{})
-	stats["authority_zones"] = len(rm.authorityZones)
-	stats["replica_zones"] = len(rm.replicaZones)
 
-	totalPendingWrites := 0
-	for _, writes := range rm.pendingWrites {
-		totalPendingWrites += len(writes)
+	// Subscription-based statistics (only model supported)
+	stats["subscribed_paths"] = len(rm.subscribedPaths)
+
+	totalPendingPathWrites := 0
+	for _, writes := range rm.pendingPathWrites {
+		totalPendingPathWrites += len(writes)
 	}
-	stats["pending_writes"] = totalPendingWrites
+	stats["pending_path_writes"] = totalPendingPathWrites
 
-	healthyReplicas := 0
-	totalReplicas := 0
-	for _, zone := range rm.authorityZones {
-		for _, status := range zone.SyncStatus {
-			totalReplicas++
-			if status.IsHealthy {
-				healthyReplicas++
+	currentSubscriptions := 0
+	for _, path := range rm.subscribedPaths {
+		if path.IsCurrent {
+			currentSubscriptions++
+		}
+	}
+	stats["current_subscriptions"] = currentSubscriptions
+
+	return stats
+}
+
+// RecordPathWrite records a write operation for subscription-based replication
+func (rm *ReplicationManager) RecordPathWrite(path []string, value storage.Value, author uint64) error {
+
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	pathStr := pathToString(path)
+
+	// Check if this node is authority for the path
+	authority, _, ok := rm.pathDirectory.Get(pathStr)
+	if !ok || authority.ID != rm.nodeId.ID {
+		return fmt.Errorf("node is not authority for path %s", pathStr)
+	}
+
+	// Get all subscribers for this path
+	subscribers := rm.subscriptionReg.Subscribers(pathStr)
+	if len(subscribers) == 0 {
+		// No subscribers, write completes immediately
+		return nil
+	}
+
+	// Create pending write
+	pendingWrite := &PendingPathWrite{
+		Path:        path,
+		Value:       value,
+		Author:      author,
+		Timestamp:   time.Now().UnixNano(),
+		Subscribers: subscribers,
+		Attempts:    0,
+	}
+
+	// Add to pending writes
+	rm.pendingPathWrites[pathStr] = append(rm.pendingPathWrites[pathStr], pendingWrite)
+
+	return nil
+}
+
+// HandleSubscriptionUpdate processes a subscription update from authority
+func (rm *ReplicationManager) HandleSubscriptionUpdate(data []byte) error {
+
+	// Decode subscription update data
+	updateData, err := rm.decodeSubscriptionUpdate(data)
+	if err != nil {
+		return fmt.Errorf("failed to decode subscription update: %w", err)
+	}
+
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	// Check if we're subscribed to this path
+	pathStr := pathToString(updateData.Path)
+	subscribedPath, isSubscribed := rm.subscribedPaths[pathStr]
+	if !isSubscribed {
+		return fmt.Errorf("not subscribed to path %s", pathStr)
+	}
+
+	// Apply write to local storage
+	err = rm.storageTree.Write(updateData.Path, updateData.Value, updateData.Author)
+	if err != nil {
+		return fmt.Errorf("failed to apply write to path %v: %w", updateData.Path, err)
+	}
+
+	// Update subscription status
+	subscribedPath.LastReceived = time.Now()
+	subscribedPath.IsCurrent = true
+
+	return nil
+}
+
+// ForwardWriteToAuthority forwards a write to the authority node for a path
+func (rm *ReplicationManager) ForwardWriteToAuthority(path []string, value storage.Value, author uint64) error {
+
+	pathStr := pathToString(path)
+
+	// Look up authority for this path
+	authority, _, ok := rm.pathDirectory.Get(pathStr)
+	if !ok {
+		return fmt.Errorf("no authority found for path %s", pathStr)
+	}
+
+	// If we are the authority, handle locally
+	if authority.ID == rm.nodeId.ID {
+		return rm.RecordPathWrite(path, value, author)
+	}
+
+	// Forward to authority node
+	return rm.sendWriteToAuthority(authority, path, value, author)
+}
+
+// RequestSubscription requests subscription to a path from its authority
+func (rm *ReplicationManager) RequestSubscription(pathStr string) error {
+
+	// Look up authority for this path
+	authority, _, ok := rm.pathDirectory.Get(pathStr)
+	if !ok {
+		return fmt.Errorf("no authority found for path %s", pathStr)
+	}
+
+	// If we are the authority, no subscription needed
+	if authority.ID == rm.nodeId.ID {
+		return nil
+	}
+
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	// Check if already subscribed
+	if _, exists := rm.subscribedPaths[pathStr]; exists {
+		return nil // Already subscribed
+	}
+
+	// Create subscription record
+	subscribedPath := &SubscribedPath{
+		Path:         stringToPath(pathStr),
+		Authority:    authority,
+		LastReceived: time.Time{},
+		IsCurrent:    false,
+		DataSize:     0,
+	}
+
+	rm.subscribedPaths[pathStr] = subscribedPath
+
+	// Register subscription with local registry
+	rm.subscriptionReg.Subscribe(pathStr, authority)
+
+	// Send subscription request to authority
+	return rm.sendSubscriptionRequest(authority, pathStr)
+}
+
+// ProcessSubscriptionReplication handles one round of subscription-based replication
+func (rm *ReplicationManager) processSubscriptionReplication() {
+
+	rm.mu.RLock()
+	pathWrites := make(map[string][]*PendingPathWrite)
+	for pathStr, writes := range rm.pendingPathWrites {
+		if len(writes) > 0 {
+			pathWrites[pathStr] = append([]*PendingPathWrite{}, writes...)
+		}
+	}
+	rm.mu.RUnlock()
+
+	// Process each path with pending writes
+	for pathStr, writes := range pathWrites {
+		rm.replicatePathWrites(pathStr, writes)
+	}
+}
+
+// replicatePathWrites replicates writes for a specific path to its subscribers
+func (rm *ReplicationManager) replicatePathWrites(pathStr string, writes []*PendingPathWrite) {
+	if len(writes) == 0 {
+		return
+	}
+
+	// Prepare subscription update data
+	updateData := &SubscriptionUpdateData{
+		Path:      writes[0].Path, // All writes are for the same path
+		Writes:    writes,
+		Timestamp: time.Now().UnixNano(),
+		Authority: rm.nodeId,
+	}
+
+	// Send to each subscriber
+	successCount := 0
+	for _, write := range writes {
+		for _, subscriber := range write.Subscribers {
+			if rm.sendSubscriptionUpdate(subscriber, updateData) {
+				successCount++
 			}
 		}
 	}
-	stats["healthy_replicas"] = healthyReplicas
-	stats["total_replicas"] = totalReplicas
 
-	return stats
+	// Update status based on success
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	if successCount > 0 {
+		// At least one subscriber succeeded - remove replicated writes
+		rm.pendingPathWrites[pathStr] = rm.pendingPathWrites[pathStr][len(writes):]
+	}
+}
+
+// sendWriteToAuthority sends a write request to the authority node
+func (rm *ReplicationManager) sendWriteToAuthority(authority *identity.Identity, path []string, value storage.Value, author uint64) error {
+	// Create write message
+	writeMsg := &protocol.WriteMessage{
+		Path:   path,
+		Value:  value,
+		Author: author,
+	}
+
+	// Send to authority node (implementation would use actual network protocol)
+	// For now, this is a placeholder
+	_ = writeMsg
+	_ = authority
+
+	// TODO: Implement actual network communication to authority node
+	return nil
+}
+
+// sendSubscriptionRequest sends a subscription request to an authority node
+func (rm *ReplicationManager) sendSubscriptionRequest(authority *identity.Identity, pathStr string) error {
+	// Create subscription request message
+	// TODO: Add subscription request message type to protocol if not exists
+
+	// For now, this is a placeholder
+	_ = authority
+	_ = pathStr
+
+	// TODO: Implement actual network communication for subscription requests
+	return nil
+}
+
+// sendSubscriptionUpdate sends subscription update to a subscriber node
+func (rm *ReplicationManager) sendSubscriptionUpdate(subscriber *identity.Identity, data *SubscriptionUpdateData) bool {
+	// Encode and send subscription update
+	payload := rm.encodeSubscriptionUpdate(data)
+
+	// Create protocol message for subscription update
+	// For now, reuse existing message types
+	updateMsg := &protocol.Message{
+		Version:  protocol.Version,
+		Type:     protocol.HEARTBEAT, // Would use dedicated subscription update type in production
+		Sequence: uint32(time.Now().Unix()),
+		Payload:  payload,
+	}
+
+	// TODO: Implement actual network communication
+	_ = updateMsg
+	_ = subscriber
+
+	// Placeholder - in reality would send over network and return actual result
+	return true
+}
+
+// SubscriptionUpdateData represents data for subscription-based replication
+type SubscriptionUpdateData struct {
+	Path      []string             // Path being updated
+	Writes    []*PendingPathWrite  // Write operations
+	Value     storage.Value        // Value being written (simplified single value)
+	Author    uint64               // Author of the write
+	Timestamp int64                // Update timestamp
+	Authority *identity.Identity   // Authority node identity
+}
+
+// encodeSubscriptionUpdate encodes subscription update data
+func (rm *ReplicationManager) encodeSubscriptionUpdate(data *SubscriptionUpdateData) []byte {
+	// Simple encoding for subscription update
+	// In production, would use proper serialization
+
+	pathStr := pathToString(data.Path)
+	return []byte(fmt.Sprintf("SUB_UPDATE:%s:%d:%s", pathStr, data.Timestamp, data.Authority.ID))
+}
+
+// decodeSubscriptionUpdate decodes subscription update data
+func (rm *ReplicationManager) decodeSubscriptionUpdate(payload []byte) (*SubscriptionUpdateData, error) {
+	// Simple decoding for subscription update
+	// In production, would use proper deserialization
+
+	// For now, return minimal structure
+	return &SubscriptionUpdateData{
+		Path:      []string{"placeholder"},
+		Writes:    []*PendingPathWrite{},
+		Timestamp: time.Now().UnixNano(),
+		Authority: &identity.Identity{ID: "placeholder"},
+	}, nil
+}
+
+// pathToString converts a path slice to a string representation
+func pathToString(path []string) string {
+	if len(path) == 0 {
+		return ""
+	}
+	result := ""
+	for i, segment := range path {
+		if i > 0 {
+			result += "."
+		}
+		result += segment
+	}
+	return result
+}
+
+// stringToPath converts a string representation back to a path slice
+func stringToPath(pathStr string) []string {
+	if pathStr == "" {
+		return []string{}
+	}
+	return []string{pathStr} // Simplified - would split on "." in production
 }

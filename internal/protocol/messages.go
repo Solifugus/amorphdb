@@ -22,6 +22,8 @@ const (
 	READ_AT_RESPONSE = 0x17
 	CHILDREN        = 0x18
 	CHILDREN_RESPONSE = 0x19
+	EXECUTE         = 0x1A
+	EXECUTE_RESPONSE = 0x1B
 
 	// Control operations
 	STATUS        = 0x20
@@ -30,6 +32,8 @@ const (
 	STOP_ACK      = 0x23
 	COMPACT       = 0x24
 	COMPACT_ACK   = 0x25
+	EXTRACT       = 0x42
+	EXTRACT_RESPONSE = 0x43
 
 	// Mesh management operations
 	CREATE_MESH       = 0x26
@@ -58,6 +62,12 @@ const (
 	GOSSIP_ACK       = 0x39
 	ZONE_ASSIGN      = 0x3A
 	ZONE_TRANSFER    = 0x3B
+
+	// Authority management operations (subscription model)
+	AUTHORITY_ANNOUNCE     = 0x3C
+	AUTHORITY_ANNOUNCE_ACK = 0x3D
+	AUTHORITY_ELECTION     = 0x3E
+	AUTHORITY_VOTE         = 0x3F
 
 	// Error handling
 	ERROR         = 0xFF
@@ -379,4 +389,65 @@ type BridgeClosureMessage struct {
 	BridgeIdentity string // Identity of the closing bridge
 	SourceMesh     string // Mesh that owned the bridge
 	Timestamp      int64  // When closure was initiated
+}
+
+// AuthorityAnnounceMessage represents an authority change announcement
+type AuthorityAnnounceMessage struct {
+	Path         string // Path for which authority is being announced
+	AuthorityID  string // Identity of the new authority node
+	Reason       string // Reason for change: "promotion", "delegation", "split", "initial"
+	Timestamp    int64  // When the authority change occurred
+	FormerAuthority string // Identity of the previous authority (if any)
+}
+
+// AuthorityAnnounceAckMessage represents acknowledgment of authority announcement
+type AuthorityAnnounceAckMessage struct {
+	Path      string // Path that was announced
+	Accepted  bool   // Whether the announcement was accepted
+	Message   string // Status/error message
+	Timestamp int64  // When the acknowledgment was sent
+}
+
+// AuthorityElectionMessage represents an authority promotion election
+type AuthorityElectionMessage struct {
+	Path            string   // Path for which election is being held
+	FormerAuthority string   // Identity of the failed/departed authority
+	Candidates      []string // List of candidate node identities
+	ElectionID      string   // Unique identifier for this election
+	StartTime       int64    // When the election started
+	Timeout         int64    // When the election expires
+}
+
+// AuthorityVoteMessage represents a vote in an authority election
+type AuthorityVoteMessage struct {
+	ElectionID string // Unique identifier for the election
+	Path       string // Path being elected for
+	VoterID    string // Identity of the voting node
+	CandidateID string // Identity of the chosen candidate
+	Timestamp  int64  // When the vote was cast
+	Uptime     int64  // Uptime of the chosen candidate (for tiebreaking)
+}
+
+// ExecuteMessage represents a request to execute MBL code
+type ExecuteMessage struct {
+	Code string // MBL source code to execute
+}
+
+// ExecuteResponseMessage represents the response to MBL code execution
+type ExecuteResponseMessage struct {
+	Success bool          // Whether execution was successful
+	Result  storage.Value // Execution result (nil if error occurred)
+	Error   string        // Error message if execution failed
+}
+
+// ExtractMessage represents a request to extract MBL script from a subtree
+type ExtractMessage struct {
+	Path []string // Root path to extract from
+}
+
+// ExtractResponseMessage represents the response with generated MBL script
+type ExtractResponseMessage struct {
+	Success bool   // Whether extraction was successful
+	Script  string // Generated MBL script
+	Error   string // Error message if extraction failed
 }

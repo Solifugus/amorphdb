@@ -83,36 +83,38 @@ func TestFilterManager_ApplyFilters_ClearanceMatch(t *testing.T) {
 		Tree:     tree,
 	}
 
-	// Set clearance filter
+	// Set clearance filter. Per spec (§Filters), a filter HIDES data matching
+	// its criteria. So this filter hides instances whose clearance is public
+	// or internal; everything else remains visible.
 	filter := CreateClearanceFilter([]string{"public", "internal"})
 	filterManager.SetFilter(filter, agentID)
 
-	// Test instance that should pass filter (clearance: internal)
-	instancePass := map[string]interface{}{
+	// Instance matching the filter (clearance: internal) must be HIDDEN.
+	instanceMatch := map[string]interface{}{
 		"clearance": types.Text{Value: "internal"},
 		"data":      types.Text{Value: "test data"},
 	}
 
-	visible, err := filterManager.ApplyFilters(agent, instancePass)
-	if err != nil {
-		t.Errorf("ApplyFilters error: %v", err)
-	}
-	if !visible {
-		t.Error("Expected instance with internal clearance to be visible")
-	}
-
-	// Test instance that should not pass filter (clearance: secret)
-	instanceFail := map[string]interface{}{
-		"clearance": types.Text{Value: "secret"},
-		"data":      types.Text{Value: "secret data"},
-	}
-
-	visible, err = filterManager.ApplyFilters(agent, instanceFail)
+	visible, err := filterManager.ApplyFilters(agent, instanceMatch)
 	if err != nil {
 		t.Errorf("ApplyFilters error: %v", err)
 	}
 	if visible {
-		t.Error("Expected instance with secret clearance to be filtered out")
+		t.Error("Expected instance matching the filter (internal clearance) to be hidden")
+	}
+
+	// Instance not matching the filter (clearance: secret) must be VISIBLE.
+	instanceNoMatch := map[string]interface{}{
+		"clearance": types.Text{Value: "secret"},
+		"data":      types.Text{Value: "secret data"},
+	}
+
+	visible, err = filterManager.ApplyFilters(agent, instanceNoMatch)
+	if err != nil {
+		t.Errorf("ApplyFilters error: %v", err)
+	}
+	if !visible {
+		t.Error("Expected instance not matching the filter (secret clearance) to be visible")
 	}
 }
 
@@ -129,36 +131,37 @@ func TestFilterManager_ApplyFilters_DepartmentMatch(t *testing.T) {
 		Tree:     tree,
 	}
 
-	// Set department filter
+	// Set department filter. Per spec (§Filters), matching data is HIDDEN, so
+	// this filter hides IT and Engineering instances; others remain visible.
 	filter := CreateDepartmentFilter([]string{"IT", "Engineering"})
 	filterManager.SetFilter(filter, agentID)
 
-	// Test instance that should pass filter
-	instancePass := map[string]interface{}{
+	// Instance matching the filter (IT) must be HIDDEN.
+	instanceMatch := map[string]interface{}{
 		"department": types.Text{Value: "IT"},
 		"data":       types.Text{Value: "IT data"},
 	}
 
-	visible, err := filterManager.ApplyFilters(agent, instancePass)
-	if err != nil {
-		t.Errorf("ApplyFilters error: %v", err)
-	}
-	if !visible {
-		t.Error("Expected IT department instance to be visible")
-	}
-
-	// Test instance that should not pass filter
-	instanceFail := map[string]interface{}{
-		"department": types.Text{Value: "Marketing"},
-		"data":       types.Text{Value: "marketing data"},
-	}
-
-	visible, err = filterManager.ApplyFilters(agent, instanceFail)
+	visible, err := filterManager.ApplyFilters(agent, instanceMatch)
 	if err != nil {
 		t.Errorf("ApplyFilters error: %v", err)
 	}
 	if visible {
-		t.Error("Expected Marketing department instance to be filtered out")
+		t.Error("Expected IT department instance (matching filter) to be hidden")
+	}
+
+	// Instance not matching the filter (Marketing) must be VISIBLE.
+	instanceNoMatch := map[string]interface{}{
+		"department": types.Text{Value: "Marketing"},
+		"data":       types.Text{Value: "marketing data"},
+	}
+
+	visible, err = filterManager.ApplyFilters(agent, instanceNoMatch)
+	if err != nil {
+		t.Errorf("ApplyFilters error: %v", err)
+	}
+	if !visible {
+		t.Error("Expected Marketing department instance (not matching filter) to be visible")
 	}
 }
 
@@ -175,36 +178,37 @@ func TestFilterManager_ApplyFilters_AuthorMatch(t *testing.T) {
 		Tree:     tree,
 	}
 
-	// Set author filter
+	// Set author filter. Per spec (§Filters), matching data is HIDDEN, so this
+	// filter hides instances authored by 12345 or 67890; others stay visible.
 	filter := CreateAuthorFilter([]uint64{12345, 67890})
 	filterManager.SetFilter(filter, agentID)
 
-	// Test instance that should pass filter (author matches)
-	instancePass := map[string]interface{}{
+	// Instance matching the filter (author 12345) must be HIDDEN.
+	instanceMatch := map[string]interface{}{
 		"@author": uint64(12345),
 		"data":    types.Text{Value: "my data"},
 	}
 
-	visible, err := filterManager.ApplyFilters(agent, instancePass)
-	if err != nil {
-		t.Errorf("ApplyFilters error: %v", err)
-	}
-	if !visible {
-		t.Error("Expected instance with matching author to be visible")
-	}
-
-	// Test instance that should not pass filter (author doesn't match)
-	instanceFail := map[string]interface{}{
-		"@author": uint64(99999),
-		"data":    types.Text{Value: "other data"},
-	}
-
-	visible, err = filterManager.ApplyFilters(agent, instanceFail)
+	visible, err := filterManager.ApplyFilters(agent, instanceMatch)
 	if err != nil {
 		t.Errorf("ApplyFilters error: %v", err)
 	}
 	if visible {
-		t.Error("Expected instance with non-matching author to be filtered out")
+		t.Error("Expected instance with matching author to be hidden")
+	}
+
+	// Instance not matching the filter (author 99999) must be VISIBLE.
+	instanceNoMatch := map[string]interface{}{
+		"@author": uint64(99999),
+		"data":    types.Text{Value: "other data"},
+	}
+
+	visible, err = filterManager.ApplyFilters(agent, instanceNoMatch)
+	if err != nil {
+		t.Errorf("ApplyFilters error: %v", err)
+	}
+	if !visible {
+		t.Error("Expected instance with non-matching author to be visible")
 	}
 }
 
@@ -248,7 +252,8 @@ func TestFilterManager_FilterVisible(t *testing.T) {
 		Tree:     tree,
 	}
 
-	// Set clearance filter
+	// Set clearance filter. Per spec (§Filters), matching data is HIDDEN, so
+	// this filter hides only internal-clearance items; public and secret remain.
 	filter := CreateClearanceFilter([]string{"internal"})
 	filterManager.SetFilter(filter, agentID)
 
@@ -274,21 +279,21 @@ func TestFilterManager_FilterVisible(t *testing.T) {
 		t.Fatalf("FilterVisible error: %v", err)
 	}
 
-	// Should only see internal item
-	if len(filtered) != 1 {
-		t.Errorf("Expected 1 visible item, got %d", len(filtered))
+	// internal_item matches the filter and is hidden; the other two remain.
+	if len(filtered) != 2 {
+		t.Errorf("Expected 2 visible items, got %d", len(filtered))
 	}
 
-	if _, exists := filtered["internal_item"]; !exists {
-		t.Error("Expected internal_item to be visible")
+	if _, exists := filtered["internal_item"]; exists {
+		t.Error("Expected internal_item to be hidden (matches filter)")
 	}
 
-	if _, exists := filtered["public_item"]; exists {
-		t.Error("Expected public_item to be filtered out")
+	if _, exists := filtered["public_item"]; !exists {
+		t.Error("Expected public_item to be visible")
 	}
 
-	if _, exists := filtered["secret_item"]; exists {
-		t.Error("Expected secret_item to be filtered out")
+	if _, exists := filtered["secret_item"]; !exists {
+		t.Error("Expected secret_item to be visible")
 	}
 }
 

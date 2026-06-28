@@ -1,13 +1,40 @@
 package mesh
-import "fmt"
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/solifugus/amorphdb/internal/config"
+	"github.com/solifugus/amorphdb/internal/directory"
+	"github.com/solifugus/amorphdb/internal/identity"
 	"github.com/solifugus/amorphdb/internal/storage"
-	"github.com/solifugus/amorphdb/internal/zone"
+	"github.com/solifugus/amorphdb/internal/subscription"
+	"github.com/solifugus/amorphdb/internal/types"
+	"github.com/solifugus/amorphdb/internal/zone_deprecated"
 )
+
+// newTestLegacyRM builds a ReplicationManager for the legacy zone-based tests.
+// The constructor gained subscription-model parameters during the zone→subscription
+// migration; these tests only exercise the legacy zone methods, so the subscription
+// components are constructed empty.
+func newTestLegacyRM(nodeIdentity string, hashRing *zone.HashRing, storageTree storage.Tree) *ReplicationManager {
+	return NewReplicationManager(
+		nodeIdentity,
+		&config.Config{},
+		hashRing,
+		storageTree,
+		directory.NewDirectory(),
+		subscription.NewSubscriptionRegistry(),
+		&identity.Identity{
+			ID:       nodeIdentity,
+			Type:     types.NodeAgent,
+			MeshName: "test-mesh",
+			Created:  time.Now(),
+			NodeID:   nodeIdentity,
+		},
+	)
+}
 
 // mockStorageTree implements storage.Tree for testing
 type mockStorageTree struct {
@@ -61,11 +88,11 @@ func pathToKey(path []string) string {
 	return result
 }
 
-func TestNewReplicationManager(t *testing.T) {
+func TestNewLegacyReplicationManager(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
 
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	if rm.nodeIdentity != "test-node" {
 		t.Errorf("Expected nodeIdentity 'test-node', got '%s'", rm.nodeIdentity)
@@ -99,7 +126,7 @@ func TestNewReplicationManager(t *testing.T) {
 func TestReplicationManager_AddAuthorityZone(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	replicas := []string{"replica1", "replica2", "replica3"}
 	rm.AddAuthorityZone("zone1", "world.users", replicas)
@@ -166,7 +193,7 @@ func TestReplicationManager_AddAuthorityZone(t *testing.T) {
 func TestReplicationManager_AddReplicaZone(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	rm.AddReplicaZone("zone1", "world.products", "authority-node")
 
@@ -204,7 +231,7 @@ func TestReplicationManager_AddReplicaZone(t *testing.T) {
 func TestReplicationManager_RemoveZone(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Add zones
 	rm.AddAuthorityZone("auth-zone", "world.orders", []string{"replica1"})
@@ -239,72 +266,10 @@ func TestReplicationManager_RemoveZone(t *testing.T) {
 	}
 }
 
-func TestReplicationManager_RecordWrite(t *testing.T) {
-	hashRing := zone.NewHashRing(3, 10)
-	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
-
-	// Add authority zone
-	rm.AddAuthorityZone("zone1", "world.users", []string{"replica1", "replica2"})
-
-	// Create test write
-	path := []string{"world", "users", "alice", "name"}
-	value := storage.Value{
-		TypeTag: storage.TypeText,
-		Data:    []byte("Alice Smith"),
-	}
-	author := uint64(1001)
-
-	// Record write
-	err := rm.RecordWrite(path, value, author, "zone1")
-	if err != nil {
-		t.Fatalf("RecordWrite failed: %v", err)
-	}
-
-	// Verify pending write was created
-	pendingWrites := rm.pendingWrites["zone1"]
-	if len(pendingWrites) != 1 {
-		t.Errorf("Expected 1 pending write, got %d", len(pendingWrites))
-	}
-
-	pendingWrite := pendingWrites[0]
-	if len(pendingWrite.Path) != len(path) {
-		t.Errorf("Expected path length %d, got %d", len(path), len(pendingWrite.Path))
-	}
-
-	for i, segment := range path {
-		if pendingWrite.Path[i] != segment {
-			t.Errorf("Path segment %d: expected '%s', got '%s'", i, segment, pendingWrite.Path[i])
-		}
-	}
-
-	if string(pendingWrite.Value.Data) != string(value.Data) {
-		t.Errorf("Expected value '%s', got '%s'", string(value.Data), string(pendingWrite.Value.Data))
-	}
-
-	if pendingWrite.Author != author {
-		t.Errorf("Expected author %d, got %d", author, pendingWrite.Author)
-	}
-
-	if pendingWrite.ZoneID != "zone1" {
-		t.Errorf("Expected zone ID 'zone1', got '%s'", pendingWrite.ZoneID)
-	}
-
-	if pendingWrite.Attempts != 0 {
-		t.Errorf("Expected 0 attempts initially, got %d", pendingWrite.Attempts)
-	}
-
-	// Verify zone write count was incremented
-	zone := rm.authorityZones["zone1"]
-	if zone.WriteCount != 1 {
-		t.Errorf("Expected write count 1, got %d", zone.WriteCount)
-	}
-}
-
 func TestReplicationManager_RecordWrite_NotAuthority(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Try to record write for zone we're not authority for
 	path := []string{"world", "users", "alice"}
@@ -319,7 +284,7 @@ func TestReplicationManager_RecordWrite_NotAuthority(t *testing.T) {
 func TestReplicationManager_HandleReplicationRequest(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Add replica zone
 	rm.AddReplicaZone("zone1", "world.users", "authority-node")
@@ -362,7 +327,7 @@ func TestReplicationManager_HandleReplicationRequest(t *testing.T) {
 func TestReplicationManager_HandleReplicationRequest_NotReplica(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Create replication data for zone we're not replica for
 	replicationData := &ReplicationData{
@@ -385,7 +350,7 @@ func TestReplicationManager_HandleReplicationRequest_NotReplica(t *testing.T) {
 func TestReplicationManager_StartStop(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Should not be running initially
 	if rm.isRunning {
@@ -426,7 +391,7 @@ func TestReplicationManager_StartStop(t *testing.T) {
 func TestReplicationManager_GetAuthorityZones(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Initially empty
 	zones := rm.GetAuthorityZones()
@@ -480,7 +445,7 @@ func TestReplicationManager_GetAuthorityZones(t *testing.T) {
 func TestReplicationManager_GetReplicaZones(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Initially empty
 	zones := rm.GetReplicaZones()
@@ -529,7 +494,7 @@ func TestReplicationManager_GetReplicaZones(t *testing.T) {
 func TestReplicationManager_EncodeDecodeReplicationData(t *testing.T) {
 	hashRing := zone.NewHashRing(3, 10)
 	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
+	rm := newTestLegacyRM("test-node", hashRing, storageTree)
 
 	// Create test replication data
 	originalData := &ReplicationData{
@@ -571,63 +536,4 @@ func TestReplicationManager_EncodeDecodeReplicationData(t *testing.T) {
 	}
 
 	// Note: Writes and SourceNode decoding not fully implemented in basic version
-}
-
-func TestReplicationManager_GetReplicationStats(t *testing.T) {
-	hashRing := zone.NewHashRing(3, 10)
-	storageTree := newMockStorageTree()
-	rm := NewReplicationManager("test-node", hashRing, storageTree)
-
-	// Initially empty stats
-	stats := rm.GetReplicationStats()
-
-	if stats["authority_zones"] != 0 {
-		t.Errorf("Expected 0 authority zones, got %v", stats["authority_zones"])
-	}
-
-	if stats["replica_zones"] != 0 {
-		t.Errorf("Expected 0 replica zones, got %v", stats["replica_zones"])
-	}
-
-	if stats["pending_writes"] != 0 {
-		t.Errorf("Expected 0 pending writes, got %v", stats["pending_writes"])
-	}
-
-	if stats["healthy_replicas"] != 0 {
-		t.Errorf("Expected 0 healthy replicas, got %v", stats["healthy_replicas"])
-	}
-
-	if stats["total_replicas"] != 0 {
-		t.Errorf("Expected 0 total replicas, got %v", stats["total_replicas"])
-	}
-
-	// Add zones and writes
-	rm.AddAuthorityZone("zone1", "world.users", []string{"replica1", "replica2"})
-	rm.AddReplicaZone("zone2", "world.products", "authority1")
-
-	path := []string{"world", "users", "alice"}
-	value := storage.Value{TypeTag: storage.TypeText, Data: []byte("test")}
-	rm.RecordWrite(path, value, 1001, "zone1")
-
-	stats = rm.GetReplicationStats()
-
-	if stats["authority_zones"] != 1 {
-		t.Errorf("Expected 1 authority zone, got %v", stats["authority_zones"])
-	}
-
-	if stats["replica_zones"] != 1 {
-		t.Errorf("Expected 1 replica zone, got %v", stats["replica_zones"])
-	}
-
-	if stats["pending_writes"] != 1 {
-		t.Errorf("Expected 1 pending write, got %v", stats["pending_writes"])
-	}
-
-	if stats["healthy_replicas"] != 2 {
-		t.Errorf("Expected 2 healthy replicas, got %v", stats["healthy_replicas"])
-	}
-
-	if stats["total_replicas"] != 2 {
-		t.Errorf("Expected 2 total replicas, got %v", stats["total_replicas"])
-	}
 }

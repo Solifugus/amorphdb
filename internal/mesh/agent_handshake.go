@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"net"
 	"sync"
 	"time"
@@ -168,8 +169,23 @@ func (ah *AgentHandshake) HandleIncomingHandshake(conn net.Conn, request *Handsh
 
 	ah.activeHandshakes[request.SessionID] = session
 
-	// Create bridge authentication session
-	bridgeSession, err := ah.bridgeAuth.AuthenticateToMesh(request.SourceMesh, request.SessionID, conn)
+	// Parse the public key the agent presented in its request. The receiver
+	// challenges the agent with this key; it has no local mobile identity for
+	// the source mesh (that exists only on the initiating side).
+	agentPublicKey, ok := new(big.Int).SetString(request.PublicKey, 10)
+	if !ok {
+		session.Status = "failed"
+		return &HandshakeResponse{
+			SessionID:    request.SessionID,
+			Status:       "rejected",
+			MeshName:     ah.meshName,
+			ErrorMessage: "invalid public key in handshake request",
+			Timestamp:    time.Now().Unix(),
+		}, nil
+	}
+
+	// Create bridge authentication session for the incoming agent
+	bridgeSession, err := ah.bridgeAuth.AuthenticateIncomingAgent(request.SourceMesh, request.SessionID, request.AgentIdentity, agentPublicKey, conn)
 	if err != nil {
 		session.Status = "failed"
 		return &HandshakeResponse{

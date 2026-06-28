@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cache Debug</title>
+</head>
+<body>
+    <div id="app"></div>
+    <!-- Force cache bypass with timestamp -->
+    <script>
+        // Force reload of JS
+        const timestamp = Date.now();
+        const script = document.createElement('script');
+        script.src = 'amorphdb-pwa.js?v=' + timestamp;
+        document.head.appendChild(script);
+
+        setTimeout(() => {
+            console.log('=== CACHE DEBUG TEST ===');
+            const elements = document.querySelectorAll('[data-bind]');
+            elements.forEach(el => {
+                const dataBind = el.getAttribute('data-bind');
+                console.log('Found data-bind:', JSON.stringify(dataBind));
+
+                if (dataBind.startsWith(' ')) {
+                    console.error('❌ STILL HAS LEADING SPACE:', JSON.stringify(dataBind));
+                } else {
+                    console.log('✅ No leading space:', JSON.stringify(dataBind));
+                }
+            });
+        }, 2000);
+    </script>
+</body>
+</html>

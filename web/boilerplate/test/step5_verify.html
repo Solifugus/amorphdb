@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Step 5 Verification</title>
+</head>
+<body>
+    <div id="app"></div>
+    <script src="amorphdb-pwa.js"></script>
+    <script>
+        // Simple verification test
+        setTimeout(() => {
+            if (window.amorphPWA) {
+                console.log('✅ AmorphPWA loaded successfully');
+
+                // Check for data-bind attributes
+                const dataBoundElements = document.querySelectorAll('[data-bind]');
+                console.log(`Found ${dataBoundElements.length} data-bound elements`);
+
+                // Check for leading spaces in data-bind attributes
+                let hasLeadingSpaces = false;
+                let hasLeadingDots = false;
+                dataBoundElements.forEach(el => {
+                    const dataBind = el.getAttribute('data-bind');
+                    console.log(`Checking data-bind: "${dataBind}"`);
+
+                    if (dataBind.startsWith(' ')) {
+                        console.error(`❌ Leading space found in data-bind: "${dataBind}"`);
+                        hasLeadingSpaces = true;
+                    }
+                    if (dataBind.startsWith('.')) {
+                        console.error(`❌ Leading dot found in data-bind: "${dataBind}"`);
+                        hasLeadingDots = true;
+                    }
+                });
+
+                if (!hasLeadingSpaces && !hasLeadingDots) {
+                    console.log('✅ No leading spaces or dots in data-bind attributes');
+                } else {
+                    console.error('❌ Found issues with data-bind attributes');
+                }
+
+                // Test surgical update
+                if (window.amorphPWA.proxiedData) {
+                    console.log('Testing surgical update...');
+                    window.amorphPWA.proxiedData.banner.app_name = 'Verification Test';
+
+                    // Check if DOM updated
+                    const appNameElement = document.querySelector('[data-bind="banner.app_name"]');
+                    if (appNameElement && appNameElement.textContent === 'Verification Test') {
+                        console.log('✅ Surgical DOM update works correctly');
+                    } else {
+                        console.error('❌ Surgical DOM update failed');
+                    }
+                }
+            } else {
+                console.error('❌ AmorphPWA not loaded');
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

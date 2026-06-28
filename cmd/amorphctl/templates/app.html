@@ -1,0 +1,41 @@
+<section name="myapp">
+
+    <section name="login">
+        <h2>Sign In</h2>
+        <label>Username</label>
+        <input value="{username}">
+        <label>Password</label>
+        <input type="password" value="{password}">
+        <button onclick="data.login.submitted = true">
+            Log In
+        </button>
+        <div class="error">{error}</div>
+        <p><a onclick="data.navigation.current = 'signup'">Create an account</a></p>
+    </section>
+
+    <section name="signup">
+        <h2>Create Account</h2>
+        <label>Username</label>
+        <input value="{username}">
+        <label>Password</label>
+        <input type="password" value="{password}">
+        <button onclick="data.signup.submitted = true">
+            Sign Up
+        </button>
+        <div class="error">{error}</div>
+        <p><a onclick="data.navigation.current = 'login'">Back to sign in</a></p>
+    </section>
+
+    <section name="banner" layout="horizontal">
+        <h1>{app_name}</h1>
+        <span class="user">{user_name}</span>
+        <button onclick="data.intent.logout = true">Log Out</button>
+    </section>
+
+    <section name="workspace">
+        <h2>Welcome</h2>
+        <p>Edit <code>app.html</code> to add sections, fields, and lists.</p>
+        <p>Edit <code>setup.mbl</code> to register per-user watchers and app behavior.</p>
+    </section>
+
+</section>

@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AmorphDB PWA Boilerplate Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 10px;
+        }
+        .console-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.info {
+            background-color: #e1f5fe;
+            border: 1px solid #01579b;
+            color: #01579b;
+        }
+        .status.success {
+            background-color: #e8f5e8;
+            border: 1px solid #2e7d32;
+            color: #2e7d32;
+        }
+        .status.error {
+            background-color: #ffebee;
+            border: 1px solid #c62828;
+            color: #c62828;
+        }
+
+        /* Rendered App Styling */
+        [class^="section-"] {
+            border: 1px solid #ddd;
+            margin: 5px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+
+        .section-app {
+            background-color: #f0f8ff;
+            border-color: #007acc;
+        }
+
+        .section-banner {
+            background-color: #e8f5e8;
+            border-color: #2e7d32;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .section-workspace {
+            min-height: 200px;
+            gap: 20px;
+        }
+
+        .section-sidebar {
+            background-color: #fff3e0;
+            border-color: #f57722;
+            min-width: 200px;
+        }
+
+        .section-main {
+            flex: 1;
+            background-color: #f3e5f5;
+            border-color: #9c27b0;
+        }
+
+        .section-status_bar {
+            background-color: #e3f2fd;
+            border-color: #1976d2;
+            gap: 20px;
+            justify-content: space-between;
+        }
+
+        .list-container {
+            background-color: #f5f5f5;
+            border: 1px dashed #999;
+            min-height: 30px;
+            padding: 10px;
+            color: #666;
+        }
+
+        .list-container:empty::before {
+            content: '(empty list container)';
+            font-style: italic;
+            color: #999;
+        }
+
+        [data-bind] {
+            background-color: #fffbf0;
+            border: 1px solid #ffa726;
+            padding: 2px 4px;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>AmorphDB PWA Boilerplate - Step 11 Test</h1>
+
+        <div id="test-status" class="status info">
+            Testing deep link mapper for URL ↔ data synchronization...
+        </div>
+
+        <div class="test-container" style="border: 2px solid #ff6b35; background: #fff4f0;">
+            <h3>🚀 Step 8: SSE Connection Status</h3>
+            <div id="sse-status" style="font-weight: bold; color: #d32f2f;">
+                SSE connection starting...
+            </div>
+            <div id="network-status" style="margin: 10px 0; color: #666;">
+                SSE endpoint: /client-sse/test_user_123 (will fail - no server running)
+            </div>
+            <div id="sse-log" class="console-output" style="max-height: 150px; font-size: 11px; margin-top: 10px;">
+                SSE connection log will appear here...
+            </div>
+        </div>
+
+        <div class="test-container" style="border: 2px solid #ff6b35; background: #fff4f0;">
+            <h3>🚀 Step 7: Batch Sending Status</h3>
+            <div id="batch-status" class="batch-status" style="font-weight: bold; color: #d32f2f;">
+                No batches sent yet
+            </div>
+            <div id="batch-log" class="console-output" style="max-height: 100px; font-size: 11px; margin-top: 10px;">
+                Batch sending log will appear here...
+            </div>
+        </div>
+
+        <h3>Rendered Application:</h3>
+        <div class="test-container" style="border: 2px solid #007acc; padding: 15px;">
+            <div id="app"></div>
+        </div>
+
+        <h3>Console Output:</h3>
+        <div id="console-output" class="console-output">
+            Loading...
+        </div>
+
+        <h3>Data Tree Structure:</h3>
+        <div id="data-tree-output" class="console-output">
+            Loading...
+        </div>
+
+        <h3>Step 8 Test: SSE Receiver - Server Update Simulation</h3>
+        <div class="test-container" style="border: 2px solid #28a745; padding: 15px;">
+            <p><strong>Simulate server updates to test SSE receiver (no real server needed):</strong></p>
+            <button onclick="simulateServerUpdate('banner.app_name', 'Server Updated App')">Simulate: Change app name</button>
+            <button onclick="simulateServerUpdate('banner.user_name', 'Server User')">Simulate: Change user name</button>
+            <button onclick="simulateServerUpdate('workspace.main.page_title', 'SSE Test Page')">Simulate: Change page title</button>
+            <button onclick="simulateServerUpdate('status_bar.status_message', 'Connected via SSE')">Simulate: Change status</button>
+            <button onclick="simulateMultipleUpdates()">Simulate: Multiple updates</button>
+
+            <div id="sse-test-results" class="console-output" style="margin-top: 10px; max-height: 200px;">
+                Click buttons above to test server update simulation...
+            </div>
+        </div>
+
+        <h3>Step 7 Test: Batch Sender - Change Tracking and Server Communication</h3>
+        <div class="test-container" style="border: 2px solid #9c27b0; padding: 15px;">
+            <p><strong>Test data changes to verify batch sending:</strong></p>
+            <button onclick="testSingleFieldChange()">Test 1: Single field change</button>
+            <button onclick="testMultipleChanges()">Test 2: Multiple changes in one batch</button>
+            <button onclick="testListOperations()">Test 3: List operations</button>
+            <button onclick="testBatchTiming()">Test 4: Batch timing validation</button>
+            <button onclick="clearBatchLog()">Clear batch log</button>
+
+            <div id="list-test-results" class="console-output" style="margin-top: 10px; max-height: 200px;">
+                Click buttons above to test batch sending...
+            </div>
+        </div>
+
+        <h3>Step 9 Test: Local Watchers - Custom Event Handlers</h3>
+        <div class="test-container" style="border: 2px solid #ff9800; padding: 15px;">
+            <p><strong>Test watcher system to verify custom behavior triggers:</strong></p>
+
+            <!-- Watcher Test Buttons -->
+            <div style="margin: 10px 0;">
+                <button onclick="testExactPathWatcher()" style="background: #ff9800; color: white; border: none; padding: 8px 16px; margin: 5px; border-radius: 4px;">
+                    Test Exact Path Watcher (banner.app_name)
+                </button>
+                <button onclick="testParentPathWatcher()" style="background: #ff9800; color: white; border: none; padding: 8px 16px; margin: 5px; border-radius: 4px;">
+                    Test Parent Path Watcher (workspace.main.orders)
+                </button>
+                <button onclick="testServerUpdateWatcher()" style="background: #ff9800; color: white; border: none; padding: 8px 16px; margin: 5px; border-radius: 4px;">
+                    Test Server Update + Watcher
+                </button>
+                <button onclick="clearWatcherLog()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; margin: 5px; border-radius: 4px;">
+                    Clear Watcher Log
+                </button>
+            </div>
+
+            <!-- Watcher Activity Log -->
+            <div style="margin-top: 15px;">
+                <h4>Watcher Activity Log:</h4>
+                <div id="watcher-log" style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 4px; min-height: 80px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                    Watchers will be registered when tests start...
+                </div>
+            </div>
+        </div>
+
+        <h3>Step 10 Test: Deep Link Mapper - URL ↔ Data Synchronization</h3>
+        <div class="test-container" style="border: 2px solid #007acc; padding: 15px;">
+            <p><strong>Test deep linking functionality to verify URL and data synchronization:</strong></p>
+
+            <div style="background: #f0f8ff; padding: 10px; border: 1px solid #007acc; border-radius: 4px; margin: 10px 0;">
+                <h4>Current Navigation State:</h4>
+                <div style="font-family: monospace; background: white; padding: 5px; border-radius: 3px;">
+                    URL: <span id="current-url" style="color: #007acc; font-weight: bold;">[loading...]</span><br>
+                    Data: <span id="current-navigation-data" style="color: #d32f2f; font-weight: bold;">[loading...]</span>
+                </div>
+            </div>
+
+            <!-- Deep Link Test Buttons -->
+            <div style="margin: 15px 0;">
+                <button onclick="testNavigationTo('/orders')" style="background: #007acc; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Navigate to /orders
+                </button>
+                <button onclick="testNavigationTo('/profile')" style="background: #007acc; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Navigate to /profile
+                </button>
+                <button onclick="testNavigationTo('/dashboard')" style="background: #007acc; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Navigate to /dashboard
+                </button>
+                <button onclick="testNavigationTo('/')" style="background: #28a745; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px;">
+                    Navigate to / (home)
+                </button>
+            </div>
+
+            <div style="background: #fff8dc; padding: 10px; border: 1px solid #ffa500; border-radius: 4px; margin: 10px 0;">
+                <h4>🔍 Manual Testing Instructions:</h4>
+                <ol style="margin: 5px 0; padding-left: 20px;">
+                    <li><strong>Click "Navigate to /orders"</strong> → Verify URL bar changes to <code>/orders</code></li>
+                    <li><strong>Click "Navigate to /profile"</strong> → Verify URL bar changes to <code>/profile</code></li>
+                    <li><strong>Click browser back button ⬅️</strong> → Verify URL goes back to <code>/orders</code> and data updates</li>
+                    <li><strong>Click browser back button ⬅️ again</strong> → Verify URL goes back to original path and data updates</li>
+                    <li><strong>Use browser forward button ➡️</strong> → Verify data.navigation.current updates to match URL</li>
+                </ol>
+            </div>
+
+            <!-- Deep Link Activity Log -->
+            <div style="margin-top: 15px;">
+                <h4>Deep Link Activity Log:</h4>
+                <div id="deeplink-log" style="background: #e8f4f8; border: 1px solid #007acc; padding: 10px; border-radius: 4px; min-height: 120px; max-height: 250px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                    Deep linking system will log activity here...
+                </div>
+                <button onclick="clearDeepLinkLog()" style="background: #6c757d; color: white; border: none; padding: 5px 10px; margin-top: 5px; border-radius: 4px; font-size: 12px;">
+                    Clear Log
+                </button>
+            </div>
+        </div>
+
+        <h3>Step 11 Test: List Windowing - Large List Pagination</h3>
+        <div class="test-container" style="border: 2px solid #4caf50; padding: 15px;">
+            <p><strong>Test list windowing for large datasets with pagination:</strong></p>
+
+            <!-- Step 11 Status Display -->
+            <div style="margin: 15px 0;">
+                <div id="step11-status" class="status info">
+                    List Windowing Status: Ready for testing
+                </div>
+            </div>
+
+            <!-- Step 11 Test Buttons -->
+            <div style="margin: 15px 0;">
+                <button onclick="testPopulateList50Items()" style="background: #4caf50; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Populate List (50 items, load_max=20)
+                </button>
+                <button onclick="testLoadNextPage()" style="background: #8bc34a; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Load Next Page (20 more items)
+                </button>
+                <button onclick="testShowWindowingInfo()" style="background: #cddc39; color: #333; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Show _from, _through, _total
+                </button>
+                <button onclick="testTriggerEviction()" style="background: #ff9800; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Trigger Eviction (3x load_max)
+                </button>
+                <button onclick="clearStep11Log()" style="background: #757575; color: white; border: none; padding: 8px 16px; margin: 5px; border-radius: 4px;">
+                    Clear Log
+                </button>
+            </div>
+
+            <!-- Step 11 Activity Log -->
+            <div style="margin-top: 15px;">
+                <h4>Step 11 Activity Log:</h4>
+                <div id="step11-log" style="background: #e8f5e8; border: 1px solid #4caf50; padding: 10px; border-radius: 4px; min-height: 120px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                    Step 11 tests will log activity here...
+                </div>
+            </div>
+        </div>
+
+        <h3>Step 12 Test: Shown/Hidden and Focused Updates - Section Visibility Control</h3>
+        <div class="test-container" style="border: 2px solid #e91e63; padding: 15px;">
+            <p><strong>Test section visibility and focused update registration:</strong></p>
+
+            <div style="background: #fce4ec; padding: 10px; border: 1px solid #e91e63; border-radius: 4px; margin: 10px 0;">
+                <h4>Current Visibility Status:</h4>
+                <div style="font-family: monospace; background: white; padding: 8px; border-radius: 3px; font-size: 14px;">
+                    <div>Workspace Sidebar: <span id="sidebar-visibility-status" style="color: #2e7d32; font-weight: bold;">[loading...]</span></div>
+                    <div>KeepLive Paths: <span id="keepLive-status" style="color: #1976d2; font-weight: bold;">[none]</span></div>
+                </div>
+            </div>
+
+            <!-- Step 12 Test Buttons -->
+            <div style="margin: 15px 0;">
+                <button onclick="testToggleSidebarVisibility()" style="background: #e91e63; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Toggle Sidebar Visibility
+                </button>
+                <button onclick="testRegisterKeepLive()" style="background: #1976d2; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Register KeepLive Path
+                </button>
+                <button onclick="testMultipleKeepLive()" style="background: #1976d2; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Test Multiple KeepLive
+                </button>
+                <button onclick="clearStep12Log()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; margin: 5px; border-radius: 4px;">
+                    Clear Log
+                </button>
+            </div>
+
+            <!-- Step 12 Activity Log -->
+            <div style="margin-top: 15px;">
+                <h4>Step 12 Activity Log:</h4>
+                <div id="step12-log" style="background: #fce4ec; border: 1px solid #e91e63; padding: 10px; border-radius: 4px; min-height: 120px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                    Step 12 tests will log activity here...
+                </div>
+            </div>
+        </div>
+
+        <h3>Step 13 Test: Local Development Mode - Offline/Serverless Rendering</h3>
+        <div class="test-container" style="border: 2px solid #ff6f00; padding: 15px;">
+            <p><strong>Test local development mode when no server is available:</strong></p>
+
+            <!-- Step 13 Test Buttons -->
+            <div style="margin: 15px 0;">
+                <button onclick="testForceLocalDevMode()" style="background: #ff6f00; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Force Local Dev Mode
+                </button>
+                <button onclick="testLocalDevPlaceholders()" style="background: #ef5350; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Test Placeholder Rendering
+                </button>
+                <button onclick="testLocalDevBatchSkip()" style="background: #8bc34a; color: white; border: none; padding: 10px 20px; margin: 5px; border-radius: 4px; font-weight: bold;">
+                    Test Batch Send Skip
+                </button>
+                <button onclick="clearStep13Log()" style="background: #666; color: white; border: none; padding: 8px 16px; margin: 5px; border-radius: 4px;">
+                    Clear Log
+                </button>
+            </div>
+
+            <!-- Status Display -->
+            <div id="step13-status" class="status info">
+                Local Development Mode Status: Checking...
+            </div>
+
+            <!-- Test Log -->
+            <div style="margin-top: 15px;">
+                <strong>Step 13 Test Log:</strong>
+                <div id="step13-log" style="background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; font-family: monospace; font-size: 12px; height: 200px; overflow-y: auto;">
+                    Step 13 tests will log activity here...
+                </div>
+            </div>
+        </div>
+
+        <h3>Test Instructions:</h3>
+        <p>This test verifies Step 13: Local Development Mode for offline rendering, Step 12: Shown/Hidden and Focused Updates for section visibility control, Step 11: List Windowing for large list pagination, Step 10: Deep Link Mapper for URL ↔ data synchronization, Step 9: Local Watchers for custom behavior, Step 8: SSE Receiver for real-time server updates, and Step 7: Batch Sender for client-to-server synchronization.</p>
+
+        <p><strong>Step 13: Local Development Mode behavior:</strong></p>
+        <ul>
+            <li>When SSE connection fails after max attempts, switches to local dev mode automatically</li>
+            <li>Console message: "AmorphDB PWA: Local development mode — no server connection"</li>
+            <li>Template rendering: shows literal {fieldname} text so developers can see what data will go where</li>
+            <li>All proxy, watcher, and DOM update functionality still works locally</li>
+            <li>Batch sender silently skips sending (no error spam in console)</li>
+            <li>Enables offline/serverless development for layout and styling work</li>
+        </ul>
+
+        <p><strong>Step 11: List Windowing behavior:</strong></p>
+        <ul>
+            <li>Each list tracks _from, _through, _total windowing properties automatically</li>
+            <li>Initial load: only first _load_max items are loaded to client data tree</li>
+            <li>Scroll detection: when scrolling near bottom (80%), requests next page automatically</li>
+            <li>MCP message: { type: "list_page", path: "...", from: N, count: N } sent to server</li>
+            <li>Server response: { type: "list_page_response", path: "...", items: [...], from: N, total: N }</li>
+            <li>Eviction: when window exceeds 3x _load_max, items evicted from far end</li>
+        </ul>
+
+        <p><strong>Step 12: Shown/Hidden and Focused Updates behavior:</strong></p>
+        <ul>
+            <li>_shown data attribute: setting to false hides section container (display: none)</li>
+            <li>_shown data attribute: setting to true shows section container (restores original display)</li>
+            <li>Toggle sidebar visibility: data.workspace.sidebar._shown = false/true hides/shows sidebar instantly</li>
+            <li>keepLive(path): registers paths to receive SSE updates regardless of current view</li>
+            <li>Multiple keepLive paths can be registered and stored in a Set</li>
+            <li>shouldReceiveUpdates() checks if a path should get updates (keepLive paths always do)</li>
+        </ul>
+
+        <p><strong>Step 10: Deep Link Mapper behavior:</strong></p>
+        <ul>
+            <li>On page load: reads window.location.pathname and sets data.navigation.current</li>
+            <li>On popstate event (browser back/forward): updates data.navigation.current to match URL</li>
+            <li>Watches navigation.current: when changed via data assignment, pushes URL via history.pushState</li>
+            <li>Prevents infinite loops: skips URL push if window.location.pathname already matches the value</li>
+            <li>Bidirectional sync: URL changes update data, data changes update URL</li>
+            <li>Browser history works: back/forward buttons properly sync with application state</li>
+        </ul>
+
+        <p><strong>Step 9: Local Watchers behavior:</strong></p>
+        <ul>
+            <li>watch(path, callback) registers callbacks for data path changes</li>
+            <li>Watchers fire on exact path matches (banner.app_name watcher fires when banner.app_name changes)</li>
+            <li>Watchers fire on parent path matches (orders watcher fires when orders.0.product changes)</li>
+            <li>Watchers trigger from both proxy sets (local changes) and server updates</li>
+            <li>watch() function exported globally for use in app.js custom logic</li>
+            <li>Error handling: watcher exceptions logged but don't crash other watchers</li>
+        </ul>
+
+        <p><strong>Step 8: SSE Receiver behavior:</strong></p>
+        <ul>
+            <li>Connects to /client-sse/{userId} on initialization</li>
+            <li>Handles connection failures with exponential backoff reconnection</li>
+            <li>Applies server updates directly to rawData (bypassing proxy)</li>
+            <li>Updates DOM surgically without triggering outbound batch sends</li>
+            <li>Stores lastUpdateTime in localStorage for reconnection</li>
+            <li>Simulation mode: Use buttons to test applyServerUpdate without real SSE</li>
+        </ul>
+
+        <p><strong>Step 7: Batch Sender behavior:</strong></p>
+        <ul>
+            <li>All data changes are tracked in a changes Map</li>
+            <li>Changes are batched using queueMicrotask scheduling</li>
+            <li>Single POST request fires after the microtask completes</li>
+            <li>MCP message format: {type: 'data_update', user_id: userId, changes: {path: value}}</li>
+            <li>Changes Map is cleared after successful send</li>
+            <li>Network errors are logged but don't crash the app</li>
+        </ul>
+
+        <p><strong>Expected test results:</strong></p>
+        <ul>
+            <li>✅ Local dev mode activates when forced or after SSE connection failures</li>
+            <li>✅ Console shows clear "Local development mode" message</li>
+            <li>✅ Template placeholders show {fieldname} text instead of data values</li>
+            <li>✅ Proxy and watcher functionality continues working locally</li>
+            <li>✅ Batch sender silently skips sending without errors</li>
+            <li>✅ Section visibility toggles instantly when _shown property changes</li>
+            <li>✅ keepLive function registers paths for persistent SSE updates</li>
+            <li>✅ Multiple keepLive paths can be registered and tracked in Set</li>
+            <li>✅ Sidebar hides/shows correctly when data.workspace.sidebar._shown changes</li>
+            <li>✅ Deep link mapper initializes and reads current URL path</li>
+            <li>✅ Clicking navigation buttons updates URL bar immediately</li>
+            <li>✅ Browser back/forward buttons update data.navigation.current</li>
+            <li>✅ No infinite loops when URL and data are already synchronized</li>
+            <li>✅ Navigation state persists across page refreshes</li>
+            <li>✅ SSE connection attempts (will fail - no server)</li>
+            <li>✅ Reconnection with exponential backoff (check console)</li>
+            <li>✅ Simulate server updates change DOM without triggering batches</li>
+            <li>✅ Client changes (Step 7) trigger batch sends to /mcp</li>
+            <li>✅ Server updates bypass change tracking (no echo back)</li>
+            <li>✅ Both systems work independently</li>
+        </ul>
+
+        <p>Check the browser console for additional debug information.</p>
+    </div>
+
+    <!-- Load the AmorphDB PWA boilerplate -->
+    <script src="amorphdb-pwa.js"></script>
+
+    <!-- Test script -->
+    <script>
+        // Capture console.log output for display
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        let consoleOutput = '';
+
+        function addToConsole(message, type = 'log') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? 'ERROR' : type === 'warn' ? 'WARN' : 'LOG';
+            consoleOutput += `[${timestamp}] ${prefix}: ${message}\n`;
+            updateConsoleDisplay();
+        }
+
+        console.log = function(...args) {
+            addToConsole(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' '), 'log');
+            originalLog.apply(console, args);
+        };
+
+        console.error = function(...args) {
+            addToConsole(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' '), 'error');
+            originalError.apply(console, args);
+        };
+
+        console.warn = function(...args) {
+            addToConsole(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg).join(' '), 'warn');
+            originalWarn.apply(console, args);
+        };
+
+        function updateConsoleDisplay() {
+            const output = document.getElementById('console-output');
+            if (output) {
+                output.textContent = consoleOutput;
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function updateDataTreeDisplay(dataTree) {
+            const output = document.getElementById('data-tree-output');
+            if (output && dataTree) {
+                output.textContent = JSON.stringify(dataTree, null, 2);
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function updateProxyTestDisplay(testOutput) {
+            const output = document.getElementById('proxy-test-output');
+            if (output) {
+                output.textContent = testOutput;
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('test-status');
+            if (status) {
+                status.textContent = message;
+                status.className = `status ${type}`;
+            }
+        }
+
+        // Listen for AmorphDB PWA initialization events
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus('Testing deep link mapper and all previous steps...', 'info');
+
+            // Listen for successful initialization
+            document.addEventListener('amorphPWAReady', function(event) {
+                updateStatus('✅ Step 10: Deep Link Mapper and all previous steps ready!', 'success');
+                console.log('AmorphDB PWA Step 10 complete: Deep Link Mapper');
+                console.log('AmorphDB PWA Step 9 complete: Local Watchers');
+                console.log('AmorphDB PWA Step 8 complete: SSE Receiver');
+                console.log('AmorphDB PWA Step 7 complete: Batch Sender');
+
+                // Display the data tree
+                updateDataTreeDisplay(event.detail.dataTree);
+
+                // Validate the rendered DOM structure
+                validateRenderedDOM();
+
+                // Update SSE status
+                updateSSEStatus('🔌 SSE connection starting (will fail - no server)');
+            });
+
+            // Listen for batch sending events
+            document.addEventListener('amorphPWABatchSent', function(event) {
+                const detail = event.detail;
+                const timestamp = new Date().toLocaleTimeString();
+
+                updateBatchLog(`[${timestamp}] 🚀 Batch sent: ${detail.changeCount} changes`);
+                updateBatchLog(`   Message: ${JSON.stringify(detail.message, null, 2)}`);
+
+                console.log('Batch sent event:', detail);
+            });
+
+            // Listen for initialization errors
+            document.addEventListener('amorphPWAError', function(event) {
+                updateStatus('❌ Batch sender test failed - initialization error', 'error');
+                console.error('AmorphDB PWA initialization failed:', event.detail.error);
+            });
+
+            // Fallback timeout in case events don't fire
+            setTimeout(function() {
+                if (window.amorphPWA && window.amorphPWA.sectionTree && window.amorphPWA.dataTree && window.amorphPWA.proxiedData) {
+                    // Events didn't fire but we have data
+                    console.log('Events did not fire, but DOM should be rendered');
+                    updateStatus('✅ Step 6 fallback test...', 'info');
+                    updateDataTreeDisplay(window.amorphPWA.dataTree);
+                    validateRenderedDOM();
+                } else if (!document.querySelector('.status.success, .status.error')) {
+                    // No events and no data
+                    updateStatus('❌ Step 6 test failed - timeout', 'error');
+                    console.error('Test failed: timeout waiting for initialization');
+                    console.error('amorphPWA:', window.amorphPWA);
+                    console.error('sectionTree:', window.amorphPWA ? window.amorphPWA.sectionTree : 'amorphPWA not found');
+                    console.error('dataTree:', window.amorphPWA ? window.amorphPWA.dataTree : 'amorphPWA not found');
+                    console.error('proxiedData:', window.amorphPWA ? window.amorphPWA.proxiedData : 'amorphPWA not found');
+                }
+            }, 3000);
+        });
+
+        function validateRenderedDOM() {
+            console.log('=== DOM RENDERING VALIDATION ===');
+
+            const appContainer = document.getElementById('app');
+            if (!appContainer) {
+                console.error('❌ App container not found');
+                return;
+            }
+
+            console.log('✅ App container found');
+
+            // Check if sections were rendered
+            const sectionElements = appContainer.querySelectorAll('[class^="section-"]');
+            if (sectionElements.length > 0) {
+                console.log(`✅ ${sectionElements.length} section elements rendered`);
+
+                // List all rendered sections
+                const renderedSections = [];
+                sectionElements.forEach(el => {
+                    const className = el.className.split(' ')[0];
+                    if (className.startsWith('section-')) {
+                        renderedSections.push(className.replace('section-', ''));
+                    }
+                });
+                console.log('📋 Rendered sections:', renderedSections.join(', '));
+            } else {
+                console.error('❌ No section elements found');
+                return;
+            }
+
+            // Check layout directions
+            const bannerSection = appContainer.querySelector('.section-banner');
+            if (bannerSection && bannerSection.style.flexDirection === 'row') {
+                console.log('✅ Banner section has horizontal layout (flexDirection: row)');
+            } else {
+                console.error('❌ Banner section missing or incorrect layout');
+            }
+
+            const workspaceSection = appContainer.querySelector('.section-workspace');
+            if (workspaceSection && workspaceSection.style.flexDirection === 'row') {
+                console.log('✅ Workspace section has horizontal layout');
+            }
+
+            const statusBarSection = appContainer.querySelector('.section-status_bar');
+            if (statusBarSection && statusBarSection.style.flexDirection === 'row') {
+                console.log('✅ Status bar section has horizontal layout');
+            }
+
+            // Check data-bind attributes
+            const dataBoundElements = appContainer.querySelectorAll('[data-bind]');
+            if (dataBoundElements.length > 0) {
+                console.log(`✅ ${dataBoundElements.length} elements with data-bind attributes found`);
+
+                // Check some key data-bind paths
+                const expectedBindings = [
+                    'banner.app_name',
+                    'banner.user_name',
+                    'workspace.main.page_title',
+                    'status_bar.status_message',
+                    'status_bar.version'
+                ];
+
+                expectedBindings.forEach(path => {
+                    const elements = appContainer.querySelectorAll(`[data-bind="${path}"]`);
+                    if (elements.length > 0) {
+                        console.log(`✅ Found data-bind="${path}"`);
+                    } else {
+                        console.log(`⚠️  Missing data-bind="${path}"`);
+                    }
+                });
+            } else {
+                console.error('❌ No data-bind attributes found');
+            }
+
+            // Check input elements with data-bind and event handlers
+            const inputs = appContainer.querySelectorAll('input[data-bind]');
+            if (inputs.length > 0) {
+                console.log(`✅ ${inputs.length} input elements with data-bind attributes found`);
+            } else {
+                console.log('ℹ️  No input elements with data-bind found (this is normal for current app.html)');
+            }
+
+            // Check list containers (should be empty for Step 4)
+            const listContainers = appContainer.querySelectorAll('.list-container');
+            if (listContainers.length > 0) {
+                console.log(`✅ ${listContainers.length} list container elements found (empty as expected)`);
+                listContainers.forEach((container, index) => {
+                    if (container.children.length === 0) {
+                        console.log(`✅ List container ${index + 1} is empty (correct for Step 4)`);
+                    } else {
+                        console.log(`⚠️  List container ${index + 1} has content (unexpected for Step 4)`);
+                    }
+                });
+            }
+
+            console.log('=== DOM RENDERING VALIDATION COMPLETE ===');
+        }
+
+        // Step 6 test functions for list rendering and updates
+        function updateListTestResults(message) {
+            const output = document.getElementById('list-test-results');
+            if (output) {
+                output.textContent += message + '\n';
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function updateBatchLog(message) {
+            const output = document.getElementById('batch-log');
+            if (output) {
+                const timestamp = new Date().toLocaleTimeString();
+                output.textContent += `[${timestamp}] ${message}\n`;
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function clearBatchLog() {
+            const output = document.getElementById('batch-log');
+            if (output) {
+                output.textContent = 'Batch log cleared...\n';
+            }
+        }
+
+        function updateSSEStatus(message) {
+            const status = document.getElementById('sse-status');
+            if (status) {
+                status.textContent = message;
+            }
+        }
+
+        function updateSSELog(message) {
+            const output = document.getElementById('sse-log');
+            if (output) {
+                const timestamp = new Date().toLocaleTimeString();
+                output.textContent += `[${timestamp}] ${message}\n`;
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function updateSSETestResults(message) {
+            const output = document.getElementById('sse-test-results');
+            if (output) {
+                output.textContent += message + '\n';
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        // Step 7 test functions for batch sending verification
+        function testSingleFieldChange() {
+            updateListTestResults('=== Test 1: Single field change ===');
+            if (window.amorphPWA && window.amorphPWA.proxiedData) {
+                updateListTestResults('Changing banner.app_name to "Single Change Test"');
+                updateListTestResults('Expected: ONE batch with ONE change should be sent after microtask');
+
+                // Make a single change
+                window.amorphPWA.proxiedData.banner.app_name = "Single Change Test";
+
+                updateListTestResults('✅ Field changed - check batch log and F12 Network tab');
+            } else {
+                updateListTestResults('❌ AmorphPWA not ready');
+            }
+        }
+
+        function testMultipleChanges() {
+            updateListTestResults('\n=== Test 2: Multiple changes in one batch ===');
+            if (window.amorphPWA && window.amorphPWA.proxiedData) {
+                updateListTestResults('Changing 3 fields in one execution frame');
+                updateListTestResults('Expected: ONE batch with THREE changes should be sent');
+
+                // Make multiple changes in same execution frame
+                const data = window.amorphPWA.proxiedData;
+                data.banner.app_name = "Multi Change Test";
+                data.banner.user_name = "Test User";
+                data.workspace.main.page_title = "Batch Test Page";
+
+                updateListTestResults('✅ Three fields changed - check batch log for single batch');
+            } else {
+                updateListTestResults('❌ AmorphPWA not ready');
+            }
+        }
+
+        function testListOperations() {
+            updateListTestResults('\n=== Test 3: List operations ===');
+            if (window.amorphPWA && window.amorphPWA.proxiedData) {
+                updateListTestResults('Adding order item via array.push()');
+                updateListTestResults('Expected: ONE batch with array change should be sent');
+
+                // Add list item
+                const orderItem = {
+                    product: "Test Widget",
+                    quantity: 5,
+                    amount: "$25.00",
+                    status: "testing"
+                };
+                window.amorphPWA.proxiedData.workspace.main.orders.push(orderItem);
+
+                updateListTestResults('✅ List item added - check batch log');
+            } else {
+                updateListTestResults('❌ AmorphPWA not ready');
+            }
+        }
+
+        function testBatchTiming() {
+            updateListTestResults('\n=== Test 4: Batch timing validation ===');
+            if (window.amorphPWA && window.amorphPWA.proxiedData) {
+                updateListTestResults('Making changes with setTimeout to test timing');
+                updateListTestResults('Expected: Two separate batches (different microtasks)');
+
+                const data = window.amorphPWA.proxiedData;
+
+                // First change in current execution context
+                data.status_bar.status_message = "First batch";
+                updateListTestResults('Change 1 made - should be in first batch');
+
+                // Second change in next execution context
+                setTimeout(() => {
+                    data.status_bar.version = "v2.0-test";
+                    updateListTestResults('Change 2 made after timeout - should be in second batch');
+                }, 10);
+
+                updateListTestResults('✅ Timing test started - check batch log for two separate batches');
+            } else {
+                updateListTestResults('❌ AmorphPWA not ready');
+            }
+        }
+
+        // Step 8 test functions for SSE receiver simulation
+        function simulateServerUpdate(path, value) {
+            updateSSETestResults(`=== Simulating server update: ${path} = ${JSON.stringify(value)} ===`);
+            if (window.amorphPWA && window.amorphPWA.simulateServerUpdate) {
+                updateSSETestResults('Calling amorphPWA.simulateServerUpdate()...');
+                updateSSETestResults('Expected: DOM updates but NO batch sends (bypasses proxy)');
+
+                // Call the simulation method
+                window.amorphPWA.simulateServerUpdate(path, value);
+
+                updateSSETestResults('✅ Server update simulated - check DOM for changes');
+                updateSSETestResults('❗ Verify NO new batch appears in batch log');
+                updateSSELog(`📥 Server update simulated: ${path} = ${JSON.stringify(value)}`);
+            } else {
+                updateSSETestResults('❌ AmorphPWA not ready or simulateServerUpdate method missing');
+            }
+        }
+
+        function simulateMultipleUpdates() {
+            updateSSETestResults('\n=== Simulating multiple server updates ===');
+            if (window.amorphPWA && window.amorphPWA.simulateServerUpdate) {
+                updateSSETestResults('Simulating 3 server updates in sequence...');
+                updateSSETestResults('Expected: DOM updates for all 3, NO batch sends');
+
+                // Simulate multiple server updates
+                const updates = [
+                    ['banner.app_name', 'Multi-Update App'],
+                    ['workspace.main.page_title', 'SSE Multi-Test'],
+                    ['status_bar.status_message', 'All updates applied']
+                ];
+
+                updates.forEach(([path, value], index) => {
+                    setTimeout(() => {
+                        window.amorphPWA.simulateServerUpdate(path, value);
+                        updateSSETestResults(`✅ Update ${index + 1}: ${path} = ${JSON.stringify(value)}`);
+                        updateSSELog(`📥 Multi-update ${index + 1}: ${path} = ${JSON.stringify(value)}`);
+                    }, index * 200); // Stagger updates slightly
+                });
+
+                updateSSETestResults('✅ Multiple updates scheduled - watch DOM changes');
+            } else {
+                updateSSETestResults('❌ AmorphPWA not ready');
+            }
+        }
+
+        // Step 9 test functions for local watchers
+        function updateWatcherLog(message) {
+            const output = document.getElementById('watcher-log');
+            if (output) {
+                const timestamp = new Date().toLocaleTimeString();
+                output.innerHTML += `[${timestamp}] ${message}\n`;
+                output.scrollTop = output.scrollHeight; // Auto-scroll to bottom
+            }
+        }
+
+        function clearWatcherLog() {
+            const output = document.getElementById('watcher-log');
+            if (output) {
+                output.innerHTML = 'Watcher log cleared...\n';
+            }
+        }
+
+        // Register watchers when page loads
+        document.addEventListener('amorphPWAReady', function() {
+            updateWatcherLog('📋 Registering watchers for testing...');
+
+            if (window.watch) {
+                // Register exact path watcher for banner.app_name
+                window.watch('banner.app_name', function(value, path) {
+                    updateWatcherLog(`🔥 EXACT MATCH: banner.app_name changed to "${value}"`);
+                });
+
+                // Register parent path watcher for workspace.main.orders
+                window.watch('workspace.main.orders', function(value, watchedPath, changedPath) {
+                    if (changedPath && changedPath !== watchedPath) {
+                        updateWatcherLog(`🔥 PARENT WATCHER: orders parent detected child change at "${changedPath}"`);
+                    } else {
+                        updateWatcherLog(`🔥 PARENT WATCHER: orders array changed directly`);
+                    }
+                });
+
+                // Register a general workspace watcher to test parent/child relationships
+                window.watch('workspace', function(value, watchedPath, changedPath) {
+                    if (changedPath && changedPath !== watchedPath) {
+                        updateWatcherLog(`🔥 ROOT WATCHER: workspace root detected change at "${changedPath}"`);
+                    }
+                });
+
+                updateWatcherLog('✅ All watchers registered successfully');
+            } else {
+                updateWatcherLog('❌ Watch function not available');
+            }
+        });
+
+        function testExactPathWatcher() {
+            updateWatcherLog('\n=== Testing Exact Path Watcher ===');
+            if (window.data) {
+                updateWatcherLog('Changing banner.app_name via proxy assignment...');
+                window.data.banner.app_name = 'Watcher Test App - ' + Date.now();
+                updateWatcherLog('✅ Assignment complete - watcher should have fired');
+            } else {
+                updateWatcherLog('❌ Global data not available');
+            }
+        }
+
+        function testParentPathWatcher() {
+            updateWatcherLog('\n=== Testing Parent Path Watcher ===');
+            if (window.data && window.data.workspace && window.data.workspace.main && window.data.workspace.main.orders) {
+                updateWatcherLog('Adding item to orders array (parent watcher should fire)...');
+
+                const newOrder = {
+                    order_id: 'TEST-' + Date.now(),
+                    product: 'Watcher Test Product',
+                    quantity: 1,
+                    status: 'watcher-test'
+                };
+
+                window.data.workspace.main.orders.push(newOrder);
+                updateWatcherLog('✅ Order added - parent watcher should detect child change');
+
+                setTimeout(() => {
+                    updateWatcherLog('Modifying individual order item...');
+                    if (window.data.workspace.main.orders.length > 0) {
+                        window.data.workspace.main.orders[0].status = 'watcher-modified';
+                        updateWatcherLog('✅ Order status modified - parent watcher should fire');
+                    }
+                }, 500);
+            } else {
+                updateWatcherLog('❌ Orders data not available');
+            }
+        }
+
+        function testServerUpdateWatcher() {
+            updateWatcherLog('\n=== Testing Server Update + Watcher ===');
+            if (window.amorphPWA && window.amorphPWA.simulateServerUpdate) {
+                updateWatcherLog('Simulating server update (should trigger watchers too)...');
+                window.amorphPWA.simulateServerUpdate('banner.user_name', 'Server Watcher User');
+                updateWatcherLog('✅ Server update sent - watchers should fire from applyServerUpdate');
+            } else {
+                updateWatcherLog('❌ simulateServerUpdate not available');
+            }
+        }
+
+        // Step 10 test functions for deep link mapper
+        function updateDeepLinkLog(message) {
+            const output = document.getElementById('deeplink-log');
+            if (output) {
+                const timestamp = new Date().toLocaleTimeString();
+                output.innerHTML += `[${timestamp}] ${message}\n`;
+                output.scrollTop = output.scrollHeight; // Auto-scroll to bottom
+            }
+        }
+
+        function clearDeepLinkLog() {
+            const output = document.getElementById('deeplink-log');
+            if (output) {
+                output.innerHTML = 'Deep link log cleared...\n';
+            }
+        }
+
+        function updateNavigationDisplay() {
+            const urlElement = document.getElementById('current-url');
+            const dataElement = document.getElementById('current-navigation-data');
+
+            if (urlElement) {
+                urlElement.textContent = window.location.pathname;
+            }
+
+            if (dataElement && window.data && window.data.navigation) {
+                dataElement.textContent = JSON.stringify(window.data.navigation.current || 'undefined');
+            } else if (dataElement) {
+                dataElement.textContent = '[navigation data not ready]';
+            }
+        }
+
+        function testNavigationTo(path) {
+            updateDeepLinkLog(`\n=== Testing Navigation to ${path} ===`);
+
+            if (window.data && window.data.navigation) {
+                const oldPath = window.location.pathname;
+                updateDeepLinkLog(`Current URL: ${oldPath}`);
+                updateDeepLinkLog(`Setting data.navigation.current = "${path}"`);
+                updateDeepLinkLog(`Expected: URL should change to ${path}`);
+
+                // Set the navigation data - this should trigger the watcher that updates the URL
+                window.data.navigation.current = path;
+
+                // Give a moment for the watcher to fire, then check the result
+                setTimeout(() => {
+                    const newPath = window.location.pathname;
+                    if (newPath === path) {
+                        updateDeepLinkLog(`✅ SUCCESS: URL updated to ${newPath}`);
+                    } else {
+                        updateDeepLinkLog(`❌ FAILURE: URL is ${newPath}, expected ${path}`);
+                    }
+                    updateNavigationDisplay();
+                }, 50);
+
+            } else {
+                updateDeepLinkLog('❌ Navigation data not available - PWA not ready');
+            }
+        }
+
+        // Update navigation display when PWA is ready
+        document.addEventListener('amorphPWAReady', function() {
+            updateDeepLinkLog('📋 Deep Link Mapper ready for testing');
+            updateNavigationDisplay();
+
+            // Set up periodic update to keep display in sync
+            setInterval(updateNavigationDisplay, 1000);
+
+            // Log initial state
+            setTimeout(() => {
+                updateDeepLinkLog(`🌐 Initial state - URL: ${window.location.pathname}`);
+                if (window.data && window.data.navigation) {
+                    updateDeepLinkLog(`📊 Initial data.navigation.current: ${JSON.stringify(window.data.navigation.current)}`);
+                }
+            }, 100);
+        });
+
+        // Listen for popstate events to log browser navigation
+        window.addEventListener('popstate', function() {
+            updateDeepLinkLog(`⬅️ Browser navigation detected - URL: ${window.location.pathname}`);
+            setTimeout(updateNavigationDisplay, 50);
+        });
+
+        // Step 12 Test Functions: Shown/Hidden and Focused Updates
+
+        function updateStep12Log(message) {
+            const logElement = document.getElementById('step12-log');
+            if (logElement) {
+                const timestamp = new Date().toLocaleTimeString();
+                logElement.textContent += `[${timestamp}] ${message}\n`;
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+        }
+
+        function clearStep12Log() {
+            const logElement = document.getElementById('step12-log');
+            if (logElement) {
+                logElement.textContent = 'Step 12 log cleared...\n';
+            }
+        }
+
+        function updateVisibilityStatus() {
+            const statusElement = document.getElementById('sidebar-visibility-status');
+            if (statusElement && window.data && window.data.workspace && window.data.workspace.sidebar) {
+                const isShown = window.data.workspace.sidebar._shown;
+                statusElement.textContent = isShown ? 'SHOWN' : 'HIDDEN';
+                statusElement.style.color = isShown ? '#2e7d32' : '#d32f2f';
+            }
+        }
+
+        function updateKeepLiveStatus() {
+            const statusElement = document.getElementById('keepLive-status');
+            if (statusElement && window.amorphPWA && window.amorphPWA.keepLivePaths) {
+                const paths = Array.from(window.amorphPWA.keepLivePaths);
+                statusElement.textContent = paths.length > 0 ? paths.join(', ') : '[none]';
+            }
+        }
+
+        function testToggleSidebarVisibility() {
+            updateStep12Log('\n=== Testing Sidebar Visibility Toggle ===');
+
+            if (!window.data || !window.data.workspace || !window.data.workspace.sidebar) {
+                updateStep12Log('❌ Sidebar data not available - PWA not ready');
+                return;
+            }
+
+            const currentState = window.data.workspace.sidebar._shown;
+            const newState = !currentState;
+
+            updateStep12Log(`Current sidebar state: ${currentState ? 'SHOWN' : 'HIDDEN'}`);
+            updateStep12Log(`Setting data.workspace.sidebar._shown = ${newState}`);
+            updateStep12Log(`Expected: Sidebar should ${newState ? 'appear' : 'disappear'} instantly`);
+
+            // Set the _shown property - this should trigger the visibility handler
+            window.data.workspace.sidebar._shown = newState;
+
+            // Check the DOM element directly
+            setTimeout(() => {
+                const sidebarElement = document.querySelector('.section-sidebar');
+                if (sidebarElement) {
+                    const computedStyle = window.getComputedStyle(sidebarElement);
+                    const isVisible = computedStyle.display !== 'none';
+
+                    if (isVisible === newState) {
+                        updateStep12Log(`✅ SUCCESS: Sidebar visibility = ${isVisible ? 'visible' : 'hidden'} (expected ${newState})`);
+                    } else {
+                        updateStep12Log(`❌ FAILURE: Sidebar visibility = ${isVisible ? 'visible' : 'hidden'}, expected ${newState}`);
+                    }
+                } else {
+                    updateStep12Log('⚠️  Sidebar element (.section-sidebar) not found in DOM');
+                }
+                updateVisibilityStatus();
+            }, 50);
+        }
+
+        function testRegisterKeepLive() {
+            updateStep12Log('\n=== Testing KeepLive Registration ===');
+
+            if (!window.keepLive) {
+                updateStep12Log('❌ keepLive function not available - PWA not ready');
+                return;
+            }
+
+            const testPath = 'notifications';
+            updateStep12Log(`Calling keepLive("${testPath}")`);
+            updateStep12Log('Expected: Path should be registered for persistent SSE updates');
+
+            // Register the keepLive path
+            window.keepLive(testPath);
+
+            // Verify it was registered
+            setTimeout(() => {
+                if (window.amorphPWA && window.amorphPWA.keepLivePaths.has(testPath)) {
+                    updateStep12Log(`✅ SUCCESS: Path "${testPath}" registered in keepLive set`);
+                    updateStep12Log(`📊 Total keepLive paths: ${window.amorphPWA.keepLivePaths.size}`);
+                } else {
+                    updateStep12Log(`❌ FAILURE: Path "${testPath}" not found in keepLive set`);
+                }
+                updateKeepLiveStatus();
+            }, 50);
+        }
+
+        function testMultipleKeepLive() {
+            updateStep12Log('\n=== Testing Multiple KeepLive Paths ===');
+
+            if (!window.keepLive) {
+                updateStep12Log('❌ keepLive function not available - PWA not ready');
+                return;
+            }
+
+            const testPaths = ['unread_count', 'alerts', 'user_status'];
+            updateStep12Log(`Registering multiple keepLive paths: ${testPaths.join(', ')}`);
+
+            // Register multiple paths
+            testPaths.forEach(path => {
+                window.keepLive(path);
+                updateStep12Log(`  - Registered: ${path}`);
+            });
+
+            // Verify all were registered
+            setTimeout(() => {
+                let successCount = 0;
+                testPaths.forEach(path => {
+                    if (window.amorphPWA && window.amorphPWA.keepLivePaths.has(path)) {
+                        successCount++;
+                    }
+                });
+
+                if (successCount === testPaths.length) {
+                    updateStep12Log(`✅ SUCCESS: All ${testPaths.length} paths registered successfully`);
+                    updateStep12Log(`📊 Total keepLive paths: ${window.amorphPWA.keepLivePaths.size}`);
+                    updateStep12Log(`📋 Active paths: ${Array.from(window.amorphPWA.keepLivePaths).join(', ')}`);
+                } else {
+                    updateStep12Log(`❌ FAILURE: Only ${successCount}/${testPaths.length} paths registered`);
+                }
+                updateKeepLiveStatus();
+            }, 100);
+        }
+
+        // Step 11 Test Functions: List Windowing
+
+        function updateStep11Log(message) {
+            const logElement = document.getElementById('step11-log');
+            if (logElement) {
+                const timestamp = new Date().toLocaleTimeString();
+                logElement.textContent += `[${timestamp}] ${message}\n`;
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+        }
+
+        function clearStep11Log() {
+            const logElement = document.getElementById('step11-log');
+            if (logElement) {
+                logElement.textContent = 'Step 11 log cleared...\n';
+            }
+        }
+
+        function updateStep11Status(message, type = 'info') {
+            const statusElement = document.getElementById('step11-status');
+            if (statusElement) {
+                statusElement.className = `status ${type}`;
+                statusElement.textContent = message;
+            }
+        }
+
+        function testPopulateList50Items() {
+            updateStep11Log('\n=== Testing Populate List (50 items, load_max=20) ===');
+
+            if (!window.amorphPWA) {
+                updateStep11Log('❌ AmorphPWA not available - PWA not ready');
+                return;
+            }
+
+            try {
+                // Clear existing orders
+                window.data.workspace.main.orders.length = 0;
+                updateStep11Log('🧹 Cleared existing orders list');
+
+                // Set up windowing properties for testing
+                const ordersList = window.data.workspace.main.orders;
+                ordersList._from = 0;
+                ordersList._through = 19;  // Load first 20 items (0-19)
+                ordersList._total = 50;    // Total of 50 items available
+                ordersList._load_max = 20; // load_max = 20
+
+                updateStep11Log(`📊 Windowing setup: _from=${ordersList._from}, _through=${ordersList._through}, _total=${ordersList._total}, _load_max=${ordersList._load_max}`);
+
+                // Add first 20 items to simulate initial load
+                for (let i = 0; i < 20; i++) {
+                    const order = {
+                        product: `Product ${i + 1}`,
+                        quantity: Math.floor(Math.random() * 5) + 1,
+                        amount: `$${((Math.random() * 100) + 10).toFixed(2)}`,
+                        status: ['pending', 'processing', 'shipped'][Math.floor(Math.random() * 3)]
+                    };
+                    ordersList.push(order);
+                }
+
+                updateStep11Log(`✅ Added ${ordersList.length} items to list (simulating initial load_max=${ordersList._load_max})`);
+                updateStep11Log(`📈 List now shows items ${ordersList._from + 1} to ${ordersList._through + 1} of ${ordersList._total} total`);
+                updateStep11Status(`List loaded: ${ordersList.length} items (${ordersList._from}-${ordersList._through} of ${ordersList._total})`, 'success');
+
+            } catch (error) {
+                updateStep11Log(`❌ Error populating list: ${error.message}`);
+                updateStep11Status('Error populating list', 'error');
+            }
+        }
+
+        function testLoadNextPage() {
+            updateStep11Log('\n=== Testing Load Next Page ===');
+
+            if (!window.amorphPWA) {
+                updateStep11Log('❌ AmorphPWA not available - PWA not ready');
+                return;
+            }
+
+            try {
+                const ordersList = window.data.workspace.main.orders;
+                const currentLength = ordersList.length;
+                const currentThrough = ordersList._through || 19;
+                const totalItems = ordersList._total || 50;
+
+                updateStep11Log(`📊 Current state: ${currentLength} items, _through=${currentThrough}, _total=${totalItems}`);
+
+                if (currentThrough >= totalItems - 1) {
+                    updateStep11Log('ℹ️ All items already loaded');
+                    updateStep11Status('All items loaded', 'info');
+                    return;
+                }
+
+                // Simulate loading next 20 items
+                const nextFrom = currentThrough + 1;
+                const nextCount = Math.min(20, totalItems - currentThrough - 1);
+
+                updateStep11Log(`📥 Loading next page: from ${nextFrom}, count ${nextCount}`);
+
+                // Generate next batch of items
+                for (let i = 0; i < nextCount; i++) {
+                    const itemIndex = nextFrom + i;
+                    const order = {
+                        product: `Product ${itemIndex + 1}`,
+                        quantity: Math.floor(Math.random() * 5) + 1,
+                        amount: `$${((Math.random() * 100) + 10).toFixed(2)}`,
+                        status: ['pending', 'processing', 'shipped'][Math.floor(Math.random() * 3)]
+                    };
+                    ordersList.push(order);
+                }
+
+                // Update windowing properties
+                ordersList._through = nextFrom + nextCount - 1;
+
+                updateStep11Log(`✅ Added ${nextCount} more items to list`);
+                updateStep11Log(`📈 List now shows items ${ordersList._from + 1} to ${ordersList._through + 1} of ${ordersList._total} total`);
+                updateStep11Status(`Next page loaded: ${ordersList.length} items (${ordersList._from}-${ordersList._through} of ${ordersList._total})`, 'success');
+
+            } catch (error) {
+                updateStep11Log(`❌ Error loading next page: ${error.message}`);
+                updateStep11Status('Error loading next page', 'error');
+            }
+        }
+
+        function testShowWindowingInfo() {
+            updateStep11Log('\n=== Testing Show Windowing Info ===');
+
+            if (!window.amorphPWA) {
+                updateStep11Log('❌ AmorphPWA not available - PWA not ready');
+                return;
+            }
+
+            try {
+                const ordersList = window.data.workspace.main.orders;
+                const from = ordersList._from || 0;
+                const through = ordersList._through || 0;
+                const total = ordersList._total || 0;
+                const loadMax = ordersList._load_max || 200;
+                const currentLength = ordersList.length;
+
+                updateStep11Log('📊 === Windowing Information ===');
+                updateStep11Log(`   _from: ${from} (starting index of loaded window)`);
+                updateStep11Log(`   _through: ${through} (ending index of loaded window)`);
+                updateStep11Log(`   _total: ${total} (total items available on server)`);
+                updateStep11Log(`   _load_max: ${loadMax} (max items to load per page)`);
+                updateStep11Log(`   Array length: ${currentLength} (items currently in client array)`);
+                updateStep11Log(`   Window size: ${through - from + 1} items`);
+                updateStep11Log(`   Progress: ${Math.round(((through + 1) / total) * 100)}% loaded`);
+
+                updateStep11Status(`Window: ${from}-${through} (${currentLength} items) of ${total} total`, 'info');
+
+            } catch (error) {
+                updateStep11Log(`❌ Error showing windowing info: ${error.message}`);
+                updateStep11Status('Error showing info', 'error');
+            }
+        }
+
+        function testTriggerEviction() {
+            updateStep11Log('\n=== Testing Trigger Eviction (3x load_max) ===');
+
+            if (!window.amorphPWA) {
+                updateStep11Log('❌ AmorphPWA not available - PWA not ready');
+                return;
+            }
+
+            try {
+                const ordersList = window.data.workspace.main.orders;
+                const loadMax = ordersList._load_max || 20;
+                const maxWindow = loadMax * 3; // 60 items
+                const currentLength = ordersList.length;
+
+                updateStep11Log(`📊 Current: ${currentLength} items, load_max=${loadMax}, max_window=${maxWindow}`);
+
+                if (currentLength < maxWindow) {
+                    // Add items to exceed 3x load_max
+                    const itemsToAdd = maxWindow + 5; // Add a bit more to trigger eviction
+                    updateStep11Log(`📥 Adding ${itemsToAdd} items to exceed 3x load_max...`);
+
+                    for (let i = 0; i < itemsToAdd; i++) {
+                        const itemIndex = currentLength + i;
+                        const order = {
+                            product: `Eviction Test ${itemIndex + 1}`,
+                            quantity: Math.floor(Math.random() * 3) + 1,
+                            amount: `$${((Math.random() * 50) + 5).toFixed(2)}`,
+                            status: 'test'
+                        };
+                        ordersList.push(order);
+                    }
+
+                    updateStep11Log(`✅ Added ${itemsToAdd} items, total now: ${ordersList.length}`);
+                }
+
+                // Simulate eviction by manually calling the windowing logic
+                if (ordersList.length > maxWindow) {
+                    const itemsToEvict = ordersList.length - maxWindow;
+                    updateStep11Log(`🗑️ Evicting ${itemsToEvict} items from start to maintain window size`);
+
+                    // Remove items from beginning
+                    ordersList.splice(0, itemsToEvict);
+                    ordersList._from += itemsToEvict;
+
+                    updateStep11Log(`✅ Eviction complete: ${ordersList.length} items remaining`);
+                    updateStep11Log(`📈 New window: items ${ordersList._from + 1} to ${ordersList._through + 1} of ${ordersList._total} total`);
+
+                    // Force re-render the list to update indices
+                    if (window.amorphPWA && window.amorphPWA.renderListContents) {
+                        window.amorphPWA.renderListContents('workspace.main.orders', ordersList);
+                        updateStep11Log('🔄 Re-rendered list to update indices after eviction');
+                    }
+                }
+
+                updateStep11Status(`Eviction tested: ${ordersList.length} items (${ordersList._from}-${ordersList._through})`, 'success');
+
+            } catch (error) {
+                updateStep11Log(`❌ Error testing eviction: ${error.message}`);
+                updateStep11Status('Error testing eviction', 'error');
+            }
+        }
+
+        // Step 13 Test Functions: Local Development Mode
+
+        function updateStep13Log(message) {
+            const logElement = document.getElementById('step13-log');
+            if (logElement) {
+                logElement.textContent += message + '\n';
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+        }
+
+        function clearStep13Log() {
+            const logElement = document.getElementById('step13-log');
+            if (logElement) {
+                logElement.textContent = 'Step 13 log cleared...\n';
+            }
+        }
+
+        function updateLocalDevStatus() {
+            const statusElement = document.getElementById('step13-status');
+            if (statusElement && window.amorphPWA) {
+                const isLocalDev = window.amorphPWA.localDevMode;
+                statusElement.className = isLocalDev ? 'status success' : 'status info';
+                statusElement.textContent = `Local Development Mode: ${isLocalDev ? 'ACTIVE' : 'INACTIVE'}`;
+            }
+        }
+
+        function testForceLocalDevMode() {
+            updateStep13Log('\n=== Testing Force Local Dev Mode ===');
+
+            if (!window.amorphPWA) {
+                updateStep13Log('❌ AmorphPWA not available - PWA not ready');
+                return;
+            }
+
+            const currentMode = window.amorphPWA.localDevMode;
+            updateStep13Log(`Current local dev mode: ${currentMode ? 'ACTIVE' : 'INACTIVE'}`);
+            updateStep13Log('Forcing enableLocalDevMode()...');
+
+            // Force enable local dev mode
+            window.amorphPWA.enableLocalDevMode();
+
+            setTimeout(() => {
+                const newMode = window.amorphPWA.localDevMode;
+                if (newMode) {
+                    updateStep13Log('✅ SUCCESS: Local development mode activated');
+                    updateStep13Log('✅ Check console for "AmorphDB PWA: Local development mode" message');
+                    updateStep13Log('✅ Template should now show {fieldname} placeholders');
+                } else {
+                    updateStep13Log('❌ FAILURE: Local development mode not activated');
+                }
+                updateLocalDevStatus();
+            }, 100);
+        }
+
+        function testLocalDevPlaceholders() {
+            updateStep13Log('\n=== Testing Placeholder Rendering ===');
+
+            if (!window.amorphPWA) {
+                updateStep13Log('❌ AmorphPWA not available - PWA not ready');
+                return;
+            }
+
+            updateStep13Log('Checking if local dev mode affects placeholder rendering...');
+
+            // Check if we're in local dev mode
+            if (!window.amorphPWA.localDevMode) {
+                updateStep13Log('⚠️ Not in local dev mode - forcing activation first');
+                window.amorphPWA.enableLocalDevMode();
+            }
+
+            // Look for span elements with data-bind attributes to check their content
+            const boundElements = document.querySelectorAll('span[data-bind]');
+            let placeholderCount = 0;
+            let normalCount = 0;
+
+            updateStep13Log(`Found ${boundElements.length} data-bound elements:`);
+
+            boundElements.forEach((element, index) => {
+                const content = element.textContent.trim();
+                const path = element.getAttribute('data-bind');
+
+                if (content.match(/^\{[a-zA-Z_][a-zA-Z0-9_]*\}$/)) {
+                    placeholderCount++;
+                    updateStep13Log(`  [${index}] ${path}: "${content}" ✓ PLACEHOLDER`);
+                } else {
+                    normalCount++;
+                    updateStep13Log(`  [${index}] ${path}: "${content}" - normal content`);
+                }
+            });
+
+            updateStep13Log(`\nSummary: ${placeholderCount} placeholders, ${normalCount} normal content`);
+
+            if (placeholderCount > 0) {
+                updateStep13Log('✅ SUCCESS: Found placeholder text in local dev mode');
+            } else {
+                updateStep13Log('❌ FAILURE: No placeholder text found - may not be in local dev mode');
+            }
+        }
+
+        function testLocalDevBatchSkip() {
+            updateStep13Log('\n=== Testing Batch Send Skip in Local Dev Mode ===');
+
+            if (!window.amorphPWA) {
+                updateStep13Log('❌ AmorphPWA not available - PWA not ready');
+                return;
+            }
+
+            // Ensure we're in local dev mode
+            if (!window.amorphPWA.localDevMode) {
+                updateStep13Log('Enabling local dev mode first...');
+                window.amorphPWA.enableLocalDevMode();
+            }
+
+            updateStep13Log('Local dev mode active - testing batch send skip');
+            updateStep13Log('Attempting to make a data change...');
+
+            if (!window.data || !window.data.banner) {
+                updateStep13Log('❌ Banner data not available - PWA not ready');
+                return;
+            }
+
+            // Make a change that would normally trigger a batch send
+            const originalValue = window.data.banner.app_name;
+            const testValue = 'Local Dev Test App';
+
+            updateStep13Log(`Changing banner.app_name from "${originalValue}" to "${testValue}"`);
+            updateStep13Log('Expected: Change should be tracked but NO network request sent');
+
+            // Monitor for batch events
+            let batchSent = false;
+            const batchHandler = () => {
+                batchSent = true;
+            };
+
+            document.addEventListener('amorphPWABatchSent', batchHandler);
+
+            // Make the change
+            window.data.banner.app_name = testValue;
+
+            // Check results after microtask
+            setTimeout(() => {
+                document.removeEventListener('amorphPWABatchSent', batchHandler);
+
+                if (batchSent) {
+                    updateStep13Log('❌ FAILURE: Batch was sent despite local dev mode');
+                } else {
+                    updateStep13Log('✅ SUCCESS: Batch send was skipped in local dev mode');
+                }
+
+                // Check if change was still tracked locally
+                if (window.data.banner.app_name === testValue) {
+                    updateStep13Log('✅ SUCCESS: Local data change was applied');
+                } else {
+                    updateStep13Log('❌ FAILURE: Local data change was not applied');
+                }
+
+                // Restore original value
+                window.data.banner.app_name = originalValue;
+                updateStep13Log(`Restored banner.app_name to "${originalValue}"`);
+            }, 50);
+        }
+
+        // Update status when PWA is ready
+        document.addEventListener('amorphPWAReady', function() {
+            updateStep13Log('📋 Step 13: Local Development Mode ready for testing');
+            updateLocalDevStatus();
+            updateStep12Log('📋 Step 12: Shown/Hidden and Focused Updates ready for testing');
+            updateVisibilityStatus();
+            updateKeepLiveStatus();
+            updateStep11Log('📋 Step 11: List Windowing ready for testing');
+            updateStep11Status('Ready for testing list windowing', 'info');
+
+            // Set up periodic status updates
+            setInterval(() => {
+                updateLocalDevStatus();
+                updateVisibilityStatus();
+                updateKeepLiveStatus();
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

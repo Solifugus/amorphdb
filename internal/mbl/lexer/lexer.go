@@ -406,11 +406,12 @@ func (l *Lexer) handleIndentation() Token {
 	currentLevel := l.indentStack[len(l.indentStack)-1]
 
 	if indentLevel > currentLevel {
-		// Increased indentation - add all intermediate levels
-		// This ensures proper DEDENT count when jumping back multiple levels
-		for level := currentLevel + 1; level <= indentLevel; level++ {
-			l.indentStack = append(l.indentStack, level)
-		}
+		// Increased indentation - push exactly one new level and emit a single
+		// INDENT. A jump of several columns (e.g. 0 -> 2 tabs) is still one block
+		// opening, so it must produce one INDENT matched by one DEDENT on close.
+		// Pushing intermediate levels here would emit one INDENT but multiple
+		// DEDENTs, unbalancing the token stream and breaking block parsing.
+		l.indentStack = append(l.indentStack, indentLevel)
 		return Token{Type: INDENT, Literal: "", Line: l.line, Column: l.column, Position: startPos}
 	} else if indentLevel < currentLevel {
 		// Decreased indentation - may need multiple DEDENTs
@@ -630,9 +631,9 @@ func (l *Lexer) readMoneyLiteral() string {
 }
 
 // readComment reads a comment according to the spec:
-// - Single # comments to end of line or to a closing # on the same line
-// - Two or more adjacent # characters open a block comment that terminates
-//   at the next occurrence of the same number of adjacent # characters
+//   - Single # comments to end of line or to a closing # on the same line
+//   - Two or more adjacent # characters open a block comment that terminates
+//     at the next occurrence of the same number of adjacent # characters
 func (l *Lexer) readComment() Token {
 	position := l.position
 
@@ -707,8 +708,6 @@ func (l *Lexer) readComment() Token {
 	}
 }
 
-
-
 // isStandaloneModifier checks if this looks like a standalone modifier (word) not a function call
 func (l *Lexer) isStandaloneModifier() bool {
 	if l.ch != '(' {
@@ -748,6 +747,18 @@ func (l *Lexer) isStandaloneModifier() bool {
 	wordTrimmed := strings.TrimSpace(word)
 	if strings.HasPrefix(wordTrimmed, "reset ") {
 		return true
+	}
+
+	// A '(' that immediately follows an identifier character is a function
+	// call's argument list (e.g. foo(x)), not a standalone modifier. Known
+	// modifiers were already handled above (so new(copy) still works); only
+	// the extensible "unknown modifier" path below must avoid swallowing a
+	// single-identifier call argument like (x) into one IDENT token.
+	if l.position > 0 {
+		prev := l.input[l.position-1]
+		if prev == '_' || unicode.IsLetter(rune(prev)) || unicode.IsDigit(rune(prev)) {
+			return false
+		}
 	}
 
 	// Allow unknown modifiers if they are valid identifier words (no dots, spaces, quotes, or numbers)
@@ -866,4 +877,3 @@ func isLetter(ch rune) bool {
 func isDigit(ch rune) bool {
 	return ch >= '0' && ch <= '9'
 }
-

@@ -50,13 +50,13 @@ func TestSecurityIntegration_CompleteWorkflow(t *testing.T) {
 
 	// Set personal stamps
 	stampManager.SetPersonalStamp(map[string]interface{}{
-		"role":      types.Text{Value: "engineer"},
-		"timezone":  types.Text{Value: "America/New_York"},
+		"role":     types.Text{Value: "engineer"},
+		"timezone": types.Text{Value: "America/New_York"},
 	}, engineerID)
 
 	stampManager.SetPersonalStamp(map[string]interface{}{
-		"role":      types.Text{Value: "manager"},
-		"timezone":  types.Text{Value: "America/Los_Angeles"},
+		"role":     types.Text{Value: "manager"},
+		"timezone": types.Text{Value: "America/Los_Angeles"},
 	}, managerID)
 
 	// Set hierarchical stamps
@@ -79,13 +79,15 @@ func TestSecurityIntegration_CompleteWorkflow(t *testing.T) {
 	permEval.SetPermission(secretsPath, WritePermission, types.Text{Value: "(Nothing)"}, adminID)
 
 	// === SETUP FILTERS ===
+	// Per spec (§Filters), a filter HIDES data matching its criteria.
 
-	// Engineer only wants to see internal clearance data
-	engineerFilter := CreateClearanceFilter([]string{"internal"})
+	// Engineer hides public-clearance reports to focus on sensitive material.
+	engineerFilter := CreateClearanceFilter([]string{"public"})
 	filterManager.SetFilter(engineerFilter, engineerID)
 
-	// Manager wants to see all clearance levels
-	managerFilter := CreateClearanceFilter([]string{"public", "internal", "admin"})
+	// Manager filters out only a clearance level not present in this data set,
+	// so the manager continues to see every report.
+	managerFilter := CreateClearanceFilter([]string{"restricted"})
 	filterManager.SetFilter(managerFilter, managerID)
 
 	// === TEST DATA WITH STAMPS ===
@@ -148,17 +150,22 @@ func TestSecurityIntegration_CompleteWorkflow(t *testing.T) {
 		t.Fatalf("Failed to get engineer view: %v", err)
 	}
 
-	// Engineer should only see internal_report (clearance: internal)
-	if len(engineerView) != 1 {
-		t.Errorf("Engineer should see 1 item, got %d", len(engineerView))
+	// Engineer's filter hides public clearance, so the public_report is gone but
+	// the internal_report and secret_document remain visible.
+	if len(engineerView) != 2 {
+		t.Errorf("Engineer should see 2 items, got %d", len(engineerView))
 	}
 
 	if _, exists := engineerView["internal_report"]; !exists {
 		t.Error("Engineer should see internal_report")
 	}
 
+	if _, exists := engineerView["secret_document"]; !exists {
+		t.Error("Engineer should see secret_document")
+	}
+
 	if _, exists := engineerView["public_report"]; exists {
-		t.Error("Engineer should NOT see public_report (filter excludes public)")
+		t.Error("Engineer should NOT see public_report (filter hides public clearance)")
 	}
 
 	// Manager's filtered view (all clearance levels)
@@ -167,7 +174,7 @@ func TestSecurityIntegration_CompleteWorkflow(t *testing.T) {
 		t.Fatalf("Failed to get manager view: %v", err)
 	}
 
-	// Manager should see all 3 items (filter allows all clearance levels)
+	// Manager's filter hides only an absent clearance level, so all 3 remain.
 	if len(managerView) != 3 {
 		t.Errorf("Manager should see 3 items, got %d", len(managerView))
 	}
@@ -208,9 +215,9 @@ func TestSecurityIntegration_CompleteWorkflow(t *testing.T) {
 	// Get filtered view of the data
 	engineerFiltered, _ := filterManager.FilterVisible(engineer, dataInstances)
 
-	// Verify engineer gets the right view
-	if len(engineerFiltered) != 1 {
-		t.Errorf("Engineer's complete workflow should show 1 item, got %d", len(engineerFiltered))
+	// Verify engineer gets the right view (public hidden, two reports visible)
+	if len(engineerFiltered) != 2 {
+		t.Errorf("Engineer's complete workflow should show 2 items, got %d", len(engineerFiltered))
 	}
 }
 
@@ -228,7 +235,7 @@ func TestSecurityIntegration_ProtectedAttributes(t *testing.T) {
 	// Create stamp that tries to override both attributes
 	stamp := &StampSnapshot{
 		Attributes: map[string]interface{}{
-			"id":         types.Number{Value: 999}, // Tries to override protected
+			"id":         types.Number{Value: 999},        // Tries to override protected
 			"name":       types.Text{Value: "Stamp Name"}, // Tries to override regular
 			"@author":    agentID,
 			"department": types.Text{Value: "IT"},

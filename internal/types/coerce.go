@@ -32,6 +32,10 @@ func CoerceToNumber(value interface{}) CoercionResult {
 		// Use the amount (ignoring currency for arithmetic)
 		return CoercionResult{Value: Number{Value: v.Amount}, Ok: true}
 
+	case Time:
+		// Convert time to Unix timestamp
+		return CoercionResult{Value: Number{Value: float64(v.Timestamp.Unix())}, Ok: true}
+
 	default:
 		// Cannot coerce other types to number
 		return CoercionResult{
@@ -75,6 +79,7 @@ func CoerceToText(value interface{}) CoercionResult {
 	case Unknown:
 		// Unknown becomes its reason
 		return CoercionResult{Value: Text{Value: "Unknown: " + v.Reason}, Ok: true}
+
 
 	case Anything:
 		// Anything becomes a special marker
@@ -129,6 +134,14 @@ func CoerceToText(value interface{}) CoercionResult {
 
 // Add performs MBL addition with type coercion
 func Add(left, right interface{}) interface{} {
+	// Check for Unknown propagation first
+	if unknown, ok := left.(Unknown); ok {
+		return unknown
+	}
+	if unknown, ok := right.(Unknown); ok {
+		return unknown
+	}
+
 	leftNum := CoerceToNumber(left)
 	rightNum := CoerceToNumber(right)
 
@@ -147,6 +160,14 @@ func Add(left, right interface{}) interface{} {
 
 // Subtract performs MBL subtraction with type coercion
 func Subtract(left, right interface{}) interface{} {
+	// Check for Unknown propagation first
+	if unknown, ok := left.(Unknown); ok {
+		return unknown
+	}
+	if unknown, ok := right.(Unknown); ok {
+		return unknown
+	}
+
 	leftNum := CoerceToNumber(left)
 	rightNum := CoerceToNumber(right)
 
@@ -165,6 +186,14 @@ func Subtract(left, right interface{}) interface{} {
 
 // Multiply performs MBL multiplication with type coercion
 func Multiply(left, right interface{}) interface{} {
+	// Check for Unknown propagation first
+	if unknown, ok := left.(Unknown); ok {
+		return unknown
+	}
+	if unknown, ok := right.(Unknown); ok {
+		return unknown
+	}
+
 	leftNum := CoerceToNumber(left)
 	rightNum := CoerceToNumber(right)
 
@@ -181,8 +210,49 @@ func Multiply(left, right interface{}) interface{} {
 	return Number{Value: l.Value * r.Value}
 }
 
+// Power performs MBL exponentiation with type coercion
+func Power(left, right interface{}) interface{} {
+	// Check for Unknown propagation first
+	if unknown, ok := left.(Unknown); ok {
+		return unknown
+	}
+	if unknown, ok := right.(Unknown); ok {
+		return unknown
+	}
+
+	leftNum := CoerceToNumber(left)
+	rightNum := CoerceToNumber(right)
+
+	if !leftNum.Ok {
+		return leftNum.Value
+	}
+	if !rightNum.Ok {
+		return rightNum.Value
+	}
+
+	l := leftNum.Value.(Number)
+	r := rightNum.Value.(Number)
+
+	result := math.Pow(l.Value, r.Value)
+
+	// Check for infinity or NaN
+	if math.IsInf(result, 0) || math.IsNaN(result) {
+		return Unknown{Reason: "exponentiation result out of range"}
+	}
+
+	return Number{Value: result}
+}
+
 // Divide performs MBL division with type coercion
 func Divide(left, right interface{}) interface{} {
+	// Check for Unknown propagation first
+	if unknown, ok := left.(Unknown); ok {
+		return unknown
+	}
+	if unknown, ok := right.(Unknown); ok {
+		return unknown
+	}
+
 	leftNum := CoerceToNumber(left)
 	rightNum := CoerceToNumber(right)
 
@@ -206,6 +276,14 @@ func Divide(left, right interface{}) interface{} {
 
 // Modulo performs MBL modulo with type coercion
 func Modulo(left, right interface{}) interface{} {
+	// Check for Unknown propagation first
+	if unknown, ok := left.(Unknown); ok {
+		return unknown
+	}
+	if unknown, ok := right.(Unknown); ok {
+		return unknown
+	}
+
 	leftNum := CoerceToNumber(left)
 	rightNum := CoerceToNumber(right)
 
@@ -306,6 +384,9 @@ func isTruthy(value interface{}) bool {
 		return false
 	case Unknown:
 		return false
+	case Time:
+		// Zero time (Unix epoch) is false, any other time is true
+		return !v.Timestamp.IsZero() && v.Timestamp.Unix() != 0
 	case Anything:
 		return true
 	case List:

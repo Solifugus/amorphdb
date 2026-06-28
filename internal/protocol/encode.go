@@ -707,3 +707,77 @@ func EncodeCreateBridgeAckMessage(msg *CreateBridgeAckMessage) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// EncodeExecuteMessage serializes an ExecuteMessage
+func EncodeExecuteMessage(msg *ExecuteMessage) ([]byte, error) {
+	// Tag 0x01: MBL source code
+	return encodeString(0x01, msg.Code)
+}
+
+// EncodeExecuteResponseMessage serializes an ExecuteResponseMessage
+func EncodeExecuteResponseMessage(msg *ExecuteResponseMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Success flag
+	successData, err := encodeBool(0x01, msg.Success)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode success: %w", err)
+	}
+	buf.Write(successData)
+
+	// Tag 0x02: Result value (only if success is true and result is not empty)
+	if msg.Success && (len(msg.Result.Data) > 0 || msg.Result.TypeTag != 0) {
+		resultData, err := encodeValue(0x02, msg.Result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode result: %w", err)
+		}
+		buf.Write(resultData)
+	}
+
+	// Tag 0x03: Error message (only if success is false)
+	if !msg.Success && msg.Error != "" {
+		errorData, err := encodeString(0x03, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode error: %w", err)
+		}
+		buf.Write(errorData)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// EncodeExtractMessage serializes an ExtractMessage
+func EncodeExtractMessage(msg *ExtractMessage) ([]byte, error) {
+	// Tag 0x01: Path to extract from
+	return encodeStringSlice(0x01, msg.Path)
+}
+
+// EncodeExtractResponseMessage serializes an ExtractResponseMessage
+func EncodeExtractResponseMessage(msg *ExtractResponseMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Success flag
+	successData, err := encodeBool(0x01, msg.Success)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode success: %w", err)
+	}
+	buf.Write(successData)
+
+	if msg.Success {
+		// Tag 0x02: Generated MBL script
+		scriptData, err := encodeString(0x02, msg.Script)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode script: %w", err)
+		}
+		buf.Write(scriptData)
+	} else {
+		// Tag 0x03: Error message
+		errorData, err := encodeString(0x03, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode error: %w", err)
+		}
+		buf.Write(errorData)
+	}
+
+	return buf.Bytes(), nil
+}

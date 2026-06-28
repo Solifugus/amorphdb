@@ -27,9 +27,14 @@ const (
 	IN
 	CONSIDER
 	WATCH
+	APPEND
+	AS
 	RETURN
+	BREAK
 	PASS
 	NEW
+	CATCH
+	PROCEDURE
 	AND
 	OR
 	NOT
@@ -46,33 +51,38 @@ const (
 	NOTHING
 	UNKNOWN
 	ANYTHING
+	EMBED
 
 	// Operators
-	PLUS     // +
-	MINUS    // -
-	MULTIPLY // *
-	DIVIDE   // /
-	MODULO   // %
-	CONCAT   // &
-	EQUAL    // ?=
-	GT       // >
-	LT       // <
-	GTE      // >=
-	LTE      // <=
-	ASSIGN   // =
-	RANGE    // ..
-	DEFINE   // :
+	SPREAD     // ...
+	PLUS       // +
+	MINUS      // -
+	MULTIPLY   // *
+	DIVIDE     // /
+	MODULO     // %
+	POWER      // ^
+	CONCAT     // &
+	EQUAL      // ?=
+	NOT_EQUAL  // !=
+	GT         // >
+	LT         // <
+	GTE        // >=
+	LTE        // <=
+	ASSIGN     // =
+	RANGE      // ..
+	DEFINE     // :
 
 	// Delimiters
-	LPAREN   // (
-	RPAREN   // )
-	LBRACKET // [
-	RBRACKET // ]
-	LBRACE   // {
-	RBRACE   // }
-	COMMA    // ,
-	DOT      // .
-	TILDE    // ~
+	LPAREN    // (
+	RPAREN    // )
+	LBRACKET  // [
+	RBRACKET  // ]
+	LBRACE    // {
+	RBRACE    // }
+	COMMA     // ,
+	DOT       // .
+	TILDE     // ~
+	SEMICOLON // ;
 
 	// Indentation
 	INDENT
@@ -134,12 +144,22 @@ func (t TokenType) String() string {
 		return "CONSIDER"
 	case WATCH:
 		return "WATCH"
+	case APPEND:
+		return "APPEND"
+	case AS:
+		return "AS"
 	case RETURN:
 		return "RETURN"
+	case BREAK:
+		return "BREAK"
 	case PASS:
 		return "PASS"
 	case NEW:
 		return "NEW"
+	case CATCH:
+		return "CATCH"
+	case PROCEDURE:
+		return "PROCEDURE"
 	case AND:
 		return "AND"
 	case OR:
@@ -172,6 +192,10 @@ func (t TokenType) String() string {
 		return "UNKNOWN"
 	case ANYTHING:
 		return "ANYTHING"
+	case EMBED:
+		return "EMBED"
+	case SPREAD:
+		return "SPREAD"
 	case PLUS:
 		return "PLUS"
 	case MINUS:
@@ -182,10 +206,14 @@ func (t TokenType) String() string {
 		return "DIVIDE"
 	case MODULO:
 		return "MODULO"
+	case POWER:
+		return "POWER"
 	case CONCAT:
 		return "CONCAT"
 	case EQUAL:
 		return "EQUAL"
+	case NOT_EQUAL:
+		return "NOT_EQUAL"
 	case GT:
 		return "GT"
 	case LT:
@@ -218,6 +246,8 @@ func (t TokenType) String() string {
 		return "DOT"
 	case TILDE:
 		return "TILDE"
+	case SEMICOLON:
+		return "SEMICOLON"
 	case INDENT:
 		return "INDENT"
 	case DEDENT:
@@ -260,10 +290,15 @@ var keywords = map[string]TokenType{
 	"in":       IN,
 	"consider": CONSIDER,
 	"watch":    WATCH,
+	"append":   APPEND,
+	"as":       AS,
 	"return":   RETURN,
+	"break":    BREAK,
 	"pass":     PASS,
-	"new":      NEW,
-	"and":      AND,
+	"new":       NEW,
+	"catch":     CATCH,
+	"procedure": PROCEDURE,
+	"and":       AND,
 	"or":       OR,
 	"not":      NOT,
 	"true":     TRUE,
@@ -276,9 +311,11 @@ var keywords = map[string]TokenType{
 	"empty":    EMPTY,
 	"pi":       PI,
 	"euler":    EULER,
-	"Nothing":  NOTHING,
-	"Unknown":  UNKNOWN,
-	"Anything": ANYTHING,
+	"nothing":  NOTHING,   // Fixed: lowercase
+	"unknown":  UNKNOWN,   // Fixed: lowercase
+	"anything": ANYTHING,  // Fixed: lowercase
+	"embed":    EMBED,
+	"quietly":  QUIETLY,   // Added: quietly should be a keyword
 }
 
 // LookupIdent checks if an identifier is a keyword and returns the appropriate token type

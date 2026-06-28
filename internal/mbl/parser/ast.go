@@ -155,6 +155,37 @@ func (le *LiteralExpression) String() string {
 func (le *LiteralExpression) TokenLiteral() string { return le.Token.Literal }
 func (le *LiteralExpression) Position() (int, int) { return le.Token.Line, le.Token.Column }
 
+// ReferenceExpression represents a reference to a path, not its value (e.g., (link)world.market.price)
+type ReferenceExpression struct {
+	Token lexer.Token // The LINK token
+	Path  Expression  // The path being referenced
+}
+
+func (re *ReferenceExpression) expressionNode() {}
+
+func (re *ReferenceExpression) String() string {
+	return fmt.Sprintf("(link)%s", re.Path.String())
+}
+
+func (re *ReferenceExpression) TokenLiteral() string { return re.Token.Literal }
+func (re *ReferenceExpression) Position() (int, int) { return re.Token.Line, re.Token.Column }
+
+// ModifierExpression represents heritability modifiers like (copy) value or (reset 0) value
+type ModifierExpression struct {
+	Token    lexer.Token // The modifier token (COPY, RESET, etc.)
+	Modifier string      // The modifier text like "(copy)" or "(reset 0)"
+	Value    Expression  // The value being modified
+}
+
+func (me *ModifierExpression) expressionNode() {}
+
+func (me *ModifierExpression) String() string {
+	return fmt.Sprintf("%s %s", me.Modifier, me.Value.String())
+}
+
+func (me *ModifierExpression) TokenLiteral() string { return me.Token.Literal }
+func (me *ModifierExpression) Position() (int, int) { return me.Token.Line, me.Token.Column }
+
 // CallExpression represents system operations like text..trim()..upper
 type CallExpression struct {
 	Token     lexer.Token // The identifier or DOT token
@@ -355,21 +386,6 @@ func (as *AssignmentStatement) String() string {
 func (as *AssignmentStatement) TokenLiteral() string { return as.Token.Literal }
 func (as *AssignmentStatement) Position() (int, int) { return as.Token.Line, as.Token.Column }
 
-// AppendAssignmentStatement represents append assignments like +my.list = item
-type AppendAssignmentStatement struct {
-	Token lexer.Token // The PLUS token
-	Name  Expression  // The path being appended to
-	Value Expression  // The value being appended
-}
-
-func (aas *AppendAssignmentStatement) statementNode() {}
-
-func (aas *AppendAssignmentStatement) String() string {
-	return fmt.Sprintf("+%s = %s", aas.Name.String(), aas.Value.String())
-}
-
-func (aas *AppendAssignmentStatement) TokenLiteral() string { return aas.Token.Literal }
-func (aas *AppendAssignmentStatement) Position() (int, int) { return aas.Token.Line, aas.Token.Column }
 
 // IfStatement represents if/else constructs
 type IfStatement struct {
@@ -514,6 +530,20 @@ func (ps *PassStatement) String() string {
 
 func (ps *PassStatement) TokenLiteral() string { return ps.Token.Literal }
 func (ps *PassStatement) Position() (int, int)  { return ps.Token.Line, ps.Token.Column }
+
+// BreakStatement represents a break statement that exits the nearest enclosing loop
+type BreakStatement struct {
+	Token lexer.Token // The BREAK token
+}
+
+func (bs *BreakStatement) statementNode() {}
+
+func (bs *BreakStatement) String() string {
+	return "break"
+}
+
+func (bs *BreakStatement) TokenLiteral() string { return bs.Token.Literal }
+func (bs *BreakStatement) Position() (int, int)  { return bs.Token.Line, bs.Token.Column }
 
 // ScopeStatement represents scope setting statements like my.path.
 type ScopeStatement struct {

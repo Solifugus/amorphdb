@@ -56,13 +56,35 @@ clean:
 	rm -f coverage.out coverage.html
 	@echo "✅ Clean complete"
 
-## Install binaries to GOPATH/bin
+## Install binaries to GOPATH/bin (development)
 install: build
-	@echo "Installing AmorphDB binaries..."
+	@echo "Installing AmorphDB binaries to development environment..."
 	cp $(BUILD_DIR)/$(BINARY_NAME_DAEMON) $(GOPATH)/bin/
 	cp $(BUILD_DIR)/$(BINARY_NAME_CLIENT) $(GOPATH)/bin/
 	cp $(BUILD_DIR)/$(BINARY_NAME_CONTROL) $(GOPATH)/bin/
-	@echo "✅ Install complete"
+	@echo "✅ Development install complete"
+
+## System-wide installation with service setup (requires sudo)
+install-system: build
+	@echo "Installing AmorphDB system-wide..."
+	@if [ "$(shell id -u)" != "0" ]; then \
+		echo "❌ System installation requires sudo"; \
+		echo "   Run: sudo make install-system"; \
+		exit 1; \
+	fi
+	./scripts/install.sh
+	@echo "✅ System installation complete"
+
+## Uninstall system installation
+uninstall-system:
+	@echo "Uninstalling AmorphDB from system..."
+	@if [ "$(shell id -u)" != "0" ]; then \
+		echo "❌ System uninstall requires sudo"; \
+		echo "   Run: sudo make uninstall-system"; \
+		exit 1; \
+	fi
+	./scripts/install.sh uninstall
+	@echo "✅ System uninstall complete"
 
 ## Update Go modules
 mod-tidy:
@@ -102,15 +124,76 @@ dev: build
 	sleep 2
 	./$(BUILD_DIR)/$(BINARY_NAME_CLIENT)
 
-## Build Docker image (if Dockerfile exists)
-docker:
-	@if [ -f Dockerfile ]; then \
-		echo "Building Docker image..."; \
-		docker build -t amorphdb .; \
-		echo "✅ Docker image built: amorphdb"; \
-	else \
-		echo "❌ Dockerfile not found"; \
-	fi
+## Build Docker image
+docker-build:
+	@echo "Building AmorphDB Docker image..."
+	docker build -t amorphdb:latest .
+	@echo "✅ Docker image built: amorphdb:latest"
+
+## Start Docker Compose mesh
+docker-up:
+	@echo "Starting AmorphDB mesh with Docker Compose..."
+	docker-compose up -d
+	@echo "Waiting for nodes to start..."
+	sleep 10
+	docker-compose --profile setup run --rm amorphdb-setup
+	@echo "✅ AmorphDB mesh is running"
+	@echo "   Node 1: http://localhost:8080"
+	@echo "   Node 2: http://localhost:8081"
+	@echo "   Node 3: http://localhost:8082"
+
+## Stop Docker Compose mesh
+docker-down:
+	@echo "Stopping AmorphDB mesh..."
+	docker-compose down -v
+	@echo "✅ AmorphDB mesh stopped"
+
+## View Docker logs
+docker-logs:
+	docker-compose logs -f
+
+## Docker development shell
+docker-shell:
+	docker run -it --rm amorphdb:latest sh
+
+## Push Docker image (requires login)
+docker-push:
+	@echo "Pushing Docker image..."
+	docker tag amorphdb:latest solifugus/amorphdb:latest
+	docker push solifugus/amorphdb:latest
+	@echo "✅ Docker image pushed"
+
+## Build all release formats
+release-all: clean
+	@echo "Building complete release package..."
+	./scripts/build-release.sh
+	./scripts/build-packages.sh
+	./scripts/build-docker.sh production
+	@echo "✅ All release formats built"
+
+## Build binary releases only
+release-binaries:
+	@echo "Building binary releases..."
+	./scripts/build-release.sh
+	@echo "✅ Binary releases complete"
+
+## Build Linux packages only
+release-packages:
+	@echo "Building Linux packages..."
+	./scripts/build-packages.sh
+	@echo "✅ Package releases complete"
+
+## Build Docker images only
+release-docker:
+	@echo "Building Docker images..."
+	./scripts/build-docker.sh production
+	@echo "✅ Docker releases complete"
+
+## Make scripts executable
+setup-release:
+	@echo "Setting up release scripts..."
+	chmod +x scripts/*.sh
+	@echo "✅ Release scripts ready"
 
 ## Show this help message
 help:
@@ -130,7 +213,11 @@ help:
 	}' $(MAKEFILE_LIST)
 	@echo ""
 	@echo "Examples:"
-	@echo "  make build          # Build all binaries"
-	@echo "  make test           # Run unit tests"
-	@echo "  make cleanup        # Organize project structure"
-	@echo "  make dev            # Start development environment"
+	@echo "  make build              # Build all binaries"
+	@echo "  make test               # Run unit tests"
+	@echo "  make install            # Install to development environment"
+	@echo "  sudo make install-system # System-wide installation with service"
+	@echo "  make docker-build       # Build Docker image"
+	@echo "  make docker-up          # Start Docker mesh"
+	@echo "  make release-all        # Build all release formats"
+	@echo "  make dev                # Start development environment"

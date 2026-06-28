@@ -55,6 +55,7 @@ type ExtendedTree interface {
 	GetValue(valueHash Hash) ([]byte, error)
 	PutValue(valueHash Hash, value []byte) error
 	PutInstance(attrHash Hash, instance SecurityInstance) error
+	ResolveAttributePath(attributeID uint64) (string, error) // For extract operations
 }
 
 // TreeAdapter adapts a regular Tree to ExtendedTree interface
@@ -142,19 +143,33 @@ func (ta *TreeAdapter) PutInstance(attrHash Hash, instance SecurityInstance) err
 	return ta.tree.Write(path, storageValue, instance.Agent)
 }
 
+func (ta *TreeAdapter) ResolveAttributePath(attributeID uint64) (string, error) {
+	// Cast the underlying tree to StorageTree to access the method
+	if storageTree, ok := ta.tree.(*StorageTree); ok {
+		return storageTree.ResolveAttributePath(attributeID)
+	}
+	return "", fmt.Errorf("underlying tree does not support attribute path resolution")
+}
+
+// InstanceKey represents a composite key for agent-scoped instances
+type InstanceKey struct {
+	Hash    Hash
+	AgentID uint64
+}
+
 // MemoryTree is an in-memory implementation of ExtendedTree for testing
 type MemoryTree struct {
-	data      map[string]Value         // Path-based data storage
-	instances map[Hash]SecurityInstance // Hash-based instance storage
-	values    map[Hash][]byte           // Hash-based value storage
-	mu        sync.RWMutex             // Thread safety
+	data      map[string]Value                    // Path-based data storage
+	instances map[InstanceKey]SecurityInstance   // Agent-scoped instance storage
+	values    map[Hash][]byte                    // Hash-based value storage
+	mu        sync.RWMutex                       // Thread safety
 }
 
 // NewMemoryTree creates a new in-memory tree for testing
 func NewMemoryTree() ExtendedTree {
 	return &MemoryTree{
 		data:      make(map[string]Value),
-		instances: make(map[Hash]SecurityInstance),
+		instances: make(map[InstanceKey]SecurityInstance),
 		values:    make(map[Hash][]byte),
 	}
 }
@@ -211,10 +226,11 @@ func (mt *MemoryTree) GetInstance(attrHash Hash, agentID uint64) (SecurityInstan
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
 
-	if instance, exists := mt.instances[attrHash]; exists {
+	key := InstanceKey{Hash: attrHash, AgentID: agentID}
+	if instance, exists := mt.instances[key]; exists {
 		return instance, nil
 	}
-	return SecurityInstance{}, fmt.Errorf("instance not found for hash %x", attrHash[:8])
+	return SecurityInstance{}, fmt.Errorf("instance not found for hash %x and agent %d", attrHash[:8], agentID)
 }
 
 // GetValue implements ExtendedTree interface
@@ -242,8 +258,15 @@ func (mt *MemoryTree) PutInstance(attrHash Hash, instance SecurityInstance) erro
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
-	mt.instances[attrHash] = instance
+	key := InstanceKey{Hash: attrHash, AgentID: instance.Agent}
+	mt.instances[key] = instance
 	return nil
+}
+
+// ResolveAttributePath implements ExtendedTree interface
+func (mt *MemoryTree) ResolveAttributePath(attributeID uint64) (string, error) {
+	// For MemoryTree (used in testing), return a simple path
+	return fmt.Sprintf("memory.attr_%d", attributeID), nil
 }
 
 // Helper function to join path components

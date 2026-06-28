@@ -1,0 +1,102 @@
+// Example changes needed for minimal Windows compatibility
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+)
+
+// 1. Update config defaults to be Windows-aware
+func getDefaultDataDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = "C:\\ProgramData"
+		}
+		return filepath.Join(programData, "AmorphDB")
+	default:
+		return "/var/lib/amorphdb"
+	}
+}
+
+func getDefaultSocketPath() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "" // Disable local socket on Windows
+	default:
+		return "/var/run/amorphdb.sock"
+	}
+}
+
+func getDefaultLogPath() string {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(getDefaultDataDir(), "logs", "amorphdb.log")
+	default:
+		return "/var/log/amorphdb/amorphdb.log"
+	}
+}
+
+// 2. Update service startup to handle Windows mode
+func (s *Service) Start() error {
+	// Windows-specific startup logic
+	if runtime.GOOS == "windows" && s.config.Network.LocalSocketPath == "" {
+		fmt.Println("Starting AmorphDB for Windows (TCP mode)")
+		fmt.Printf("Connect with: amorph --host=localhost:%d\n", s.config.Network.Port)
+		fmt.Println("Local socket disabled on Windows - using TCP only")
+
+		// Ensure we bind to localhost only for security
+		if s.config.Network.BindAddress == "" {
+			s.config.Network.BindAddress = "127.0.0.1"
+		}
+	}
+
+	// Start TCP listener
+	return s.startTCPListener()
+}
+
+// 3. Update client connection logic
+func getDefaultConnectionString() string {
+	if runtime.GOOS == "windows" {
+		return "localhost:8080" // Default to TCP on Windows
+	}
+
+	// Check if socket exists, fall back to TCP
+	socketPath := "/var/run/amorphdb.sock"
+	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+		return "localhost:8080"
+	}
+	return socketPath
+}
+
+// 4. Platform-specific install script creation
+func createWindowsInstallScript() {
+	// This would be called from build-release.sh
+	script := `
+@echo off
+echo Installing AmorphDB for Windows...
+
+set INSTALL_DIR=%USERPROFILE%\AmorphDB
+set DATA_DIR=%PROGRAMDATA%\AmorphDB
+
+mkdir "%INSTALL_DIR%" 2>nul
+mkdir "%DATA_DIR%" 2>nul
+mkdir "%DATA_DIR%\logs" 2>nul
+
+copy bin\*.exe "%INSTALL_DIR%"
+
+echo.
+echo AmorphDB installed to: %INSTALL_DIR%
+echo Data directory: %DATA_DIR%
+echo.
+echo Quick Start:
+echo   cd "%INSTALL_DIR%"
+echo   amorphd.exe
+echo   (in new window) amorph.exe --host=localhost:8080
+echo.
+echo Add to PATH: set PATH=%INSTALL_DIR%;%PATH%
+`
+	// Write to install.bat
+}

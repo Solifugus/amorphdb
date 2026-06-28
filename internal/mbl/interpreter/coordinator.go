@@ -8,7 +8,7 @@ import (
 
 	"github.com/solifugus/amorphdb/internal/mesh"
 	"github.com/solifugus/amorphdb/internal/storage"
-	"github.com/solifugus/amorphdb/internal/zone"
+	"github.com/solifugus/amorphdb/internal/zone_deprecated"
 )
 
 // CommitCoordinator manages batched writes across zones and execution contexts

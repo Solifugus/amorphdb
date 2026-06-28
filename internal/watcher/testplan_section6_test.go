@@ -113,15 +113,7 @@ func TestSection6_1_Procedures(t *testing.T) {
 	})
 
 	t.Run("6.1.2 Multiple parameters", func(t *testing.T) {
-		t.Skip("🚧 SKIP: Multiple parameter procedure syntax parsing issue")
-		// TODO: Parser fails on "add(a, b):" - may need parser fix
-		// Define a procedure with multiple parameters
-		// code := "add(a, b):\n\treturn a + b"
-		// evalCode(t, interp, code)
-
-		// Call it and verify result
-		// result := evalCode(t, interp, "add(3, 7)")
-		// expected := types.Number{Value: 10}
+		t.Skip("🚧 SKIP: Multiple parameter procedure syntax parsing issue - implementation incomplete")
 	})
 
 	t.Run("6.1.3 Recursive procedure", func(t *testing.T) {
@@ -293,8 +285,7 @@ func TestSection6_2_WatchersCore(t *testing.T) {
 	})
 
 	t.Run("6.2.4 Quiet assignment", func(t *testing.T) {
-		t.Skip("🚧 SKIP: (quietly) modifier not yet implemented")
-		// TODO: Test that my.x = (quietly) "value" does not trigger watchers
+		t.Skip("🚧 SKIP: (quietly) modifier integration with assignments needs implementation work")
 	})
 
 	t.Run("6.2.5 Watcher attributes", func(t *testing.T) {
