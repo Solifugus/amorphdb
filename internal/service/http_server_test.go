@@ -21,7 +21,44 @@ import (
 	"github.com/solifugus/amorphdb/internal/config"
 	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/types"
+	"github.com/solifugus/amorphdb/web/boilerplate"
 )
+
+// TestHTTPServer_ServePWABoilerplate verifies the embedded client framework is
+// served at /amorphdb/pwa.js, ahead of any per-domain asset/SPA handling, so an
+// app can load it with a single <script src="/amorphdb/pwa.js"> tag.
+func TestHTTPServer_ServePWABoilerplate(t *testing.T) {
+	tree := NewAssetMockTree()
+	watcherEngine := NewMockWatcherEngine()
+	assetCache := NewAssetCacheManager(tree, watcherEngine, 1)
+	sseManager := NewSSEManager(tree, watcherEngine, 1)
+	pwaBridge := NewPWABridge(tree, sseManager, watcherEngine, 1, "testapp")
+	httpServer := NewHTTPServer(":8080", "", nil, assetCache, sseManager, pwaBridge, tree, 1)
+
+	req := httptest.NewRequest("GET", "/amorphdb/pwa.js", nil)
+	req.Host = "app.example.com"
+	w := httptest.NewRecorder()
+	httpServer.handleRequest(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/javascript") {
+		t.Errorf("expected JavaScript Content-Type, got %q", ct)
+	}
+
+	body := w.Body.Bytes()
+	if len(body) == 0 {
+		t.Fatalf("served boilerplate is empty")
+	}
+	if !bytes.Equal(body, boilerplate.PWAJavaScript) {
+		t.Errorf("served body (%d bytes) does not match the embedded boilerplate (%d bytes)", len(body), len(boilerplate.PWAJavaScript))
+	}
+	if !bytes.Contains(body, []byte("AmorphDB PWA Boilerplate")) {
+		t.Errorf("served boilerplate is missing its expected header banner")
+	}
+}
 
 func TestHTTPServer_ServeStaticAsset(t *testing.T) {
 	// Setup
@@ -670,14 +707,14 @@ func TestHTTPServer_InboundRequestQueue_BasicRequest(t *testing.T) {
 				if err := json.Unmarshal(requestValue.Data, &requestData); err == nil {
 					// Verify required fields
 					if requestData["domain"] == "api.example.com" &&
-					   requestData["method"] == "POST" &&
-					   requestData["path"] == "/api/orders" &&
-					   requestData["body"] == reqBody {
+						requestData["method"] == "POST" &&
+						requestData["path"] == "/api/orders" &&
+						requestData["body"] == reqBody {
 						// Verify headers
 						if headers, ok := requestData["headers"].(map[string]interface{}); ok {
 							if headers["Content-Type"] == "application/json" &&
-							   headers["Authorization"] == "Bearer token123" &&
-							   headers["X-Custom-Header"] == "custom-value" {
+								headers["Authorization"] == "Bearer token123" &&
+								headers["X-Custom-Header"] == "custom-value" {
 								// Request structure is correct
 								break
 							}
@@ -754,7 +791,7 @@ func TestHTTPServer_InboundRequestQueue_WatcherResponse(t *testing.T) {
 		StatusCode: 200,
 		Body:       `{"name": "Widget", "price": 29.99, "in_stock": true}`,
 		Headers: map[string]string{
-			"Content-Type": "application/json",
+			"Content-Type":  "application/json",
 			"X-API-Version": "1.0",
 		},
 	}
@@ -875,8 +912,8 @@ func TestHTTPServer_InboundRequestQueue_RequestAttributes(t *testing.T) {
 				// Verify headers
 				if headers, ok := requestData["headers"].(map[string]interface{}); ok {
 					expectedHeaders := map[string]string{
-						"Content-Type":     "application/json",
-						"X-Github-Event":   "push",
+						"Content-Type":      "application/json",
+						"X-Github-Event":    "push",
 						"X-Github-Delivery": "12345-67890",
 					}
 
@@ -1000,12 +1037,12 @@ func generateSelfSignedCert(hosts []string) (certFile, keyFile string, err error
 			StreetAddress: []string{""},
 			PostalCode:    []string{""},
 		},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses:  nil,
-		DNSNames:     hosts,
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: nil,
+		DNSNames:    hosts,
 	}
 
 	// Create certificate

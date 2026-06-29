@@ -16,21 +16,22 @@ import (
 	"github.com/solifugus/amorphdb/internal/config"
 	"github.com/solifugus/amorphdb/internal/storage"
 	"github.com/solifugus/amorphdb/internal/types"
+	"github.com/solifugus/amorphdb/web/boilerplate"
 )
 
 // HTTPServer handles HTTP requests for PWA static asset serving
 type HTTPServer struct {
-	assetCache *AssetCacheManager
-	sseManager *SSEManager
-	pwaBridge  *PWABridge
-	server     *http.Server
-	httpsServer *http.Server        // HTTPS server with TLS
-	tlsConfig   *tls.Config         // TLS configuration with SNI support
-	tree        storage.ExtendedTree // Storage tree for request queue
-	agentID     uint64              // Agent ID for request queue writes
-	requestTTL  time.Duration       // Timeout for external request responses
+	assetCache      *AssetCacheManager
+	sseManager      *SSEManager
+	pwaBridge       *PWABridge
+	server          *http.Server
+	httpsServer     *http.Server                     // HTTPS server with TLS
+	tlsConfig       *tls.Config                      // TLS configuration with SNI support
+	tree            storage.ExtendedTree             // Storage tree for request queue
+	agentID         uint64                           // Agent ID for request queue writes
+	requestTTL      time.Duration                    // Timeout for external request responses
 	pendingRequests map[string]chan *RequestResponse // Pending request tracking
-	pendingMutex    sync.RWMutex    // Mutex for pending requests
+	pendingMutex    sync.RWMutex                     // Mutex for pending requests
 }
 
 // RequestResponse represents a response to an external request
@@ -182,6 +183,14 @@ func (hs *HTTPServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		requestPath = "index.html"
 	}
 
+	// Step 0: Serve the embedded PWA client boilerplate. This is served from the
+	// binary for every domain so apps can load it with a single
+	// <script src="/amorphdb/pwa.js"> tag without bundling or hosting it.
+	if requestPath == "amorphdb/pwa.js" {
+		hs.servePWABoilerplate(w)
+		return
+	}
+
 	// Step 1: Check for exact asset match in cache
 	asset := hs.assetCache.GetAsset(domain, requestPath)
 	if asset != nil {
@@ -236,6 +245,14 @@ func (hs *HTTPServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// PWA enabled but either no SPA mode or no index.html available → send to inbound request queue
 	hs.handleInboundRequest(w, r, domain)
 	return
+}
+
+// servePWABoilerplate serves the embedded PWA client framework (amorphdb-pwa.js).
+func (hs *HTTPServer) servePWABoilerplate(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	w.Write(boilerplate.PWAJavaScript)
 }
 
 // serveAsset serves a static asset with appropriate headers
