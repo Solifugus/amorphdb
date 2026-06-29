@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -21,20 +22,26 @@ import (
 // Service represents the AmorphDB service daemon
 type Service struct {
 	// Storage and execution
-	tree             storage.ExtendedTree         // Single shared storage
-	permEvaluator    *security.PermissionEvaluator // Permission checking
-	stampManager     *security.StampManager        // Automatic stamp injection
-	filterManager    *security.FilterManager       // Response filtering
-	watcherEngine    *watcher.WatcherEngine        // Reactive programming
+	tree          storage.ExtendedTree          // Single shared storage
+	permEvaluator *security.PermissionEvaluator // Permission checking
+	stampManager  *security.StampManager        // Automatic stamp injection
+	filterManager *security.FilterManager       // Response filtering
+	watcherEngine *watcher.WatcherEngine        // Reactive programming
 
 	// Mesh management
-	meshService      *MeshService                 // Mesh operations
+	meshService *MeshService // Mesh operations
+
+	// Web (PWA / inbound HTTP) serving
+	httpServer *HTTPServer                 // HTTP/HTTPS server (nil when disabled)
+	httpPort   int                         // HTTP port (0 = disabled)
+	httpsPort  int                         // HTTPS port (0 = disabled)
+	tlsConfigs map[string]config.TLSConfig // Per-domain TLS configuration
 
 	// Network configuration
-	localSocket      net.Listener          // UNIX domain socket
-	networkSocket    net.Listener          // TCP socket (port 5000)
-	localSocketPath  string               // Path to UNIX socket
-	networkPort      int                  // Network port number
+	localSocket     net.Listener // UNIX domain socket
+	networkSocket   net.Listener // TCP socket (port 5000)
+	localSocketPath string       // Path to UNIX socket
+	networkPort     int          // Network port number
 
 	// Connection management
 	connections      map[string]*Connection // Active client connections
@@ -42,12 +49,12 @@ type Service struct {
 	nextConnID       uint64                 // Connection ID counter
 
 	// Service state
-	startTime        time.Time   // Service start time
-	nodeIdentity     string      // Unique node identifier
-	storageDir       string      // Data storage directory
-	ctx              context.Context    // Service context
-	cancel           context.CancelFunc // Service cancellation
-	shutdownWG       sync.WaitGroup     // Graceful shutdown coordination
+	startTime    time.Time          // Service start time
+	nodeIdentity string             // Unique node identifier
+	storageDir   string             // Data storage directory
+	ctx          context.Context    // Service context
+	cancel       context.CancelFunc // Service cancellation
+	shutdownWG   sync.WaitGroup     // Graceful shutdown coordination
 }
 
 // Config represents service configuration
@@ -58,6 +65,12 @@ type Config struct {
 	NodeIdentity    string // Node identifier
 	MeshName        string // Mesh name (empty = standalone)
 	ConfigPath      string // Configuration file path
+
+	// Web serving (PWA + inbound HTTP). Zero ports disable the HTTP server,
+	// which is why tests that only need socket access leave these unset.
+	HTTPPort  int                         // HTTP port (0 = disabled)
+	HTTPSPort int                         // HTTPS port (0 = disabled)
+	TLS       map[string]config.TLSConfig // Per-domain TLS configuration
 }
 
 // DefaultConfig returns default service configuration
@@ -116,7 +129,7 @@ func New(svcConfig Config) (*Service, error) {
 		},
 		Network: config.NetworkConfig{
 			LocalSocketPath: svcConfig.LocalSocketPath,
-			Port:           svcConfig.NetworkPort,
+			Port:            svcConfig.NetworkPort,
 		},
 	}
 
@@ -135,6 +148,9 @@ func New(svcConfig Config) (*Service, error) {
 		filterManager:   filterManager,
 		watcherEngine:   watcherEngine,
 		meshService:     meshService,
+		httpPort:        svcConfig.HTTPPort,
+		httpsPort:       svcConfig.HTTPSPort,
+		tlsConfigs:      svcConfig.TLS,
 		localSocketPath: svcConfig.LocalSocketPath,
 		networkPort:     svcConfig.NetworkPort,
 		connections:     make(map[string]*Connection),
@@ -188,11 +204,52 @@ func (s *Service) Start() error {
 	go s.acceptLocalConnections()
 	go s.acceptNetworkConnections()
 
+	// Start the web (PWA / inbound HTTP) server when enabled. Failure here is
+	// non-fatal: the socket-based service stays up so amorphctl/amorph keep
+	// working even if the web port is unavailable.
+	if s.httpPort > 0 || s.httpsPort > 0 {
+		if err := s.startWebServer(); err != nil {
+			fmt.Printf("Warning: web server not started: %v\n", err)
+		}
+	}
+
 	fmt.Printf("AmorphDB service started\n")
 	fmt.Printf("Node Identity: %s\n", s.nodeIdentity)
 	fmt.Printf("Local Socket: %s\n", s.localSocketPath)
 	fmt.Printf("Network Port: %d\n", s.networkPort)
+	if s.httpServer != nil {
+		fmt.Printf("HTTP Port: %d  HTTPS Port: %d\n", s.httpPort, s.httpsPort)
+	}
 	fmt.Printf("Storage: %s\n", s.storageDir)
+
+	return nil
+}
+
+// startWebServer creates and launches the HTTP/HTTPS server for PWA asset
+// serving, the PWA bridge, SSE, and the inbound request queue.
+func (s *Service) startWebServer() error {
+	httpAddr := ""
+	if s.httpPort > 0 {
+		httpAddr = fmt.Sprintf(":%d", s.httpPort)
+	}
+	httpsAddr := ""
+	if s.httpsPort > 0 {
+		httpsAddr = fmt.Sprintf(":%d", s.httpsPort)
+	}
+
+	httpServer, err := s.AddHTTPServer(httpAddr, httpsAddr, s.tlsConfigs)
+	if err != nil {
+		return err
+	}
+	s.httpServer = httpServer
+
+	s.shutdownWG.Add(1)
+	go func() {
+		defer s.shutdownWG.Done()
+		if err := httpServer.Start(); err != nil && err != http.ErrServerClosed {
+			fmt.Printf("Web server stopped: %v\n", err)
+		}
+	}()
 
 	return nil
 }
@@ -203,6 +260,11 @@ func (s *Service) Stop() error {
 
 	// Cancel service context
 	s.cancel()
+
+	// Stop the web server (unblocks its goroutine via ErrServerClosed)
+	if s.httpServer != nil {
+		s.httpServer.Stop()
+	}
 
 	// Close listeners
 	if s.localSocket != nil {

@@ -123,21 +123,24 @@ func (hs *HTTPServer) redirectToHTTPS(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, httpsURL, http.StatusPermanentRedirect)
 }
 
-// Start starts both HTTP and HTTPS servers
+// Start starts the HTTP server, and the HTTPS server when TLS is configured.
+// It blocks until a server stops (returning http.ErrServerClosed on a normal
+// Stop), so callers typically run it in a goroutine.
 func (hs *HTTPServer) Start() error {
-	// Start HTTP server in background (for redirects or standalone HTTP)
-	go func() {
-		if err := hs.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// Log error but don't fail startup - HTTPS is primary
-		}
-	}()
-
-	// Start HTTPS server if configured
 	if hs.httpsServer != nil {
+		// HTTPS is primary; the HTTP server only redirects to it, so run it in
+		// the background and block on HTTPS.
+		go func() {
+			if err := hs.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				// Best-effort: HTTPS is primary, so a redirect-listener failure
+				// is non-fatal.
+			}
+		}()
 		return hs.httpsServer.ListenAndServeTLS("", "") // Certs handled by TLS config
 	}
 
-	// If no HTTPS server, wait for HTTP server to finish
+	// No HTTPS configured: serve HTTP directly (redirectToHTTPS falls back to
+	// handleRequest when there is no HTTPS server).
 	return hs.server.ListenAndServe()
 }
 

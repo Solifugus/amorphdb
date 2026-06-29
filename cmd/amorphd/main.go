@@ -20,6 +20,8 @@ func main() {
 		storageDir   = flag.String("data", "", "Data storage directory (default: ~/.amorph/data)")
 		socketPath   = flag.String("socket", "", "UNIX socket path (default: ~/.amorph/socket)")
 		port         = flag.Int("port", 5000, "Network port for remote connections")
+		httpPort     = flag.Int("http-port", -1, "HTTP port for PWA/web serving (0 = disabled; default from config)")
+		httpsPort    = flag.Int("https-port", -1, "HTTPS port for PWA/web serving (0 = disabled; default from config)")
 		nodeIdentity = flag.String("node", "", "Node identity (default: auto-generated)")
 		meshName     = flag.String("mesh", "", "Mesh name (empty = standalone mode)")
 		help         = flag.Bool("help", false, "Show help")
@@ -56,6 +58,12 @@ func main() {
 	if *port != 5000 {
 		cfg.Network.Port = *port
 	}
+	if *httpPort >= 0 {
+		cfg.Network.HTTPPort = *httpPort
+	}
+	if *httpsPort >= 0 {
+		cfg.Network.HTTPSPort = *httpsPort
+	}
 	if *nodeIdentity != "" {
 		cfg.Mesh.Identity = *nodeIdentity
 	}
@@ -71,6 +79,9 @@ func main() {
 		NodeIdentity:    cfg.Mesh.Identity,
 		MeshName:        cfg.Mesh.Name,
 		ConfigPath:      configPath,
+		HTTPPort:        cfg.Network.HTTPPort,
+		HTTPSPort:       cfg.Network.HTTPSPort,
+		TLS:             cfg.Network.TLS,
 	}
 
 	// Ensure storage and socket directories exist
@@ -134,6 +145,8 @@ func showHelp() {
 	fmt.Println("  -data <dir>      Data storage directory (default: ~/.amorph/data)")
 	fmt.Println("  -socket <path>   UNIX socket path (default: ~/.amorph/socket)")
 	fmt.Println("  -port <number>   Network port for remote connections (default: 5000)")
+	fmt.Println("  -http-port <n>   HTTP port for PWA/web serving (0 = disabled; default from config: 8080)")
+	fmt.Println("  -https-port <n>  HTTPS port for PWA/web serving (0 = disabled; default from config: 8443)")
 	fmt.Println("  -node <id>       Node identity (default: auto-generated)")
 	fmt.Println("  -mesh <name>     Mesh name (empty = standalone mode)")
 	fmt.Println("  -help            Show this help")
@@ -144,8 +157,9 @@ func showHelp() {
 	fmt.Printf("  %s -port 6000               # Use custom port\n", os.Args[0])
 	fmt.Printf("  %s -data /opt/amorphdb      # Use custom storage directory\n", os.Args[0])
 	fmt.Println()
-	fmt.Println("The service accepts connections on both:")
+	fmt.Println("The service accepts connections on:")
 	fmt.Println("  - Local UNIX socket (for amorph client and amorphctl)")
 	fmt.Println("  - Network TCP socket (for remote clients and mesh networking)")
+	fmt.Println("  - HTTP/HTTPS (for PWA asset serving, the PWA bridge, and SSE)")
 	fmt.Println()
 }
