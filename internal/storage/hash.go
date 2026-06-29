@@ -170,6 +170,18 @@ func (ta *TreeAdapter) ResolveAttributePath(attributeID uint64) (string, error) 
 	return "", fmt.Errorf("underlying tree does not support attribute path resolution")
 }
 
+// ListLeafPaths delegates leaf-path enumeration to the underlying tree when it
+// supports it (e.g. *StorageTree), so callers holding only the adapter — such as
+// PWA asset loading — can enumerate stored leaves under a prefix.
+func (ta *TreeAdapter) ListLeafPaths(prefix []string) ([]string, error) {
+	if lister, ok := ta.tree.(interface {
+		ListLeafPaths(prefix []string) ([]string, error)
+	}); ok {
+		return lister.ListLeafPaths(prefix)
+	}
+	return nil, fmt.Errorf("underlying tree does not support leaf path listing")
+}
+
 // InstanceKey represents a composite key for agent-scoped instances
 type InstanceKey struct {
 	Hash    Hash

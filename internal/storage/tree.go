@@ -489,6 +489,54 @@ func (st *StorageTree) getRootAttributes() ([]Attribute, error) {
 	return rootAttributes, nil
 }
 
+// ListLeafPaths returns the relative paths of every stored attribute that lies
+// under the given prefix. Each result is the portion of the stored composite
+// path after prefix + ".".
+//
+// Because StorageTree records each written path as a single dot-joined
+// composite attribute, the remainder preserves dots exactly as the leaf key was
+// written (e.g. "index.html"). This is sufficient for the flat asset convention
+// (one component per asset directly under .assets). It cannot reconstruct nested
+// directory separators from a dotted composite, so multi-segment asset keys are
+// out of scope of this enumeration.
+func (st *StorageTree) ListLeafPaths(prefix []string) ([]string, error) {
+	if len(prefix) == 0 {
+		return nil, fmt.Errorf("empty prefix")
+	}
+
+	prefixStr := strings.Join(prefix, ".") + "."
+
+	seen := make(map[string]bool)
+	var leaves []string
+
+	attributeCount := st.attributeStore.GetAttributeCount()
+	for id := uint64(1); id <= attributeCount; id++ {
+		attribute, err := st.attributeStore.ReadAttribute(id)
+		if err != nil {
+			continue // Skip invalid attributes
+		}
+
+		labelValue, err := st.valueStore.ReadValue(attribute.LabelValueID)
+		if err != nil {
+			continue // Skip if we can't read the composite path
+		}
+
+		composite := string(labelValue.Data)
+		if !strings.HasPrefix(composite, prefixStr) {
+			continue
+		}
+
+		remainder := composite[len(prefixStr):]
+		if remainder == "" || seen[remainder] {
+			continue
+		}
+		seen[remainder] = true
+		leaves = append(leaves, remainder)
+	}
+
+	return leaves, nil
+}
+
 // ResolveAttributePath resolves an attribute ID to its path string for extract operations
 func (st *StorageTree) ResolveAttributePath(attributeID uint64) (string, error) {
 	if attributeID == 0 {

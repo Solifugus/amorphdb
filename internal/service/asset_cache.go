@@ -20,8 +20,8 @@ type Asset struct {
 
 // PWACache represents an in-memory cache for a single PWA domain
 type PWACache struct {
-	Domain  string             // Domain this cache serves
-	Assets  map[string]*Asset  // Assets by path (O(1) lookup)
+	Domain  string            // Domain this cache serves
+	Assets  map[string]*Asset // Assets by path (O(1) lookup)
 	Enabled bool              // Whether this PWA is enabled
 	SPAMode bool              // Whether SPA mode is enabled
 	mutex   sync.RWMutex      // Protects concurrent access
@@ -34,11 +34,11 @@ type WatcherEngineInterface interface {
 
 // AssetCacheManager manages PWA asset caches for all domains
 type AssetCacheManager struct {
-	caches     map[string]*PWACache // PWA caches by domain
-	tree       storage.ExtendedTree // Storage tree for reading assets
-	watcher    WatcherEngineInterface // Watcher engine for change detection
-	mutex      sync.RWMutex         // Protects caches map
-	agentID    uint64              // Agent ID for storage operations
+	caches  map[string]*PWACache   // PWA caches by domain
+	tree    storage.ExtendedTree   // Storage tree for reading assets
+	watcher WatcherEngineInterface // Watcher engine for change detection
+	mutex   sync.RWMutex           // Protects caches map
+	agentID uint64                 // Agent ID for storage operations
 }
 
 // NewAssetCacheManager creates a new asset cache manager
@@ -183,42 +183,55 @@ func (acm *AssetCacheManager) loadPWAConfig(domain string) error {
 	return nil
 }
 
-// loadAssets recursively loads all assets from the given path
+// leafLister is the optional capability a storage tree exposes to enumerate the
+// stored leaf paths under a prefix. The production tree (*storage.StorageTree
+// via *storage.TreeAdapter) implements it; trees that do not fall back to
+// probing a fixed set of common filenames.
+type leafLister interface {
+	ListLeafPaths(prefix []string) ([]string, error)
+}
+
+// loadAssets loads every PWA asset stored directly under basePath.
+//
+// When the tree can enumerate its leaves, all stored assets are loaded by their
+// actual stored names — arbitrary filenames work, not just a hardcoded set. For
+// trees that cannot enumerate, it falls back to probing a fixed list of common
+// asset filenames.
 func (acm *AssetCacheManager) loadAssets(basePath []string) (map[string]*Asset, error) {
 	assets := make(map[string]*Asset)
 
-	// For the test implementation, try to load common asset paths directly
-	// In a real implementation, this would properly traverse the children
+	// Preferred path: enumerate the actual stored asset leaves under basePath.
+	if lister, ok := acm.tree.(leafLister); ok {
+		if leaves, err := lister.ListLeafPaths(basePath); err == nil {
+			for _, assetPath := range leaves {
+				fullPath := append(append([]string{}, basePath...), assetPath)
+				value, err := acm.tree.Read(fullPath)
+				if err != nil || value.TypeTag != types.TypeRecord {
+					continue
+				}
+				if asset := acm.parseAssetFromStorageValue(value, assetPath); asset != nil {
+					assets[asset.Path] = asset
+				}
+			}
+			return assets, nil
+		}
+		// Enumeration failed — fall through to the common-filename probe below.
+	}
+
+	// Fallback for trees without enumeration: probe a fixed set of common paths.
 	commonPaths := []string{
 		"index.html", "app.js", "style.css", "app.css",
 		"script.js", "main.css", "favicon.ico", "manifest.json",
 	}
 
 	for _, assetPath := range commonPaths {
-		fullPath := append(basePath, assetPath)
+		fullPath := append(append([]string{}, basePath...), assetPath)
 		value, err := acm.tree.Read(fullPath)
 		if err != nil {
 			continue // Asset doesn't exist, skip
 		}
 
 		// Check if this is an asset record
-		if value.TypeTag == types.TypeRecord {
-			asset := acm.parseAssetFromStorageValue(value, assetPath)
-			if asset != nil {
-				assets[asset.Path] = asset
-			}
-		}
-	}
-
-	// Also try to load numbered test assets for benchmarks
-	for i := 0; i < 1000; i++ {
-		assetPath := fmt.Sprintf("file%d.js", i)
-		fullPath := append(basePath, assetPath)
-		value, err := acm.tree.Read(fullPath)
-		if err != nil {
-			continue // Asset doesn't exist
-		}
-
 		if value.TypeTag == types.TypeRecord {
 			asset := acm.parseAssetFromStorageValue(value, assetPath)
 			if asset != nil {

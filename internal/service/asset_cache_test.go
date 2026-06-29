@@ -122,6 +122,29 @@ func (amt *AssetMockTree) ReadAllChildren(path []string) (map[string]storage.Val
 	return children, nil
 }
 
+// ListLeafPaths enumerates stored leaf keys under the given prefix, mirroring
+// storage.StorageTree.ListLeafPaths so asset loading exercises the same
+// enumeration path it uses in production.
+func (amt *AssetMockTree) ListLeafPaths(prefix []string) ([]string, error) {
+	prefixStr := amt.pathKey(prefix) + "."
+	seen := make(map[string]bool)
+	var leaves []string
+
+	for key := range amt.data {
+		if !strings.HasPrefix(key, prefixStr) {
+			continue
+		}
+		remainder := key[len(prefixStr):]
+		if remainder == "" || seen[remainder] {
+			continue
+		}
+		seen[remainder] = true
+		leaves = append(leaves, remainder)
+	}
+
+	return leaves, nil
+}
+
 // GetAllKeys returns all keys in the tree (for debugging)
 func (amt *AssetMockTree) GetAllKeys() []string {
 	keys := make([]string, 0, len(amt.data))
@@ -230,6 +253,45 @@ func parseRecordFromValue(value storage.Value) (*types.Record, error) {
 			"mime_type": types.Text{Value: mimeType},
 		},
 	}, nil
+}
+
+// TestAssetCacheManager_LoadsArbitraryFilenames proves the enumeration-based
+// loader serves assets whose names are NOT in the old hardcoded common-paths
+// list (index.html/app.js/style.css/...). Before enumeration, files like
+// dashboard.html or vendor.bundle.js were silently never loaded.
+func TestAssetCacheManager_LoadsArbitraryFilenames(t *testing.T) {
+	tree := NewAssetMockTree()
+	watcherEngine := NewMockWatcherEngine()
+	manager := NewAssetCacheManager(tree, watcherEngine, 1)
+
+	domain := "app.example.com"
+
+	// None of these filenames are in the legacy hardcoded common-paths list.
+	testAssets := map[string]*Asset{
+		"dashboard.html":   {Data: []byte("<html>dash</html>"), MimeType: "text/html", Path: "dashboard.html"},
+		"vendor.bundle.js": {Data: []byte("/*vendor*/"), MimeType: "application/javascript", Path: "vendor.bundle.js"},
+		"data.json":        {Data: []byte(`k=v`), MimeType: "application/json", Path: "data.json"},
+		"logo.svg":         {Data: []byte("<svg/>"), MimeType: "image/svg+xml", Path: "logo.svg"},
+	}
+
+	tree.SetupTestPWA(domain, true, false, testAssets)
+	if err := manager.RefreshCache(domain); err != nil {
+		t.Fatalf("RefreshCache failed: %v", err)
+	}
+
+	for name, want := range testAssets {
+		got := manager.GetAsset(domain, name)
+		if got == nil {
+			t.Errorf("expected arbitrary-named asset %q to load, got nil", name)
+			continue
+		}
+		if string(got.Data) != string(want.Data) {
+			t.Errorf("asset %q data = %q, want %q", name, got.Data, want.Data)
+		}
+		if got.MimeType != want.MimeType {
+			t.Errorf("asset %q mime = %q, want %q", name, got.MimeType, want.MimeType)
+		}
+	}
 }
 
 func TestAssetCacheManager_BasicOperations(t *testing.T) {

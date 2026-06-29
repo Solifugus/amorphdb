@@ -158,3 +158,66 @@ func TestTreeAdapterGetInstanceMissing(t *testing.T) {
 		t.Fatalf("GetInstance on unstored attribute should error, got nil")
 	}
 }
+
+// TestListLeafPaths verifies StorageTree enumerates the stored leaves directly
+// under a prefix, returning each leaf's name after the prefix (dots preserved),
+// and excluding the prefix node itself and siblings outside the prefix.
+func TestListLeafPaths(t *testing.T) {
+	tree, err := NewStorageTree(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStorageTree failed: %v", err)
+	}
+
+	base := []string{"world", "apps", "demo", "assets"}
+	stored := []string{"index.html", "dashboard.html", "vendor.bundle.js", "data.json"}
+	for _, name := range stored {
+		path := append(append([]string{}, base...), name)
+		if err := tree.Write(path, Value{TypeTag: TypeText, Data: []byte("x")}, 1); err != nil {
+			t.Fatalf("Write %s failed: %v", name, err)
+		}
+	}
+	// A sibling outside the assets prefix must not appear.
+	if err := tree.Write([]string{"world", "apps", "demo", "enabled"}, Value{TypeTag: TypeText, Data: []byte("true")}, 1); err != nil {
+		t.Fatalf("Write sibling failed: %v", err)
+	}
+
+	leaves, err := tree.ListLeafPaths(base)
+	if err != nil {
+		t.Fatalf("ListLeafPaths failed: %v", err)
+	}
+
+	got := make(map[string]bool)
+	for _, l := range leaves {
+		got[l] = true
+	}
+	for _, name := range stored {
+		if !got[name] {
+			t.Errorf("ListLeafPaths missing %q (got %v)", name, leaves)
+		}
+	}
+	if got["enabled"] {
+		t.Errorf("ListLeafPaths leaked sibling outside prefix: %v", leaves)
+	}
+
+	// The same enumeration must be reachable through a TreeAdapter, which is the
+	// type production callers (PWA asset loading) actually hold.
+	adapter := NewTreeAdapter(tree).(*TreeAdapter)
+	viaAdapter, err := adapter.ListLeafPaths(base)
+	if err != nil {
+		t.Fatalf("TreeAdapter.ListLeafPaths failed: %v", err)
+	}
+	if len(viaAdapter) != len(leaves) {
+		t.Errorf("adapter returned %d leaves, StorageTree returned %d", len(viaAdapter), len(leaves))
+	}
+}
+
+// TestListLeafPathsEmptyPrefix verifies an empty prefix is rejected.
+func TestListLeafPathsEmptyPrefix(t *testing.T) {
+	tree, err := NewStorageTree(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStorageTree failed: %v", err)
+	}
+	if _, err := tree.ListLeafPaths(nil); err == nil {
+		t.Fatalf("ListLeafPaths with empty prefix should error")
+	}
+}
