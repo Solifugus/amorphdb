@@ -294,6 +294,53 @@ func TestAssetCacheManager_LoadsArbitraryFilenames(t *testing.T) {
 	}
 }
 
+// TestAssetCacheManager_DiscoversConfiguredDomains proves PWA domains are found
+// by enumerating storage rather than matching a hardcoded list — including
+// domains with dots in their names — and that asset files are not mistaken for
+// domains. scanForPWADomains then loads each discovered domain into the cache.
+func TestAssetCacheManager_DiscoversConfiguredDomains(t *testing.T) {
+	tree := NewAssetMockTree()
+	watcherEngine := NewMockWatcherEngine()
+	manager := NewAssetCacheManager(tree, watcherEngine, 1)
+
+	// Two real configured domains, neither in the legacy hardcoded scan list.
+	configured := map[string]*Asset{
+		"index.html": {Data: []byte("<html/>"), MimeType: "text/html", Path: "index.html"},
+		// An asset literally named "enabled" must NOT be discovered as a domain.
+		"enabled": {Data: []byte("x"), MimeType: "text/plain", Path: "enabled"},
+	}
+	tree.SetupTestPWA("shop.acme.io", true, true, configured)
+	tree.SetupTestPWA("admin.acme.io", true, false, map[string]*Asset{
+		"index.html": {Data: []byte("<html/>"), MimeType: "text/html", Path: "index.html"},
+	})
+
+	domains, ok := manager.discoverPWADomains()
+	if !ok {
+		t.Fatalf("discoverPWADomains returned ok=false; mock should support enumeration")
+	}
+	set := make(map[string]bool)
+	for _, d := range domains {
+		set[d] = true
+	}
+	if !set["shop.acme.io"] || !set["admin.acme.io"] {
+		t.Errorf("expected both dotted domains discovered, got %v", domains)
+	}
+	for _, d := range domains {
+		if strings.Contains(d, ".assets") || d == "shop.acme.io.assets" {
+			t.Errorf("asset path leaked as a domain: %q", d)
+		}
+	}
+
+	// scanForPWADomains should load the discovered domains into the cache.
+	manager.scanForPWADomains()
+	if enabled, spa := manager.IsEnabled("shop.acme.io"); !enabled || !spa {
+		t.Errorf("shop.acme.io not loaded/enabled (enabled=%v spa=%v)", enabled, spa)
+	}
+	if enabled, _ := manager.IsEnabled("admin.acme.io"); !enabled {
+		t.Errorf("admin.acme.io not loaded/enabled")
+	}
+}
+
 func TestAssetCacheManager_BasicOperations(t *testing.T) {
 	// Setup
 	tree := NewAssetMockTree()

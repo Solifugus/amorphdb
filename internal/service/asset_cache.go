@@ -315,31 +315,78 @@ func (acm *AssetCacheManager) periodicRefresh() {
 	}
 }
 
-// scanForPWADomains scans for known test domains
-// In a real implementation, this would parse attribute names from the storage tree
+// pwaConfigBase is the storage prefix under which every PWA domain's
+// configuration and assets live.
+var pwaConfigBase = []string{"my", "computer", "network", "web", "pwa"}
+
+// scanForPWADomains discovers configured PWA domains from storage and loads any
+// that are not yet cached, so a newly configured app starts being served
+// without a restart.
 func (acm *AssetCacheManager) scanForPWADomains() {
-	// For testing, check common domain names
-	testDomains := []string{
-		"app.example.com", "app1.example.com", "app2.example.com", "app3.example.com",
-		"test.com", "demo.app",
+	domains, ok := acm.discoverPWADomains()
+	if !ok {
+		// Fallback for trees that cannot enumerate (e.g. minimal test mocks):
+		// probe a fixed set of common domain names.
+		domains = []string{
+			"app.example.com", "app1.example.com", "app2.example.com", "app3.example.com",
+			"test.com", "demo.app",
+		}
 	}
 
-	for _, domain := range testDomains {
-		// Try to read the PWA enabled flag for this domain
-		enabledPath := []string{"my", "computer", "network", "web", "pwa", domain, "enabled"}
-		_, err := acm.tree.Read(enabledPath)
-		if err != nil {
-			continue // Domain doesn't exist
+	for _, domain := range domains {
+		// Confirm the domain is actually configured. This is required for the
+		// hardcoded fallback list and is a cheap re-check for discovered domains.
+		enabledPath := append(append([]string{}, pwaConfigBase...), domain, "enabled")
+		if _, err := acm.tree.Read(enabledPath); err != nil {
+			continue
 		}
 
-		// Check if we already have a cache for this domain
 		acm.mutex.RLock()
 		_, exists := acm.caches[domain]
 		acm.mutex.RUnlock()
 
 		if !exists {
-			// Load configuration for new domain
 			acm.loadPWAConfig(domain)
 		}
 	}
+}
+
+// discoverPWADomains returns the configured PWA domain names by enumerating the
+// my.computer.network.web.pwa subtree. The bool is false when the underlying
+// tree cannot enumerate, signalling the caller to fall back.
+//
+// A domain is identified by its "<domain>.enabled" config leaf. A domain name
+// may itself contain dots (e.g. app.example.com), so the name is recovered by
+// stripping the ".enabled" suffix rather than splitting on ".".
+func (acm *AssetCacheManager) discoverPWADomains() ([]string, bool) {
+	lister, ok := acm.tree.(leafLister)
+	if !ok {
+		return nil, false
+	}
+
+	leaves, err := lister.ListLeafPaths(pwaConfigBase)
+	if err != nil {
+		return nil, false
+	}
+
+	const enabledSuffix = ".enabled"
+	seen := make(map[string]bool)
+	var domains []string
+	for _, leaf := range leaves {
+		if !strings.HasSuffix(leaf, enabledSuffix) {
+			continue
+		}
+		domain := strings.TrimSuffix(leaf, enabledSuffix)
+		// "enabled" lives directly under the domain, not under assets. Skip any
+		// asset file that merely happens to end in ".enabled".
+		if domain == "" || strings.Contains(domain, ".assets.") || strings.HasSuffix(domain, ".assets") {
+			continue
+		}
+		if !seen[domain] {
+			seen[domain] = true
+			domains = append(domains, domain)
+		}
+	}
+
+	return domains, true
 }
