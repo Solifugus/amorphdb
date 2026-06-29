@@ -157,7 +157,8 @@ Use this as a quick reference. The spec documents have full detail.
 - `my.computer.files` sub-library (read, write, exists, delete, list, info)
 - `my.computer.files.import/export` — XML format working, ARI fixed-width working
 - `my.computer.network.web` — outbound HTTP (get/post/put/patch/delete), JSON helpers,
-  inbound request queue, SSE manager, PWA asset serving, TLS with SNI
+  inbound request queue, SSE manager, PWA asset serving (enumerates stored assets by
+  name; nested directories not yet supported), TLS with SNI
 - `my.computer.crypto` — hash_password (Argon2id), verify_password, generate_token (CSPRNG)
 - `amorphctl extract` — generates MBL scripts from subtrees
 - `amorphctl init-pwa` — scaffolds new PWA projects with auth watchers
@@ -167,7 +168,8 @@ Use this as a quick reference. The spec documents have full detail.
 - Permission system
 - PWA Go bridge — device/token/identity routing, write boundary enforcement,
   SSE routing by identity, login response handling (17/17 integration tests)
-- PWA boilerplate (`amorphdb-pwa.js`) — section parser, data tree generator, proxy
+- PWA boilerplate (`amorphdb-pwa.js`) — served from the binary at `/amorphdb/pwa.js`
+  (embedded via go:embed) — section parser, data tree generator, proxy
   change tracking, surgical DOM updates, list rendering, batch sender, SSE receiver,
   local watchers, deep linking, list windowing, show/hide, local dev mode, device ID,
   token storage, login/signup UI, logout, 401 handling (17/17 integration tests)

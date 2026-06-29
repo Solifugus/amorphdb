@@ -159,10 +159,18 @@ Use this as a quick reference. The spec documents have full detail.
 - Security: post-quantum encryption, challenge-response auth, agent-level encryption
 - Stamps and filters
 - Permission system
-- PWA boilerplate (`amorphdb-pwa.js`) — section parser, data tree generator, proxy
-  change tracking, surgical DOM updates, list rendering, batch sender, SSE receiver,
-  local watchers, deep linking, list windowing, show/hide, local dev mode (12/12
-  integration tests)
+- `my.computer.crypto` — hash_password (Argon2id), verify_password, generate_token (CSPRNG)
+- `amorphctl init-pwa` — scaffolds new PWA projects with auth watchers
+- PWA Go bridge — device/token/identity routing, write boundary enforcement,
+  SSE routing by identity, login response handling (17/17 integration tests)
+- PWA client boilerplate served from the binary at `/amorphdb/pwa.js` (embedded
+  via go:embed) — section parser, data tree generator, proxy change tracking,
+  surgical DOM updates, list rendering, batch sender, SSE receiver, local watchers,
+  deep linking, list windowing, show/hide, local dev mode, device ID, token
+  storage, login/signup UI, logout, 401 handling (17/17 integration tests)
+- PWA asset serving — enumerates stored assets by name (arbitrary flat filenames),
+  SPA fallback, TLS with SNI
+- Reference auth watchers (login.mbl, signup.mbl) with Argon2id password scheme
 
 ### 🚧 Specified but Not Yet Implemented
 - Recursive assignment (auto-create intermediate nodes)
@@ -171,9 +179,8 @@ Use this as a quick reference. The spec documents have full detail.
 - `my.computer.files.import/export` — JSON, CSV, TSV, TOML formats (stubbed)
 - REPL display hints (`:tree`, `:table`, `:list`) and slice pagination
 - Auto-inferred table rendering for homogeneous lists in REPL
-- PWA device/token/identity model (Go bridge still uses session-ID routing)
-- Reference auth scheme (Argon2id password hashing, login/signup/logout watchers)
-- `my.computer.crypto` primitives (hash_password, verify_password, generate_token)
+- Nested-directory PWA assets (storage records composite dotted paths, so only
+  flat one-component asset keys enumerate today)
 
 ### 🔄 Planned (Not Yet Specified in Detail)
 - Fixed-width export via ARI
