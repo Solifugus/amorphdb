@@ -168,8 +168,10 @@ Use this as a quick reference. The spec documents have full detail.
   surgical DOM updates, list rendering, batch sender, SSE receiver, local watchers,
   deep linking, list windowing, show/hide, local dev mode, device ID, token
   storage, login/signup UI, logout, 401 handling (17/17 integration tests)
-- PWA asset serving — enumerates stored assets by name (arbitrary flat filenames),
-  SPA fallback, TLS with SNI
+- PWA asset serving — enumerates stored assets by name, including nested paths
+  (assets are stored as a single component named by the full relative URL, e.g.
+  `css/app.css`, slashes preserved — the convention `deploy_pwa()` writes), SPA
+  fallback, TLS with SNI
 - Reference auth watchers (login.mbl, signup.mbl) with Argon2id password scheme
 
 ### 🚧 Specified but Not Yet Implemented
@@ -179,8 +181,10 @@ Use this as a quick reference. The spec documents have full detail.
 - `my.computer.files.import/export` — JSON, CSV, TSV, TOML formats (stubbed)
 - REPL display hints (`:tree`, `:table`, `:list`) and slice pagination
 - Auto-inferred table rendering for homogeneous lists in REPL
-- Nested-directory PWA assets (storage records composite dotted paths, so only
-  flat one-component asset keys enumerate today)
+- Manual per-asset MBL assignment with a nested key (e.g.
+  `assets["css/app.css"] = asset(...)`) — the bracket/quoted path-segment syntax
+  is documented in mbl_reference.md but not yet parsed; use `deploy_pwa()` to
+  publish a directory of nested assets in the meantime
 
 ### 🔄 Planned (Not Yet Specified in Detail)
 - Fixed-width export via ARI

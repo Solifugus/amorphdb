@@ -158,7 +158,8 @@ Use this as a quick reference. The spec documents have full detail.
 - `my.computer.files.import/export` — XML format working, ARI fixed-width working
 - `my.computer.network.web` — outbound HTTP (get/post/put/patch/delete), JSON helpers,
   inbound request queue, SSE manager, PWA asset serving (enumerates stored assets by
-  name; nested directories not yet supported), TLS with SNI
+  name, including nested paths stored as a single slashed component, e.g. `css/app.css`),
+  TLS with SNI
 - `my.computer.crypto` — hash_password (Argon2id), verify_password, generate_token (CSPRNG)
 - `amorphctl extract` — generates MBL scripts from subtrees
 - `amorphctl init-pwa` — scaffolds new PWA projects with auth watchers
