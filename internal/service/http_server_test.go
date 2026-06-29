@@ -60,6 +60,53 @@ func TestHTTPServer_ServePWABoilerplate(t *testing.T) {
 	}
 }
 
+// TestHTTPServer_ServesNestedAsset proves assets in subdirectories are served at
+// their nested URL. Under the Option A convention (matching production
+// deploy_pwa), a file like css/app.css is stored as a SINGLE path component
+// named "css/app.css"; enumeration returns that key intact and the server
+// serves it at GET /css/app.css.
+func TestHTTPServer_ServesNestedAsset(t *testing.T) {
+	tree := NewAssetMockTree()
+	watcherEngine := NewMockWatcherEngine()
+	assetCache := NewAssetCacheManager(tree, watcherEngine, 1)
+
+	domain := "app.example.com"
+	tree.SetupTestPWA(domain, true, false, map[string]*Asset{
+		"index.html":        {Data: []byte("<html/>"), MimeType: "text/html", Path: "index.html"},
+		"css/app.css":       {Data: []byte("body{color:red}"), MimeType: "text/css", Path: "css/app.css"},
+		"js/main.bundle.js": {Data: []byte("//bundle"), MimeType: "application/javascript", Path: "js/main.bundle.js"},
+	})
+	if err := assetCache.RefreshCache(domain); err != nil {
+		t.Fatalf("RefreshCache failed: %v", err)
+	}
+
+	sseManager := NewSSEManager(tree, watcherEngine, 1)
+	pwaBridge := NewPWABridge(tree, sseManager, watcherEngine, 1, "testapp")
+	httpServer := NewHTTPServer(":8080", "", nil, assetCache, sseManager, pwaBridge, tree, 1)
+
+	cases := []struct{ url, wantCT, wantBody string }{
+		{"/css/app.css", "text/css", "body{color:red}"},
+		{"/js/main.bundle.js", "application/javascript", "//bundle"},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest("GET", tc.url, nil)
+		req.Host = domain
+		w := httptest.NewRecorder()
+		httpServer.handleRequest(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s: status = %d, want 200", tc.url, w.Code)
+			continue
+		}
+		if got := w.Body.String(); got != tc.wantBody {
+			t.Errorf("GET %s: body = %q, want %q", tc.url, got, tc.wantBody)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != tc.wantCT {
+			t.Errorf("GET %s: Content-Type = %q, want %q", tc.url, ct, tc.wantCT)
+		}
+	}
+}
+
 func TestHTTPServer_ServeStaticAsset(t *testing.T) {
 	// Setup
 	tree := NewAssetMockTree()

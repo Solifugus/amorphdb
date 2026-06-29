@@ -199,10 +199,12 @@ func (amt *AssetMockTree) SetupTestPWA(domain string, enabled bool, spaMode bool
 	}
 	amt.Write(spaPath, spaValue, 1)
 
-	// Set assets
+	// Set assets. Mirroring production deploy_pwa(), each asset is stored under a
+	// SINGLE path component whose name is the full relative URL path with slashes
+	// preserved (e.g. "css/app.css") — NOT split into nested components. This is
+	// the key the asset enumeration and HTTP serving expect.
 	for assetPath, asset := range assets {
-		pathParts := strings.Split(assetPath, "/")
-		fullPath := append([]string{"my", "computer", "network", "web", "pwa", domain, "assets"}, pathParts...)
+		fullPath := []string{"my", "computer", "network", "web", "pwa", domain, "assets", assetPath}
 
 		// Create a simplified record representation
 		recordData := fmt.Sprintf(`{"data":"%s","mime_type":"%s"}`, string(asset.Data), asset.MimeType)
