@@ -139,6 +139,14 @@ Use this as a quick reference. The spec documents have full detail.
 - Record literal assignment (`x = { name: "...", age: 55 }`)
 - Projection syntax (`path{ name, age }`) — including projection over a stored path
 - Same-line definitions (`name: value; name: value`, `double(x): return x * 2`)
+- Bracket key-selectors in assignment targets — both static literal keys
+  (`my.computer.network.web.pwa["app.example.com"].enabled = true`,
+  `pwa[...].assets["css/app.css"] = ...`) and dynamic keys
+  (`world.apps.app.tokens[token].identity = username`, `data[i] = ...`). A
+  string key with dots becomes one path component (Option-A convention); the
+  literal `my.computer.*` subtree is node-local so PWA-enable lands where the
+  asset cache reads. NOTE: bracket selectors in *reads* (`creds = ...users[name]`)
+  and in watch names/paths are still 🚧 (see below).
 - Heritability and instantiation (`new()` with copy/link/reset/exclude)
 - Catch/else unknown error handling
 - `(cascade)` scope modifier (parser + basic resolution)
@@ -181,10 +189,12 @@ Use this as a quick reference. The spec documents have full detail.
 - `my.computer.files.import/export` — JSON, CSV, TSV, TOML formats (stubbed)
 - REPL display hints (`:tree`, `:table`, `:list`) and slice pagination
 - Auto-inferred table rendering for homogeneous lists in REPL
-- Manual per-asset MBL assignment with a nested key (e.g.
-  `assets["css/app.css"] = asset(...)`) — the bracket/quoted path-segment syntax
-  is documented in mbl_reference.md but not yet parsed; use `deploy_pwa()` to
-  publish a directory of nested assets in the meantime
+- Bracket key-selectors in *read* expressions (`creds = ...users[username]`) and
+  in watch names/paths (`watch my.h[user](...users[user].intent)`). Assignment
+  *targets* now support brackets (see ✅), but read-side selectors still parse as
+  BracketFilterExpression (filter semantics), and the reference auth watchers
+  (login.mbl/signup.mbl/setup.mbl) rely on read-side and watch-name brackets, so
+  they do not yet execute end-to-end through the interpreter.
 
 ### 🔄 Planned (Not Yet Specified in Detail)
 - Fixed-width export via ARI

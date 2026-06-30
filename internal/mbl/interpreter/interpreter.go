@@ -710,6 +710,17 @@ func (i *Interpreter) evalPath(node *parser.PathExpression) interface{} {
 		return types.Unknown{Reason: "empty path"}
 	}
 
+	// If the path carries dynamic bracket key-selectors (only produced for
+	// assignment targets, but a target with no assignment falls through to a
+	// read), resolve them to concrete segments and continue with a static copy.
+	if len(node.Dynamic) > 0 {
+		parts, unk := i.resolvePathExpressionParts(node)
+		if unk != nil {
+			return *unk
+		}
+		node = &parser.PathExpression{Token: node.Token, Parts: parts}
+	}
+
 	// WORKAROUND: Handle misparsed unknown function calls
 	// When unknown("reason") gets parsed as PathExpression instead of LiteralExpression,
 	// we need to handle it here. This is a parser issue but we work around it.
@@ -967,6 +978,57 @@ func (i *Interpreter) resolveReference(ref types.Reference) interface{} {
 }
 
 // resolvePath resolves special path prefixes like 'my', 'world', '~'
+// resolvePathExpressionParts returns the concrete string path segments for a
+// path expression, evaluating any dynamic bracket key-selectors (e.g.
+// tokens[token], data[i]) to their string values. When the path is fully
+// static it returns node.Parts unchanged. On a non-resolvable key (Unknown or
+// a value that has no sensible path-segment form) it returns the Unknown.
+func (i *Interpreter) resolvePathExpressionParts(node *parser.PathExpression) ([]string, *types.Unknown) {
+	if node == nil || len(node.Dynamic) == 0 {
+		if node == nil {
+			return nil, nil
+		}
+		return node.Parts, nil
+	}
+
+	parts := make([]string, len(node.Parts))
+	copy(parts, node.Parts)
+
+	for idx, expr := range node.Dynamic {
+		val := i.evalExpression(expr)
+		if u, ok := val.(types.Unknown); ok {
+			return nil, &u
+		}
+		seg, ok := keyToString(val)
+		if !ok {
+			u := types.Unknown{Reason: fmt.Sprintf("bracket key-selector did not resolve to a usable path segment: %v", val)}
+			return nil, &u
+		}
+		parts[idx] = seg
+	}
+
+	return parts, nil
+}
+
+// keyToString converts an evaluated bracket key value into a path-segment
+// string. Text and Number are the common cases (string keys and list/loop
+// indices); Boolean is supported for completeness. Returns false for values
+// that cannot serve as a path segment.
+func keyToString(val interface{}) (string, bool) {
+	switch v := val.(type) {
+	case types.Text:
+		return v.Value, true
+	case types.Number:
+		return v.String(), true
+	case types.Boolean:
+		return v.String(), true
+	case string:
+		return v, true
+	default:
+		return "", false
+	}
+}
+
 func (i *Interpreter) resolvePath(parts []string) []string {
 	if len(parts) == 0 {
 		return parts
@@ -974,6 +1036,16 @@ func (i *Interpreter) resolvePath(parts []string) []string {
 
 	switch parts[0] {
 	case "my":
+		// my.computer.* is a node-local virtual mount: the spec describes it as
+		// "not stored in the mesh — provided by the node the agent is connected
+		// from." deploy_pwa(), the PWA asset cache, and the SSE manager all
+		// read and write this subtree at its literal location, so keep it
+		// literal rather than rewriting to the per-agent home. Without this a
+		// plain assignment (my.computer.network.web.pwa[...]. enabled = true)
+		// would land under world.agent.{id}.* and be invisible to the daemon.
+		if len(parts) >= 2 && parts[1] == "computer" {
+			return parts
+		}
 		// my.* -> world.agent.{identity}.*
 		agentPath := []string{"world", "agent", fmt.Sprintf("%d", i.scope.agent)}
 		return append(agentPath, parts[1:]...)
@@ -1153,30 +1225,38 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 		return unknown
 	}
 
+	// Resolve any dynamic bracket key-selectors in the target path (e.g.
+	// tokens[token].identity, data[i]) to concrete string segments before the
+	// path is used. Static paths pass through unchanged.
+	nameParts, unk := i.resolvePathExpressionParts(node.Name)
+	if unk != nil {
+		return *unk
+	}
+
 	// Procedures cannot currently be serialized into the temporal storage
 	// tree, so when a *Procedure is assigned to a path (e.g.
 	// `my.double = procedure(x): return x * 2`) we bind it via the
 	// procedure registry instead. See evalDefinitionStatement for the
 	// shared binding logic.
 	if procedure, ok := value.(*Procedure); ok {
-		return i.bindProcedureAtPath(node.Name.Parts, procedure)
+		return i.bindProcedureAtPath(nameParts, procedure)
 	}
 
 	// Same rationale as procedures: *Watcher cannot round-trip through
 	// types.CreateValue. Bind via the registry instead so forms like
 	// `my.handler = watch(my.x): ...` end up addressable by their path.
 	if watcher, ok := value.(*Watcher); ok {
-		return i.bindWatcherAtPath(i.resolvePath(node.Name.Parts), watcher)
+		return i.bindWatcherAtPath(i.resolvePath(nameParts), watcher)
 	}
 
 	// Ensure value is properly converted to MBL type
 	value = convertToMBLType(value)
 
 	// For simple variable names, update in the scope where they exist or use current scope
-	if len(node.Name.Parts) == 1 && !i.isSpecialPath(node.Name.Parts[0]) {
+	if len(nameParts) == 1 && !i.isSpecialPath(nameParts[0]) {
 		// If we have a current scope, write to persistent storage with scope prefix
 		if i.currentScopePath != nil {
-			scopedPath := append(i.currentScopePath, node.Name.Parts[0])
+			scopedPath := append(i.currentScopePath, nameParts[0])
 			storageValue, err := mblToStorage(value)
 			if err != nil {
 				return types.Unknown{Reason: fmt.Sprintf("failed to convert value for storage: %v", err)}
@@ -1186,12 +1266,12 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 		}
 
 		// Otherwise, update local variable as before
-		i.scope.Update(node.Name.Parts[0], value)
+		i.scope.Update(nameParts[0], value)
 		return value
 	}
 
 	// For paths, write to storage
-	path := i.resolvePath(node.Name.Parts)
+	path := i.resolvePath(nameParts)
 
 	// Handle modifier by storing appropriate meta-attributes
 	if node.Modifier != nil {

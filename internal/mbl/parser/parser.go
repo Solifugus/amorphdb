@@ -469,10 +469,13 @@ func (p *Parser) looksLikePathAssignment() bool {
 		return true
 	}
 
-	// Use the existing ContainsPattern method to look for assignment patterns
-	// Check for = operators after a path pattern (: is for definitions, not assignments)
-	return p.lexer.ContainsPattern(" = ") ||
-		p.lexer.ContainsPattern("= ")
+	// Look for an assignment operator at bracket depth zero. Using
+	// HasTopLevelAssignment (rather than a plain substring scan) keeps a bracket
+	// filter read such as my.employees[department = "Eng", salary > 80000] from
+	// being misread as an assignment because of the '=' inside its brackets,
+	// while still recognizing bracketed assignment targets like
+	// world.apps.app.tokens[token].identity = username.
+	return p.lexer.HasTopLevelAssignment()
 }
 
 // isProcedureDefinition checks if the current statement is a procedure definition
@@ -651,7 +654,10 @@ func (p *Parser) isDefinition() bool {
 
 	// Multi-segment path (`my.x ...`): the right-hand side decides. Procedure and
 	// watcher bodies are definitions; a plain value is a same-line assignment.
-	if p.lexer.ContainsPattern(": ") && !p.lexer.ContainsPattern("= ") {
+	// HasTopLevelAssignment (not a plain "= " scan) so an '=' buried inside a
+	// bracket filter — e.g. my.watcher: watch append(my.orders[priority ?= "x"])
+	// — does not make this look like an assignment.
+	if p.lexer.ContainsPattern(": ") && !p.lexer.HasTopLevelAssignment() {
 		return rhsIsProcedure || rhsIsWatch
 	}
 
@@ -662,8 +668,11 @@ func (p *Parser) isDefinition() bool {
 func (p *Parser) parseAssignmentStatement() Statement {
 	stmt := &AssignmentStatement{Token: p.currentToken}
 
-	// Parse the left-hand side path (my.data.value)
-	pathExpr := p.parsePathExpression()
+	// Parse the left-hand side path (my.data.value). parsePathTarget is the
+	// bracket-aware variant so assignment targets may carry key-selectors like
+	// world.apps.app.tokens[token].identity or
+	// my.computer.network.web.pwa["host.example.com"].enabled.
+	pathExpr := p.parsePathTarget()
 	stmt.Name = pathExpr
 
 	// Check for modifier like :(copy) or same-line definition like : value
@@ -775,6 +784,96 @@ func (p *Parser) parsePathExpression() *PathExpression {
 	}
 
 	return expr
+}
+
+// parsePathTarget parses an assignment-target path that may interleave dotted
+// segments with bracket key-selectors, e.g.
+//
+//	world.apps.myapp.tokens[token].identity
+//	my.computer.network.web.pwa["host.example.com"].assets["app.css"]
+//	world.zone1.data[i]
+//
+// Each [key] descends into the child named by the key's value. A string- or
+// number-literal key is baked into Parts directly (a dotted domain like
+// "host.example.com" becomes a single component, matching the Option-A nested
+// convention deploy_pwa() writes). A non-literal key (identifier or expression)
+// is recorded in Dynamic for the interpreter to evaluate at write time.
+//
+// Distinct from parsePathExpression so the watch-name and definition callers of
+// that function keep their existing behavior.
+func (p *Parser) parsePathTarget() *PathExpression {
+	expr := &PathExpression{
+		Token: p.currentToken,
+		Parts: []string{p.currentToken.Literal},
+	}
+
+	for p.peekToken.Type == lexer.DOT || p.peekToken.Type == lexer.LBRACKET {
+		if p.peekToken.Type == lexer.LBRACKET {
+			if !p.parsePathTargetSelector(expr) {
+				return expr
+			}
+			continue
+		}
+
+		p.nextToken() // consume current
+		p.nextToken() // consume DOT
+
+		// Accept both IDENT and TIME tokens (for meta attributes like @ttl).
+		if p.currentToken.Type != lexer.IDENT && p.currentToken.Type != lexer.TIME {
+			return expr
+		}
+
+		expr.Parts = append(expr.Parts, p.currentToken.Literal)
+	}
+
+	return expr
+}
+
+// parsePathTargetSelector consumes a single [key] selector (current peek is the
+// LBRACKET) and appends it to expr, returning false on a malformed selector so
+// the caller stops extending the path. A literal key is stored directly in
+// Parts; any other key expression is recorded in Dynamic against the new index.
+func (p *Parser) parsePathTargetSelector(expr *PathExpression) bool {
+	p.nextToken() // move onto LBRACKET
+	p.nextToken() // move onto the first token of the key expression
+
+	key := p.parseExpression(LOWEST)
+	if key == nil {
+		return false
+	}
+
+	if !p.expectPeek(lexer.RBRACKET) {
+		return false
+	}
+
+	idx := len(expr.Parts)
+	if lit, ok := key.(*LiteralExpression); ok {
+		switch v := lit.Value.(type) {
+		case string:
+			// String literals carry their raw token text including the
+			// surrounding quotes; strip them so the path segment is the
+			// string's value (mirrors evalLiteral's quote handling).
+			if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+				v = v[1 : len(v)-1]
+			}
+			expr.Parts = append(expr.Parts, v)
+			return true
+		case int64:
+			expr.Parts = append(expr.Parts, strconv.FormatInt(v, 10))
+			return true
+		case float64:
+			expr.Parts = append(expr.Parts, strconv.FormatFloat(v, 'g', -1, 64))
+			return true
+		}
+	}
+
+	// Non-literal key: resolve at runtime.
+	if expr.Dynamic == nil {
+		expr.Dynamic = make(map[int]Expression)
+	}
+	expr.Parts = append(expr.Parts, "")
+	expr.Dynamic[idx] = key
+	return true
 }
 
 // parseIfStatement parses if/else statements

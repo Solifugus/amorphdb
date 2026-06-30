@@ -144,6 +144,12 @@ Use this as a quick reference. The spec documents have full detail.
 - Record literal assignment (`x = { name: "...", age: 55 }`)
 - Projection syntax (`path{ name, age }`) — including projection over a stored path
 - Same-line definitions (`name: value; name: value`, `double(x): return x * 2`)
+- Bracket key-selectors in assignment targets — static literal keys
+  (`my.computer.network.web.pwa["app.example.com"].enabled = true`) and dynamic
+  keys (`world.apps.app.tokens[token].identity = username`, `data[i] = ...`). A
+  dotted string key becomes one component; `my.computer.*` is node-local so
+  PWA-enable lands where the asset cache reads. Read-side selectors
+  (`creds = ...users[name]`) and watch-name/path brackets remain 🚧.
 - Heritability and instantiation (`new()` with copy/link/reset/exclude)
 - Catch/else unknown error handling
 - `(cascade)` scope modifier (parser + basic resolution)

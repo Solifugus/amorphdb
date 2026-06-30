@@ -88,12 +88,38 @@ func (bs *BlockStatement) Position() (int, int) { return bs.Token.Line, bs.Token
 type PathExpression struct {
 	Token lexer.Token // First identifier token
 	Parts []string    // The parts of the path
+	// Dynamic records bracket key-selector segments whose name must be computed
+	// at runtime (e.g. tokens[token] or data[i]). The map key is the index into
+	// Parts of the segment; the value is the expression to evaluate to that
+	// segment's name. Static literal keys (pwa["host.example.com"]) are baked
+	// directly into Parts at parse time and have no Dynamic entry. nil/empty for
+	// a fully static path. Only assignment targets currently produce these (see
+	// parsePathTarget); read-side bracket selectors still flow through
+	// BracketFilterExpression.
+	Dynamic map[int]Expression
 }
 
 func (pe *PathExpression) expressionNode() {}
 
 func (pe *PathExpression) String() string {
-	return strings.Join(pe.Parts, ".")
+	if len(pe.Dynamic) == 0 {
+		return strings.Join(pe.Parts, ".")
+	}
+	// Render dynamic segments as [expr] so debug output round-trips intent.
+	var b strings.Builder
+	for idx, part := range pe.Parts {
+		if expr, ok := pe.Dynamic[idx]; ok {
+			b.WriteString("[")
+			b.WriteString(expr.String())
+			b.WriteString("]")
+			continue
+		}
+		if idx > 0 {
+			b.WriteString(".")
+		}
+		b.WriteString(part)
+	}
+	return b.String()
 }
 
 func (pe *PathExpression) TokenLiteral() string { return pe.Token.Literal }
@@ -231,7 +257,9 @@ func (coe *CollectionOperationExpression) String() string {
 }
 
 func (coe *CollectionOperationExpression) TokenLiteral() string { return coe.Token.Literal }
-func (coe *CollectionOperationExpression) Position() (int, int) { return coe.Token.Line, coe.Token.Column }
+func (coe *CollectionOperationExpression) Position() (int, int) {
+	return coe.Token.Line, coe.Token.Column
+}
 
 // BracketFilterExpression represents bracket filters like person[name = "bob", age > 18]
 type BracketFilterExpression struct {
@@ -386,7 +414,6 @@ func (as *AssignmentStatement) String() string {
 func (as *AssignmentStatement) TokenLiteral() string { return as.Token.Literal }
 func (as *AssignmentStatement) Position() (int, int) { return as.Token.Line, as.Token.Column }
 
-
 // IfStatement represents if/else constructs
 type IfStatement struct {
 	Token       lexer.Token // The IF token
@@ -431,9 +458,9 @@ func (ws *WhileStatement) Position() (int, int) { return ws.Token.Line, ws.Token
 
 // ForStatement represents for loops
 type ForStatement struct {
-	Token     lexer.Token     // The FOR token
-	Variables []string        // The loop variables (e.g., ["item", "index"])
-	Iterable  Expression      // What we're iterating over
+	Token     lexer.Token // The FOR token
+	Variables []string    // The loop variables (e.g., ["item", "index"])
+	Iterable  Expression  // What we're iterating over
 	Body      *BlockStatement
 }
 
@@ -529,7 +556,7 @@ func (ps *PassStatement) String() string {
 }
 
 func (ps *PassStatement) TokenLiteral() string { return ps.Token.Literal }
-func (ps *PassStatement) Position() (int, int)  { return ps.Token.Line, ps.Token.Column }
+func (ps *PassStatement) Position() (int, int) { return ps.Token.Line, ps.Token.Column }
 
 // BreakStatement represents a break statement that exits the nearest enclosing loop
 type BreakStatement struct {
@@ -543,7 +570,7 @@ func (bs *BreakStatement) String() string {
 }
 
 func (bs *BreakStatement) TokenLiteral() string { return bs.Token.Literal }
-func (bs *BreakStatement) Position() (int, int)  { return bs.Token.Line, bs.Token.Column }
+func (bs *BreakStatement) Position() (int, int) { return bs.Token.Line, bs.Token.Column }
 
 // ScopeStatement represents scope setting statements like my.path.
 type ScopeStatement struct {
@@ -562,17 +589,17 @@ func (ss *ScopeStatement) String() string {
 }
 
 func (ss *ScopeStatement) TokenLiteral() string { return ss.Token.Literal }
-func (ss *ScopeStatement) Position() (int, int)  { return ss.Token.Line, ss.Token.Column }
+func (ss *ScopeStatement) Position() (int, int) { return ss.Token.Line, ss.Token.Column }
 
 // WatchStatement represents watch statements with optional append trigger
 type WatchStatement struct {
-	Token       lexer.Token      // The WATCH token
-	Name        string           // Watcher identifier (left side of :)
-	IsAppend    bool             // Whether this is an append watcher
-	Paths       []Expression     // The paths being watched (MULTIPLE for regular, single for append)
-	Filters     []Expression     // Optional predicate filters for append watchers
-	BindingName string           // Variable name for 'as name' binding (append watchers only)
-	Body        *BlockStatement  // The watcher body
+	Token       lexer.Token     // The WATCH token
+	Name        string          // Watcher identifier (left side of :)
+	IsAppend    bool            // Whether this is an append watcher
+	Paths       []Expression    // The paths being watched (MULTIPLE for regular, single for append)
+	Filters     []Expression    // Optional predicate filters for append watchers
+	BindingName string          // Variable name for 'as name' binding (append watchers only)
+	Body        *BlockStatement // The watcher body
 }
 
 func (ws *WatchStatement) statementNode() {}
@@ -800,8 +827,8 @@ type CatchStatement struct {
 }
 
 type ElseClause struct {
-	Token     lexer.Token     // The ELSE token
-	ErrorType string          // "unknown", "error", etc. (optional)
+	Token     lexer.Token // The ELSE token
+	ErrorType string      // "unknown", "error", etc. (optional)
 	Body      *BlockStatement
 }
 

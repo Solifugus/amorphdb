@@ -850,6 +850,64 @@ func (l *Lexer) ContainsPattern(pattern string) bool {
 	return false
 }
 
+// HasTopLevelAssignment reports whether the current statement (up to the next
+// newline) contains an assignment operator '=' at bracket-nesting depth zero.
+// It ignores '=' that appears inside [ ] key-selectors or filters (e.g. the
+// equality in my.employees[department = "Eng"]) and inside string literals, and
+// does not mistake comparison operators (==, >=, <=, !=, ?=) for assignment.
+// This lets the parser tell a bracketed assignment target
+// (world.tokens[token].identity = x) apart from a bracket filter read
+// (my.employees[department = "Eng", salary > 80000]).
+func (l *Lexer) HasTopLevelAssignment() bool {
+	remaining := l.input[l.position:]
+	depth := 0
+	inString := false
+	for i := 0; i < len(remaining); i++ {
+		ch := remaining[i]
+		if ch == '\n' {
+			break
+		}
+		if inString {
+			if ch == '\\' {
+				i++ // skip escaped character
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '[':
+			depth++
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+		case '=':
+			if depth != 0 {
+				continue
+			}
+			var prev, next byte
+			if i > 0 {
+				prev = remaining[i-1]
+			}
+			if i+1 < len(remaining) {
+				next = remaining[i+1]
+			}
+			// Exclude comparison operators: ==, >=, <=, !=, ?= and the leading
+			// half of ==.
+			if prev == '=' || prev == '>' || prev == '<' || prev == '!' || prev == '?' || next == '=' {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // EndsWithPattern checks if the remaining input ends with a specific pattern
 func (l *Lexer) EndsWithPattern(pattern string) bool {
 	remaining := l.input[l.position:]

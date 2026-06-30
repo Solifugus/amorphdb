@@ -12,7 +12,6 @@ import (
 	"github.com/solifugus/amorphdb/internal/mbl/lexer"
 	"github.com/solifugus/amorphdb/internal/mbl/parser"
 	"github.com/solifugus/amorphdb/internal/storage"
-	"github.com/solifugus/amorphdb/internal/types"
 )
 
 // TestPWADeployServeEndToEnd is the full-chain guard for PWA publishing:
@@ -63,20 +62,16 @@ func TestPWADeployServeEndToEnd(t *testing.T) {
 		t.Fatalf("deploy_pwa interpret: %v", err)
 	}
 
-	// 4. Enable the domain. The spec's documented mechanism is
-	//    `my.computer.network.web.pwa["app.test"].enabled = true`, but the
-	//    bracket/quoted path-segment assignment syntax is not yet implemented
-	//    (tracked 🚧). Until it is, write the enable flags directly to storage
-	//    so the serve half can be exercised end-to-end.
-	//    TODO(devplan): drive enable via MBL once bracketed path-segment
-	//    assignment lands; see mbl_reference.md and amorphdb_design.md §PWA.
-	base := []string{"my", "computer", "network", "web", "pwa", domain}
-	boolTrue := storage.Value{TypeTag: types.TypeBoolean, Data: []byte{1}}
-	if err := tree.Write(append(append([]string{}, base...), "enabled"), boolTrue, 1); err != nil {
-		t.Fatalf("write enabled: %v", err)
-	}
-	if err := tree.Write(append(append([]string{}, base...), "spa_mode"), boolTrue, 1); err != nil {
-		t.Fatalf("write spa_mode: %v", err)
+	// 4. Enable the domain through the spec's documented MBL mechanism: bracket
+	//    path-segment assignment. The domain contains a dot, so it can only be
+	//    addressed as a quoted bracket key (a dotted path segment would split).
+	//    This drives the same interpreter and lands in the literal node-local
+	//    my.computer.network.web.pwa.<domain> subtree the asset cache reads.
+	enableSrc := `my.computer.network.web.pwa["` + domain + `"].enabled = true
+my.computer.network.web.pwa["` + domain + `"].spa_mode = true`
+	enableProg := parser.New(lexer.New(enableSrc)).ParseProgram()
+	if _, err := interp.Interpret(enableProg); err != nil {
+		t.Fatalf("enable interpret: %v", err)
 	}
 
 	// 5. Stand up the serving side over the SAME storage via TreeAdapter.
