@@ -46,14 +46,14 @@ func TestTextRoundTrip(t *testing.T) {
 func TestTextUnicode(t *testing.T) {
 	// Test Unicode multi-byte characters
 	testCases := []string{
-		"Hello, 世界",           // Chinese characters
-		"Café",                 // Accented characters
-		"🌟✨",                  // Emojis
-		"Москва",               // Cyrillic
-		"العربية",              // Arabic
-		"한국어",                 // Korean
-		"",                     // Empty string
-		"a",                    // Single ASCII
+		"Hello, 世界", // Chinese characters
+		"Café",      // Accented characters
+		"🌟✨",        // Emojis
+		"Москва",    // Cyrillic
+		"العربية",   // Arabic
+		"한국어",       // Korean
+		"",          // Empty string
+		"a",         // Single ASCII
 	}
 
 	for _, testText := range testCases {
@@ -71,11 +71,11 @@ func TestTextUnicode(t *testing.T) {
 			}
 
 			// Convert interface to SerializedValue for deserialization
-	serializedValue := SerializedValue{
-		TypeTag: value.TypeTag(),
-		Data:    value.Serialize(),
-	}
-	deserialized, err := DeserializeValue(serializedValue)
+			serializedValue := SerializedValue{
+				TypeTag: value.TypeTag(),
+				Data:    value.Serialize(),
+			}
+			deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed for %q: %v", testText, err)
 			}
@@ -123,11 +123,11 @@ func TestNumberRoundTrip(t *testing.T) {
 			}
 
 			// Convert interface to SerializedValue for deserialization
-	serializedValue := SerializedValue{
-		TypeTag: value.TypeTag(),
-		Data:    value.Serialize(),
-	}
-	deserialized, err := DeserializeValue(serializedValue)
+			serializedValue := SerializedValue{
+				TypeTag: value.TypeTag(),
+				Data:    value.Serialize(),
+			}
+			deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -177,11 +177,11 @@ func TestTimeRoundTrip(t *testing.T) {
 			}
 
 			// Convert interface to SerializedValue for deserialization
-	serializedValue := SerializedValue{
-		TypeTag: value.TypeTag(),
-		Data:    value.Serialize(),
-	}
-	deserialized, err := DeserializeValue(serializedValue)
+			serializedValue := SerializedValue{
+				TypeTag: value.TypeTag(),
+				Data:    value.Serialize(),
+			}
+			deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -222,11 +222,11 @@ func TestMoneyRoundTrip(t *testing.T) {
 			}
 
 			// Convert interface to SerializedValue for deserialization
-	serializedValue := SerializedValue{
-		TypeTag: value.TypeTag(),
-		Data:    value.Serialize(),
-	}
-	deserialized, err := DeserializeValue(serializedValue)
+			serializedValue := SerializedValue{
+				TypeTag: value.TypeTag(),
+				Data:    value.Serialize(),
+			}
+			deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -378,11 +378,11 @@ func TestUnknownRoundTrip(t *testing.T) {
 			}
 
 			// Convert interface to SerializedValue for deserialization
-	serializedValue := SerializedValue{
-		TypeTag: value.TypeTag(),
-		Data:    value.Serialize(),
-	}
-	deserialized, err := DeserializeValue(serializedValue)
+			serializedValue := SerializedValue{
+				TypeTag: value.TypeTag(),
+				Data:    value.Serialize(),
+			}
+			deserialized, err := DeserializeValue(serializedValue)
 			if err != nil {
 				t.Fatalf("DeserializeValue failed: %v", err)
 			}
@@ -461,6 +461,32 @@ func TestTypeTagConsistency(t *testing.T) {
 }
 
 // Test edge cases and error conditions
+
+// TestDeserializeRecordDoesNotOverallocate guards against a denial-of-service
+// hang: DeserializeRecord reads a 4-byte field count from the front of the
+// data. When fed bytes that are not a real serialized record (e.g. a JSON-ish
+// string, or any garbage), that count can be enormous. A previous version
+// preallocated make(map, count), which tried to build a multi-billion-entry
+// map and effectively hung the process. The deserializer must reject such
+// input quickly without a giant allocation.
+func TestDeserializeRecordDoesNotOverallocate(t *testing.T) {
+	// 4 leading bytes of this string decode (little-endian) to ~1.6 billion.
+	garbage := []byte(`{"data":"x","mime_type":"text/html"}`)
+
+	done := make(chan struct{})
+	go func() {
+		// We only care that it returns promptly without allocating a huge map.
+		// It may return an error or a (possibly partial) record; either is fine.
+		_, _ = DeserializeRecord(garbage)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DeserializeRecord hung on garbage input — count must not drive preallocation")
+	}
+}
 
 func TestDeserializationErrors(t *testing.T) {
 	// Test various malformed data scenarios

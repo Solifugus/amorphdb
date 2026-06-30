@@ -574,7 +574,19 @@ func DeserializeRecord(data []byte) (Record, error) {
 	}
 
 	count := binary.LittleEndian.Uint32(data[0:4])
-	fields := make(map[string]interface{}, count)
+
+	// Do not preallocate based on the untrusted count: a malformed or
+	// non-record byte slice can carry a wildly large count (e.g. garbage
+	// bytes read as a uint32), and make(map, count) would attempt an enormous
+	// allocation before the per-field bounds checks below ever run. The loop
+	// is bounded by offset < len(data), so a sane initial capacity is safe;
+	// every real field consumes at least 9 bytes (4 key-len + 1 type + 4
+	// value-len), giving a tight upper bound on the achievable field count.
+	capHint := count
+	if max := uint32(len(data) / 9); capHint > max {
+		capHint = max
+	}
+	fields := make(map[string]interface{}, capHint)
 
 	offset := 4
 	for i := uint32(0); i < count && offset < len(data); i++ {

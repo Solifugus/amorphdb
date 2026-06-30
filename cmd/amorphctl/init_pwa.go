@@ -117,7 +117,12 @@ func (c *InitPWACommand) Run() error {
 	fmt.Println("Next steps:")
 	fmt.Printf("  1. Edit app.html to define your sections.\n")
 	fmt.Printf("  2. Edit setup.mbl to register per-user watchers.\n")
-	fmt.Printf("  3. Deploy with: amorphctl deploy-pwa %s.<host> %s\n", c.appName, c.targetDir)
+	fmt.Printf("  3. Publish the assets by running this MBL with the amorph client\n")
+	fmt.Printf("     (e.g. `amorph -run deploy.mbl`), substituting your host:\n")
+	fmt.Printf("         my.computer.network.web.pwa[\"%s.<host>\"].enabled = true\n", c.appName)
+	fmt.Printf("         my.computer.network.web.pwa[\"%s.<host>\"].spa_mode = true\n", c.appName)
+	fmt.Printf("         my.computer.network.web.deploy_pwa(\"%s.<host>\", \"%s\")\n", c.appName, c.targetDir)
+	fmt.Printf("     The amorphd daemon then serves the app over its HTTP/HTTPS port.\n")
 	return nil
 }
 

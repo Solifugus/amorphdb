@@ -29,15 +29,15 @@ const (
 
 // Sentinels for value records
 const (
-	SentinelValue    = 0x1E // Normal value record
+	SentinelValue     = 0x1E // Normal value record
 	SentinelTombstone = 0x1F // Deleted/tombstoned value
 )
 
 // Bucket tier boundaries in bytes
 const (
-	Tier0MaxSize = 64    // Fixed-size: numbers, time, money, references
-	Tier1MaxSize = 512   // Small: short text, small procedures
-	Tier2MaxSize = 4096  // Medium: longer text, procedures
+	Tier0MaxSize = 64   // Fixed-size: numbers, time, money, references
+	Tier1MaxSize = 512  // Small: short text, small procedures
+	Tier2MaxSize = 4096 // Medium: longer text, procedures
 	// Tier 3: Large (>4096 bytes) — one file, offset-addressed
 )
 
@@ -410,7 +410,7 @@ func (vs *ValueStore) isVariableLength(typeTag byte) bool {
 
 // encodeValueID creates a value ID from tier, bucket, and offset
 func (vs *ValueStore) encodeValueID(tier int, bucket uint64, offset uint64) uint64 {
-	return offset | (uint64(tier)<<OffsetBits) | (bucket<<(OffsetBits+TierBits))
+	return offset | (uint64(tier) << OffsetBits) | (bucket << (OffsetBits + TierBits))
 }
 
 // extractTier extracts the tier from a value ID
@@ -651,6 +651,26 @@ func (vs *ValueStore) writeToBucketTier(tier int, data []byte) (uint64, error) {
 	}
 
 	offset := uint64(info.Size())
+
+	// Value ID 0 is reserved as the "not found"/null sentinel throughout the
+	// engine: findAttributeForPath, FindValueIDForData, and the attribute and
+	// instance chains all use 0 to mean "none". The only (tier, bucket, offset)
+	// triple that encodes to a real value ID of 0 is tier 0 / bucket 0 /
+	// offset 0. Without this guard, the first value ever stored in tier 0 would
+	// get ID 0 and become indistinguishable from "not found" — e.g. when the
+	// first attribute's small path label is written before any small data value
+	// (its data value having spilled to a higher tier), that label, and thus
+	// the whole attribute, becomes permanently unreadable. Reserve offset 0 by
+	// padding a single byte so no real value is ever assigned ID 0.
+	if vs.encodeValueID(tier, bucket, offset) == 0 {
+		if _, err = file.Seek(0, 2); err != nil {
+			return 0, fmt.Errorf("seek to end failed: %w", err)
+		}
+		if _, err = file.Write([]byte{0}); err != nil {
+			return 0, fmt.Errorf("reserve offset 0 failed: %w", err)
+		}
+		offset++
+	}
 
 	_, err = file.Seek(0, 2) // Seek to end
 	if err != nil {

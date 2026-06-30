@@ -243,13 +243,36 @@ func (acm *AssetCacheManager) loadAssets(basePath []string) (map[string]*Asset, 
 	return assets, nil
 }
 
-// parseAssetFromStorageValue extracts asset data from a storage value
+// parseAssetFromStorageValue extracts asset data from a storage value.
+//
+// The production path: deploy_pwa() builds a types.Record{data, mime_type} and
+// stores it as storage.Value{TypeTag: TypeRecord, Data: record.Serialize()}, a
+// length-prefixed binary encoding. We decode that with the real record
+// deserializer so assets published by deploy_pwa() actually serve.
+//
+// A legacy fallback understands the simplified `{"data":"...","mime_type":"..."}`
+// JSON string that some test fixtures still construct directly; it is only
+// reached when binary deserialization does not yield the expected fields.
 func (acm *AssetCacheManager) parseAssetFromStorageValue(value storage.Value, path string) *Asset {
 	if value.TypeTag != types.TypeRecord {
 		return nil // Not a record type
 	}
 
-	// Parse simplified JSON format from test data
+	// Preferred: decode the real serialized record format.
+	if record, err := types.DeserializeRecord(value.Data); err == nil {
+		dataField, hasData := assetTextField(record, "data")
+		mimeField, hasMime := assetTextField(record, "mime_type")
+		if hasData && hasMime {
+			return &Asset{
+				Data:     []byte(dataField),
+				MimeType: mimeField,
+				Path:     path,
+				LoadTime: time.Now(),
+			}
+		}
+	}
+
+	// Legacy fallback: parse the simplified JSON format from older test data.
 	recordStr := string(value.Data)
 
 	// Extract data field
@@ -281,6 +304,24 @@ func (acm *AssetCacheManager) parseAssetFromStorageValue(value storage.Value, pa
 		MimeType: mimeType,
 		Path:     path,
 		LoadTime: time.Now(),
+	}
+}
+
+// assetTextField returns the string value of a Text-typed field in a decoded
+// asset record. deploy_pwa() stores both data and mime_type as types.Text, so
+// after DeserializeRecord the fields are types.Text values.
+func assetTextField(record types.Record, name string) (string, bool) {
+	raw, ok := record.Fields[name]
+	if !ok {
+		return "", false
+	}
+	switch v := raw.(type) {
+	case types.Text:
+		return v.Value, true
+	case *types.Text:
+		return v.Value, true
+	default:
+		return "", false
 	}
 }
 
