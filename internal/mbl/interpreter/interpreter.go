@@ -2918,9 +2918,69 @@ func (i *Interpreter) evalSplitFunction(args []interface{}) interface{} {
 	return types.List{Elements: elements}
 }
 
+// keySelectorExpr reports whether a bracket's contents are a single
+// value-producing key (so path[key] should descend into the child named by the
+// key's value) rather than a filter or temporal query. It returns the key
+// expression and true for a plain identifier (users[username]), a string or
+// number literal (pwa["host"], data[0]), or a concatenation/arithmetic
+// expression (watchers[username & ".submit"]). It returns false for comparison
+// or logical conditions (name = "bob", price > 10, a and b), comma-separated
+// filters, and temporal/meta references (@time, @stamp.x, @2026-01-01), which
+// keep their existing filter/temporal semantics.
+func keySelectorExpr(filters []parser.Expression) (parser.Expression, bool) {
+	if len(filters) != 1 {
+		return nil, false
+	}
+	switch e := filters[0].(type) {
+	case *parser.PathExpression:
+		if len(e.Parts) > 0 && strings.HasPrefix(e.Parts[0], "@") {
+			return nil, false // @meta / instance-timestamp reference
+		}
+		return e, true
+	case *parser.LiteralExpression:
+		switch e.Value.(type) {
+		case string, int, int64, float64:
+			return e, true // string / number key (Time literals fall through)
+		}
+		return nil, false
+	case *parser.BinaryExpression:
+		switch e.Operator {
+		case "&", "+", "-", "*", "/":
+			return e, true // value-producing, not a condition
+		}
+		return nil, false
+	}
+	return nil, false
+}
+
 func (i *Interpreter) evalBracketFilter(node *parser.BracketFilterExpression) interface{} {
 	// Evaluate the base expression (should be a List or Record)
 	base := i.evalExpression(node.Left)
+
+	// Key-selector read: world.apps.app.users[username] reads the child named by
+	// the key's value. This applies when the base is a storage path, the bracket
+	// holds a single value-producing key, and the base did not resolve to an
+	// in-memory List (lists keep their index/filter semantics). The base may even
+	// be Unknown here — an intermediate node with children but no direct value
+	// still descends correctly through evalPath.
+	if pathExpr, ok := node.Left.(*parser.PathExpression); ok {
+		if _, isList := base.(types.List); !isList {
+			if key, ok := keySelectorExpr(node.Filters); ok {
+				keyVal := i.evalExpression(key)
+				if unknown, ok := keyVal.(types.Unknown); ok {
+					return unknown
+				}
+				seg, ok := keyToString(keyVal)
+				if !ok {
+					return types.Unknown{Reason: fmt.Sprintf("bracket key-selector did not resolve to a usable path segment: %v", keyVal)}
+				}
+				newParts := make([]string, len(pathExpr.Parts)+1)
+				copy(newParts, pathExpr.Parts)
+				newParts[len(pathExpr.Parts)] = seg
+				return i.evalPath(&parser.PathExpression{Token: pathExpr.Token, Parts: newParts})
+			}
+		}
+	}
 
 	if unknown, ok := base.(types.Unknown); ok {
 		return unknown
