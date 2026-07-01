@@ -16,8 +16,15 @@ import (
 	"github.com/solifugus/amorphdb/internal/protocol"
 	"github.com/solifugus/amorphdb/internal/security"
 	"github.com/solifugus/amorphdb/internal/storage"
+	"github.com/solifugus/amorphdb/internal/types"
 	"github.com/solifugus/amorphdb/internal/watcher"
 )
+
+// systemAuthor is the author recorded for node-internal structural writes (e.g.
+// seeding the root scaffolding). These writes are made directly against the
+// storage tree and bypass the data-plane permission checks, so the author is
+// only for provenance, not authorization.
+const systemAuthor uint64 = 0
 
 // Service represents the AmorphDB service daemon
 type Service struct {
@@ -161,7 +168,37 @@ func New(svcConfig Config) (*Service, error) {
 		cancel:          cancel,
 	}
 
+	// Materialize the root scaffolding so agents can create their own homes.
+	if err := service.seedBaseStructure(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to seed base structure: %w", err)
+	}
+
 	return service, nil
+}
+
+// seedBaseStructure materializes the shared root scaffolding (world, world.agent)
+// so that an agent can create its own home beneath it. The interpreter's
+// intermediate-path creation cannot create these itself: `world` @write defaults
+// to closed, so without seeding, the very first write under any agent home is
+// rejected at the [world] ancestor (server 403). Seeding is idempotent and uses
+// the system author; it writes directly to the tree, bypassing the data-plane
+// permission check.
+func (s *Service) seedBaseStructure() error {
+	emptyRecord := types.Record{Fields: map[string]interface{}{}}
+	val := storage.Value{TypeTag: emptyRecord.TypeTag(), Data: emptyRecord.Serialize()}
+
+	for _, path := range [][]string{{"world"}, {"world", "agent"}} {
+		// Read returns an error for a path that has never been written; that is
+		// the "not present yet" signal. An existing non-Nothing node is left as-is.
+		if existing, err := s.tree.Read(path); err == nil && existing.TypeTag != types.TypeNothing {
+			continue
+		}
+		if err := s.tree.Write(path, val, systemAuthor); err != nil {
+			return fmt.Errorf("seed %v: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // Start starts the service and begins accepting connections
