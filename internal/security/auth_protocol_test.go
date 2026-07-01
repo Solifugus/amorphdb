@@ -148,8 +148,9 @@ func TestAuthenticationSession(t *testing.T) {
 
 	// Agent responds to challenge
 	authChallenge := &AuthenticationChallenge{
-		ChallengeID:   challengeMsg.ChallengeID,
-		EncryptedData: challengeMsg.EncryptedData,
+		ChallengeID:        challengeMsg.ChallengeID,
+		EncryptedData:      challengeMsg.EncryptedData,
+		EphemeralPublicKey: challengeMsg.EphemeralPublicKey,
 	}
 
 	authResponse, err := authenticator.RespondToChallenge(authChallenge, agentID.KeyPair)

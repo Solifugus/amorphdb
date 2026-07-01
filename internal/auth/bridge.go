@@ -13,37 +13,37 @@ import (
 // BridgeAuth manages authentication for bridge connections across meshes
 type BridgeAuth struct {
 	mu             sync.RWMutex
-	meshIdentities map[string]*MobileIdentity  // mesh_name -> mobile identity
-	derivedKeys    map[string]*DerivedKey      // mesh_name -> derived keys
+	meshIdentities map[string]*MobileIdentity // mesh_name -> mobile identity
+	derivedKeys    map[string]*DerivedKey     // mesh_name -> derived keys
 	authenticator  *security.AgentAuthenticator
-	activeSessions map[string]*BridgeSession   // session_id -> active session
+	activeSessions map[string]*BridgeSession // session_id -> active session
 }
 
 // MobileIdentity represents a mobile agent identity for bridge authentication
 type MobileIdentity struct {
-	Identity     *identity.Identity      // The mobile agent identity
-	KeyPair      *security.KeyPair       // Cryptographic key pair for this mesh
-	Passphrase   string                  // Passphrase for key derivation
-	DeviceSecret string                  // Device-specific secret
-	MeshName     string                  // Target mesh name
+	Identity     *identity.Identity // The mobile agent identity
+	KeyPair      *security.KeyPair  // Cryptographic key pair for this mesh
+	Passphrase   string             // Passphrase for key derivation
+	DeviceSecret string             // Device-specific secret
+	MeshName     string             // Target mesh name
 }
 
 // DerivedKey represents derived cryptographic material for a mesh
 type DerivedKey struct {
-	PublicKey     *big.Int    // Public key for this mesh
-	PrivateKey    *big.Int    // Private key for this mesh
-	SharedSecret  []byte      // Derived shared secret if applicable
-	AgentKey      []byte      // Agent-level encryption key
+	PublicKey    *big.Int // Public key for this mesh
+	PrivateKey   *big.Int // Private key for this mesh
+	SharedSecret []byte   // Derived shared secret if applicable
+	AgentKey     []byte   // Agent-level encryption key
 }
 
 // BridgeSession represents an active bridge authentication session
 type BridgeSession struct {
-	SessionID     string                      // Unique session identifier
-	MeshName      string                      // Target mesh name
-	Identity      *MobileIdentity             // Mobile agent identity
-	AuthSession   *security.AuthenticationSession // Underlying auth session
-	Status        string                      // Session status (authenticating, authenticated, failed)
-	Connection    interface{}                 // Connection handle (mesh-specific)
+	SessionID   string                          // Unique session identifier
+	MeshName    string                          // Target mesh name
+	Identity    *MobileIdentity                 // Mobile agent identity
+	AuthSession *security.AuthenticationSession // Underlying auth session
+	Status      string                          // Session status (authenticating, authenticated, failed)
+	Connection  interface{}                     // Connection handle (mesh-specific)
 }
 
 // NewBridgeAuth creates a new bridge authentication manager
@@ -204,8 +204,9 @@ func (ba *BridgeAuth) RespondToChallenge(challenge *security.AuthChallengeMessag
 
 	// Create authentication challenge object
 	authChallenge := &security.AuthenticationChallenge{
-		ChallengeID:   challenge.ChallengeID,
-		EncryptedData: challenge.EncryptedData,
+		ChallengeID:        challenge.ChallengeID,
+		EncryptedData:      challenge.EncryptedData,
+		EphemeralPublicKey: challenge.EphemeralPublicKey,
 	}
 
 	// Respond to challenge using mobile agent keys

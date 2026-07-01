@@ -8,26 +8,27 @@ import (
 
 // Protocol message types for authentication (from design document)
 const (
-	MsgKeyExchange    = 0x01 // Diffie-Hellman parameters, post-quantum upgrade
-	MsgIdentityReq    = 0x02 // New agent requests an identity
-	MsgIdentityGrant  = 0x03 // Identity and keys issued to new agent
-	MsgAuthChallenge  = 0x04 // Encrypted challenge for authentication
-	MsgAuthResponse   = 0x05 // Decrypted challenge proving identity
-	MsgPeerExchange   = 0x06 // Share list of known nodes
+	MsgKeyExchange   = 0x01 // Diffie-Hellman parameters, post-quantum upgrade
+	MsgIdentityReq   = 0x02 // New agent requests an identity
+	MsgIdentityGrant = 0x03 // Identity and keys issued to new agent
+	MsgAuthChallenge = 0x04 // Encrypted challenge for authentication
+	MsgAuthResponse  = 0x05 // Decrypted challenge proving identity
+	MsgPeerExchange  = 0x06 // Share list of known nodes
 )
 
 // AuthChallengeMessage represents AUTH_CHALLENGE (0x04) wire protocol message
 type AuthChallengeMessage struct {
-	AgentIdentity string   // Agent's unique identifier
-	ChallengeID   []byte   // Unique challenge identifier (16 bytes)
-	EncryptedData []byte   // Challenge encrypted with agent's public key
+	AgentIdentity      string   // Agent's unique identifier
+	ChallengeID        []byte   // Unique challenge identifier (16 bytes)
+	EncryptedData      []byte   // Challenge encrypted under the DH shared secret
+	EphemeralPublicKey *big.Int // Verifier's ephemeral DH public key (g^ephPriv mod p)
 }
 
 // AuthResponseMessage represents AUTH_RESPONSE (0x05) wire protocol message
 type AuthResponseMessage struct {
-	AgentIdentity string   // Agent's unique identifier
-	ChallengeID   []byte   // Echo of challenge identifier
-	DecryptedData []byte   // Decrypted challenge proving private key possession
+	AgentIdentity string // Agent's unique identifier
+	ChallengeID   []byte // Echo of challenge identifier
+	DecryptedData []byte // Decrypted challenge proving private key possession
 }
 
 // IdentityRequestMessage represents IDENTITY_REQUEST (0x02) wire protocol message
@@ -53,9 +54,14 @@ func SerializeAuthChallenge(msg *AuthChallengeMessage) []byte {
 	identityLen := len(msg.AgentIdentity)
 	challengeIDLen := len(msg.ChallengeID)
 	encryptedDataLen := len(msg.EncryptedData)
+	var ephemeralBytes []byte
+	if msg.EphemeralPublicKey != nil {
+		ephemeralBytes = msg.EphemeralPublicKey.Bytes()
+	}
+	ephemeralLen := len(ephemeralBytes)
 
-	// Total: 4 + identity + 4 + challengeID + 4 + encryptedData
-	totalLen := 4 + identityLen + 4 + challengeIDLen + 4 + encryptedDataLen
+	// Total: 4 + identity + 4 + challengeID + 4 + encryptedData + 4 + ephemeral
+	totalLen := 4 + identityLen + 4 + challengeIDLen + 4 + encryptedDataLen + 4 + ephemeralLen
 	data := make([]byte, totalLen)
 
 	offset := 0
@@ -76,6 +82,12 @@ func SerializeAuthChallenge(msg *AuthChallengeMessage) []byte {
 	binary.BigEndian.PutUint32(data[offset:], uint32(encryptedDataLen))
 	offset += 4
 	copy(data[offset:], msg.EncryptedData)
+	offset += encryptedDataLen
+
+	// Ephemeral public key length and data
+	binary.BigEndian.PutUint32(data[offset:], uint32(ephemeralLen))
+	offset += 4
+	copy(data[offset:], ephemeralBytes)
 
 	return data
 }
@@ -110,16 +122,32 @@ func DeserializeAuthChallenge(data []byte) (*AuthChallengeMessage, error) {
 	// Read encrypted data
 	encryptedDataLen := binary.BigEndian.Uint32(data[offset:])
 	offset += 4
-	if offset+int(encryptedDataLen) != len(data) {
+	if offset+int(encryptedDataLen) > len(data) {
 		return nil, fmt.Errorf("invalid encrypted data length")
 	}
 	encryptedData := make([]byte, encryptedDataLen)
-	copy(encryptedData, data[offset:])
+	copy(encryptedData, data[offset:offset+int(encryptedDataLen)])
+	offset += int(encryptedDataLen)
+
+	// Read ephemeral public key
+	if offset+4 > len(data) {
+		return nil, fmt.Errorf("missing ephemeral public key length")
+	}
+	ephemeralLen := binary.BigEndian.Uint32(data[offset:])
+	offset += 4
+	if offset+int(ephemeralLen) != len(data) {
+		return nil, fmt.Errorf("invalid ephemeral public key length")
+	}
+	var ephemeralPublicKey *big.Int
+	if ephemeralLen > 0 {
+		ephemeralPublicKey = new(big.Int).SetBytes(data[offset : offset+int(ephemeralLen)])
+	}
 
 	return &AuthChallengeMessage{
-		AgentIdentity: identity,
-		ChallengeID:   challengeID,
-		EncryptedData: encryptedData,
+		AgentIdentity:      identity,
+		ChallengeID:        challengeID,
+		EncryptedData:      encryptedData,
+		EphemeralPublicKey: ephemeralPublicKey,
 	}, nil
 }
 
@@ -226,9 +254,10 @@ func (session *AuthenticationSession) CreateChallenge() (*AuthChallengeMessage, 
 	session.Challenge = challenge
 
 	return &AuthChallengeMessage{
-		AgentIdentity: session.AgentIdentity,
-		ChallengeID:   challenge.ChallengeID,
-		EncryptedData: challenge.EncryptedData,
+		AgentIdentity:      session.AgentIdentity,
+		ChallengeID:        challenge.ChallengeID,
+		EncryptedData:      challenge.EncryptedData,
+		EphemeralPublicKey: challenge.EphemeralPublicKey,
 	}, nil
 }
 

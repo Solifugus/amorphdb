@@ -232,10 +232,19 @@ type PostQuantumEncryption struct {
 	classical *NodeEncryption
 }
 
-// AuthenticationChallenge represents an encrypted authentication challenge
+// AuthenticationChallenge represents an encrypted authentication challenge.
+//
+// The challenge is encrypted using an ElGamal/DH construction: the verifier
+// generates a throwaway ("ephemeral") key pair, computes a shared secret from
+// its ephemeral private key and the agent's advertised public key, and encrypts
+// the random challenge with a symmetric key derived from that shared secret. The
+// ephemeral public key travels with the challenge. Only the holder of the
+// agent's *private* key can recompute the same shared secret (CDH), so only the
+// genuine agent can decrypt the challenge. The public key alone is useless.
 type AuthenticationChallenge struct {
-	ChallengeID   []byte // Unique challenge identifier
-	EncryptedData []byte // Random challenge encrypted with agent's public key
+	ChallengeID        []byte   // Unique challenge identifier
+	EncryptedData      []byte   // Random challenge encrypted under the DH shared secret
+	EphemeralPublicKey *big.Int // Verifier's ephemeral DH public key (g^ephPriv mod p)
 }
 
 // AuthenticationResponse represents the response to an authentication challenge
@@ -246,14 +255,14 @@ type AuthenticationResponse struct {
 
 // AgentIdentity represents an external agent's identity and keys
 type AgentIdentity struct {
-	Identity  string     // Agent's unique identifier
-	PublicKey *big.Int   // Agent's public key for challenge encryption
-	KeyPair   *KeyPair   // Full key pair (only available during session)
+	Identity  string   // Agent's unique identifier
+	PublicKey *big.Int // Agent's public key for challenge encryption
+	KeyPair   *KeyPair // Full key pair (only available during session)
 }
 
 // AgentAuthenticator handles agent authentication using challenge-response
 type AgentAuthenticator struct {
-	dh             *DiffieHellman
+	dh               *DiffieHellman
 	activeChallenges map[string]*AuthenticationChallenge // challengeID -> challenge
 }
 
@@ -360,24 +369,32 @@ func (aa *AgentAuthenticator) CreateChallenge(agentPublicKey *big.Int) (*Authent
 		return nil, fmt.Errorf("failed to generate challenge ID: %w", err)
 	}
 
-	// For this implementation, we'll use AES encryption with a shared secret
-	// derived from the agent's public key (simplified for demonstration)
-	// In production, this would use proper RSA or ECIES
+	// ElGamal/DH encryption: generate an ephemeral key pair, derive a shared
+	// secret from the ephemeral private key and the agent's public key, and
+	// encrypt the challenge under that secret. The agent can only recompute the
+	// same secret (and therefore decrypt) with its private key — possessing the
+	// public key alone proves nothing.
+	ephemeral, err := aa.dh.GenerateKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ephemeral key pair: %w", err)
+	}
 
-	// Derive encryption key from agent's public key
-	publicKeyBytes := agentPublicKey.Bytes()
-	keyHash := sha256.Sum256(publicKeyBytes)
+	sharedSecret, err := aa.dh.ComputeSharedSecret(ephemeral.Private, agentPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute shared secret: %w", err)
+	}
 
-	// Use agent encryption with this derived key
-	tempAgent := &AgentEncryption{derivedKey: keyHash[:]}
-	encryptedData, err := tempAgent.EncryptSecret(challengeData)
+	// Encrypt the challenge under a symmetric key derived from the shared secret.
+	enc := NewNodeEncryption(sharedSecret)
+	encryptedData, err := enc.Encrypt(challengeData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt challenge: %w", err)
 	}
 
 	challenge := &AuthenticationChallenge{
-		ChallengeID:   challengeID,
-		EncryptedData: encryptedData,
+		ChallengeID:        challengeID,
+		EncryptedData:      encryptedData,
+		EphemeralPublicKey: ephemeral.Public,
 	}
 
 	// Store challenge for later verification
@@ -417,14 +434,21 @@ func (aa *AgentAuthenticator) VerifyResponse(response *AuthenticationResponse) (
 
 // RespondToChallenge allows an agent to respond to an authentication challenge
 func (aa *AgentAuthenticator) RespondToChallenge(challenge *AuthenticationChallenge, agentKeyPair *KeyPair) (*AuthenticationResponse, error) {
-	// Decrypt the challenge using agent's private key
-	// Derive decryption key from agent's public key (same as encryption)
-	publicKeyBytes := agentKeyPair.Public.Bytes()
-	keyHash := sha256.Sum256(publicKeyBytes)
+	if challenge.EphemeralPublicKey == nil {
+		return nil, errors.New("challenge is missing ephemeral public key")
+	}
 
-	// Use agent decryption with this derived key
-	tempAgent := &AgentEncryption{derivedKey: keyHash[:]}
-	decryptedData, err := tempAgent.DecryptSecret(challenge.EncryptedData)
+	// Recompute the shared secret from the verifier's ephemeral public key and
+	// our private key. This equals g^(ephPriv*ourPriv) mod p == the secret the
+	// verifier derived from agentPublicKey^ephPriv. Only the holder of the
+	// private key can perform this step.
+	sharedSecret, err := aa.dh.ComputeSharedSecret(agentKeyPair.Private, challenge.EphemeralPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute shared secret: %w", err)
+	}
+
+	enc := NewNodeEncryption(sharedSecret)
+	decryptedData, err := enc.Decrypt(challenge.EncryptedData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt challenge: %w", err)
 	}

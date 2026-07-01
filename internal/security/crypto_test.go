@@ -2,6 +2,7 @@ package security
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"math/big"
 	"testing"
 )
@@ -55,9 +56,9 @@ func TestDiffieHellmanInvalidKeys(t *testing.T) {
 
 	// Test with invalid public keys
 	invalidKeys := []*big.Int{
-		big.NewInt(0),     // Too small
-		big.NewInt(1),     // Too small
-		dh.P,              // Equal to modulus
+		big.NewInt(0),                         // Too small
+		big.NewInt(1),                         // Too small
+		dh.P,                                  // Equal to modulus
 		new(big.Int).Add(dh.P, big.NewInt(1)), // Too large
 	}
 
@@ -321,9 +322,9 @@ func TestInvalidCiphertext(t *testing.T) {
 
 	// Test with invalid ciphertext
 	invalidCiphertexts := [][]byte{
-		{},                           // Empty
-		{1, 2, 3},                   // Too short
-		make([]byte, 15),            // Wrong length (not multiple of block size)
+		{},               // Empty
+		{1, 2, 3},        // Too short
+		make([]byte, 15), // Wrong length (not multiple of block size)
 	}
 
 	for i, invalid := range invalidCiphertexts {
@@ -470,20 +471,20 @@ func TestAuthenticationWrongKey(t *testing.T) {
 
 	// Agent2 tries to respond with wrong key
 	response, err := authenticator.RespondToChallenge(challenge, agentID2.KeyPair)
-	
+
 	// Decryption should fail with wrong key (this is expected)
 	if err != nil {
 		// This is the expected behavior - wrong key cannot decrypt
 		return
 	}
-	
+
 	// If somehow decryption succeeded, verification should still fail
 	valid, err := authenticator.VerifyResponse(response)
 	if err != nil {
 		// Verification failure is also acceptable
 		return
 	}
-	
+
 	if valid {
 		t.Error("Authentication with wrong key should fail")
 	}
@@ -611,5 +612,78 @@ func TestAuthenticationFlowIntegration(t *testing.T) {
 	sessionID.KeyPair = nil // Simulate clearing session keys
 	if sessionID.KeyPair != nil {
 		t.Error("Session keys should be cleared after authentication")
+	}
+}
+
+// TestChallengeRequiresPrivateKey proves the security property the earlier
+// "hollow" scheme violated: the challenge must only be answerable by the holder
+// of the agent's PRIVATE key. Everything an eavesdropper can see — the agent's
+// public key and the verifier's ephemeral public key (both travel on the wire) —
+// must be insufficient to recover the challenge plaintext.
+func TestChallengeRequiresPrivateKey(t *testing.T) {
+	authenticator := NewAgentAuthenticator()
+
+	agent, err := authenticator.CreateAgentIdentity("victim", "s3cret-pass", "device-xyz")
+	if err != nil {
+		t.Fatalf("Failed to create agent identity: %v", err)
+	}
+
+	challenge, err := authenticator.CreateChallenge(agent.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create challenge: %v", err)
+	}
+
+	// The challenge must carry an ephemeral public key; without it the DH
+	// construction degenerates back to something a public key alone could open.
+	if challenge.EphemeralPublicKey == nil {
+		t.Fatal("challenge is missing its ephemeral public key")
+	}
+
+	// The genuine agent (private key holder) succeeds.
+	response, err := authenticator.RespondToChallenge(challenge, agent.KeyPair)
+	if err != nil {
+		t.Fatalf("genuine agent failed to respond: %v", err)
+	}
+	valid, err := authenticator.VerifyResponse(response)
+	if err != nil || !valid {
+		t.Fatalf("genuine agent should authenticate: valid=%v err=%v", valid, err)
+	}
+
+	// The old attack: derive an AES key from the agent's PUBLIC key alone
+	// (the exact thing the hollow scheme used) and try to decrypt the
+	// challenge. Recreate the challenge first, since VerifyResponse consumed
+	// the previous one.
+	challenge2, err := authenticator.CreateChallenge(agent.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create second challenge: %v", err)
+	}
+	keyFromPublic := sha256.Sum256(agent.PublicKey.Bytes())
+	attacker := &AgentEncryption{derivedKey: keyFromPublic[:]}
+	if recovered, err := attacker.DecryptSecret(challenge2.EncryptedData); err == nil {
+		// Decryption "succeeding" is only a break if it yields the real
+		// plaintext that VerifyResponse would accept.
+		forged := &AuthenticationResponse{
+			ChallengeID:   challenge2.ChallengeID,
+			DecryptedData: recovered,
+		}
+		if ok, _ := authenticator.VerifyResponse(forged); ok {
+			t.Fatal("attacker recovered the challenge using only the public key — challenge-response is hollow")
+		}
+	}
+
+	// A different key pair (attacker with their own keys but not the victim's
+	// private key) must not be able to answer a challenge issued to the victim.
+	imposter, err := authenticator.CreateAgentIdentity("imposter", "other-pass", "other-device")
+	if err != nil {
+		t.Fatalf("Failed to create imposter identity: %v", err)
+	}
+	challenge3, err := authenticator.CreateChallenge(agent.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to create third challenge: %v", err)
+	}
+	if resp, err := authenticator.RespondToChallenge(challenge3, imposter.KeyPair); err == nil {
+		if ok, _ := authenticator.VerifyResponse(resp); ok {
+			t.Fatal("imposter authenticated against a challenge issued to the victim")
+		}
 	}
 }
