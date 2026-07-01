@@ -141,7 +141,7 @@ This document is a test plan for Claude Code to implement against the AmorphDB c
 | 3.1.14 | Operators — logical | `and`, `or`, `not` |
 | 3.1.15 | Operators — type-safe | `?=`, `?!=`, `?<`, `?>`, `?<=`, `?>=` |
 | 3.1.16 | Operators — assignment | `=`, `:=` (distinguish from comparison `=`) |
-| 3.1.17 | Path prefixes | `~`, `.`, `+`, bare |
+| 3.1.17 | Path prefixes | `.`, `+`, bare (`~` removed — now lexes as ILLEGAL) |
 | 3.1.18 | Brackets | `[`, `]`, `{`, `}`, `(`, `)` |
 | 3.1.19 | Comments | `# This is a comment` — everything after `#` to EOL is discarded |
 | 3.1.20 | Comment vs Unknown | `#offline` when used as a value (starts with `#` but no space) vs `# comment` |
@@ -262,7 +262,7 @@ This document is a test plan for Claude Code to implement against the AmorphDB c
 | 5.2.5 | Procedure parameter passing | Modify parameter inside procedure — original variable unaffected (pass by value) |
 | 5.2.6 | Procedure persistent sub-attributes | `.count = .count + 1` inside a procedure — persists between calls |
 | 5.2.7 | Nested scope resolution | Inner scope references resolve to nearest matching upstream scope |
-| 5.2.8 | `~` resolves to agent home | Inside any context, `~.x` and `my.x` reach the same attribute |
+| 5.2.8 | `my` resolves to agent home | Inside any context (including watchers/brackets), `my.x` reaches the agent's home attribute regardless of scope depth |
 | 5.2.9 | Cascade attribute visibility | Attribute with `(cascade)` is visible to bare references in descendant scopes |
 
 ### 5.3 Control Flow
@@ -458,7 +458,7 @@ This document is a test plan for Claude Code to implement against the AmorphDB c
 
 | # | Test Case | What to Verify |
 |---|-----------|----------------|
-| 7.4.1 | Default `~` permissions | Under agent home, all permissions default to owner-only — another agent cannot read |
+| 7.4.1 | Default home permissions | Under an agent's own home (`world.agent.{id}`), all permissions default to owner-only — self-relative, so another agent gets no owner default |
 | 7.4.2 | Default `world` permissions | `@read = Anything` by default — any agent can read |
 | 7.4.3 | Default `world` write restrictions | `@write = Nothing` by default — no agent can write to `world` root without explicit grant |
 | 7.4.4 | Read permission enforced | Set `@read` to specific agent — other agent gets permission error |

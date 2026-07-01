@@ -30,9 +30,8 @@ When you find yourself asking "does AmorphDB have X?" — check the full design 
 
 | Prefix | Meaning |
 |---|---|
-| `~` | The current agent's home |
+| `my` | The current agent's home (`world.agent.{identity}`) |
 | `.` | Relative to current scope |
-| `my` | Also the current agent's home (from program root) |
 | `world` | The shared root — all shared data lives here |
 | (no prefix) | Nearest matching upstream scope; else same as `.` |
 
@@ -438,7 +437,7 @@ Values:
 
 ### Defaults
 
-- Under `~` (agent's home): everything defaults to owner-only.
+- Under `my` (agent's home, `world.agent.{identity}`): everything defaults to owner-only.
 - Under `world`: `@read` defaults to `"Anything"`; others default to `"Nothing"`.
 - Permissions cascade down the tree until explicitly overridden.
 

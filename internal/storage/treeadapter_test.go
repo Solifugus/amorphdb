@@ -114,11 +114,12 @@ func TestTreeAdapterInstanceRoundTrip(t *testing.T) {
 
 // TestTreeAdapterInstanceAgentScoped verifies that instances stored under the
 // same attribute hash but different agents are kept distinct (personal stamps
-// at ~.stamp share an attribute hash across agents and must not collide).
+// at the home "stamp" attribute share an attribute hash across agents and must
+// not collide).
 func TestTreeAdapterInstanceAgentScoped(t *testing.T) {
 	adapter := newTestAdapter(t)
 
-	attrHash := HashPath([]string{"~", "stamp"})
+	attrHash := HashPath([]string{"stamp"})
 
 	instA := SecurityInstance{AttributeHash: attrHash, ValueHash: HashValue([]byte("alice")), Agent: 100}
 	instB := SecurityInstance{AttributeHash: attrHash, ValueHash: HashValue([]byte("bob")), Agent: 200}

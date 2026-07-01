@@ -74,13 +74,13 @@ func TestBasicProtocolOperations(t *testing.T) {
 
 	// Test writing text value
 	textValue := &types.Text{Value: "Integration Test Value"}
-	err = client.Write([]string{"~", "my", "test", "name"}, textValue, 1000)
+	err = client.Write([]string{"world", "agent", "1000", "my", "test", "name"}, textValue, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write text value: %v", err)
 	}
 
 	// Test reading text value back
-	readValue, err := client.Read([]string{"~", "my", "test", "name"})
+	readValue, err := client.Read([]string{"world", "agent", "1000", "my", "test", "name"})
 	if err != nil {
 		t.Fatalf("Failed to read text value: %v", err)
 	}
@@ -96,13 +96,13 @@ func TestBasicProtocolOperations(t *testing.T) {
 
 	// Test writing number value
 	numberValue := &types.Number{Value: 42.5}
-	err = client.Write([]string{"~", "my", "test", "number"}, numberValue, 1000)
+	err = client.Write([]string{"world", "agent", "1000", "my", "test", "number"}, numberValue, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write number value: %v", err)
 	}
 
 	// Test reading number value back
-	readNumberValue, err := client.Read([]string{"~", "my", "test", "number"})
+	readNumberValue, err := client.Read([]string{"world", "agent", "1000", "my", "test", "number"})
 	if err != nil {
 		t.Fatalf("Failed to read number value: %v", err)
 	}
@@ -245,13 +245,13 @@ func connectTestClient(t *testing.T, service *service.Service) *TestProtocolClie
 func testBasicDataOperations(t *testing.T, client *TestProtocolClient) {
 	// Write test data
 	textValue := &types.Text{Value: "Integration Test"}
-	err := client.Write([]string{"~", "my", "test", "name"}, textValue, 1000)
+	err := client.Write([]string{"world", "agent", "1000", "my", "test", "name"}, textValue, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write test data: %v", err)
 	}
 
 	// Read it back
-	result, err := client.Read([]string{"~", "my", "test", "name"})
+	result, err := client.Read([]string{"world", "agent", "1000", "my", "test", "name"})
 	if err != nil {
 		t.Fatalf("Failed to read test data: %v", err)
 	}
@@ -267,19 +267,19 @@ func testBasicDataOperations(t *testing.T, client *TestProtocolClient) {
 
 	// Write nested data
 	personName := &types.Text{Value: "Alice"}
-	err = client.Write([]string{"~", "my", "test", "person", "name"}, personName, 1000)
+	err = client.Write([]string{"world", "agent", "1000", "my", "test", "person", "name"}, personName, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write person name: %v", err)
 	}
 
 	personAge := &types.Number{Value: 30.0}
-	err = client.Write([]string{"~", "my", "test", "person", "age"}, personAge, 1000)
+	err = client.Write([]string{"world", "agent", "1000", "my", "test", "person", "age"}, personAge, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write person age: %v", err)
 	}
 
 	// Read back nested data
-	nameResult, err := client.Read([]string{"~", "my", "test", "person", "name"})
+	nameResult, err := client.Read([]string{"world", "agent", "1000", "my", "test", "person", "name"})
 	if err != nil {
 		t.Fatalf("Failed to read person name: %v", err)
 	}
@@ -288,7 +288,7 @@ func testBasicDataOperations(t *testing.T, client *TestProtocolClient) {
 		t.Errorf("Expected 'Alice', got '%s'", nameResult.(types.Text).Value)
 	}
 
-	ageResult, err := client.Read([]string{"~", "my", "test", "person", "age"})
+	ageResult, err := client.Read([]string{"world", "agent", "1000", "my", "test", "person", "age"})
 	if err != nil {
 		t.Fatalf("Failed to read person age: %v", err)
 	}
@@ -301,13 +301,13 @@ func testBasicDataOperations(t *testing.T, client *TestProtocolClient) {
 func testDataPersistence(t *testing.T, client *TestProtocolClient) {
 	// Write data that should survive restart
 	persistentData := &types.Text{Value: "This should survive restart"}
-	err := client.Write([]string{"~", "my", "persistent", "data"}, persistentData, 1000)
+	err := client.Write([]string{"world", "agent", "1000", "my", "persistent", "data"}, persistentData, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write persistent data: %v", err)
 	}
 
 	persistentNumber := &types.Number{Value: 42.0}
-	err = client.Write([]string{"~", "my", "persistent", "number"}, persistentNumber, 1000)
+	err = client.Write([]string{"world", "agent", "1000", "my", "persistent", "number"}, persistentNumber, 1000)
 	if err != nil {
 		t.Fatalf("Failed to write persistent number: %v", err)
 	}
@@ -315,7 +315,7 @@ func testDataPersistence(t *testing.T, client *TestProtocolClient) {
 
 func testDataSurvivedRestart(t *testing.T, client *TestProtocolClient) {
 	// Check that data written before restart is still there
-	result, err := client.Read([]string{"~", "my", "persistent", "data"})
+	result, err := client.Read([]string{"world", "agent", "1000", "my", "persistent", "data"})
 	if err != nil {
 		t.Fatalf("Failed to read persistent data after restart: %v", err)
 	}
@@ -324,7 +324,7 @@ func testDataSurvivedRestart(t *testing.T, client *TestProtocolClient) {
 		t.Errorf("Persistent data not preserved across restart")
 	}
 
-	numberResult, err := client.Read([]string{"~", "my", "persistent", "number"})
+	numberResult, err := client.Read([]string{"world", "agent", "1000", "my", "persistent", "number"})
 	if err != nil {
 		t.Fatalf("Failed to read persistent number after restart: %v", err)
 	}
@@ -334,7 +334,7 @@ func testDataSurvivedRestart(t *testing.T, client *TestProtocolClient) {
 	}
 
 	// Also check that basic test data is still there
-	nameResult, err := client.Read([]string{"~", "my", "test", "person", "name"})
+	nameResult, err := client.Read([]string{"world", "agent", "1000", "my", "test", "person", "name"})
 	if err != nil {
 		t.Fatalf("Failed to read test data after restart: %v", err)
 	}

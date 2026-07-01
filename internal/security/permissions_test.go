@@ -28,12 +28,21 @@ func TestPermissionEvaluator_DefaultPermissions(t *testing.T) {
 		permType PermissionType
 		expected bool
 	}{
-		// Under ~ (home) - should default to owner permissions (true for owner)
-		{"Home read", []string{"~"}, ReadPermission, true},
-		{"Home write", []string{"~"}, WritePermission, true},
-		{"Home expand", []string{"~"}, ExpandPermission, true},
-		{"Home grant", []string{"~"}, GrantPermission, true},
-		{"Home purge", []string{"~"}, PurgePermission, true},
+		// Under the agent's own home (world.agent.{id}) - defaults to owner
+		// permissions (true for the owner). AgentID is 12345.
+		{"Home read", []string{"world", "agent", "12345"}, ReadPermission, true},
+		{"Home write", []string{"world", "agent", "12345"}, WritePermission, true},
+		{"Home expand", []string{"world", "agent", "12345"}, ExpandPermission, true},
+		{"Home grant", []string{"world", "agent", "12345"}, GrantPermission, true},
+		{"Home purge", []string{"world", "agent", "12345"}, PurgePermission, true},
+		// A subtree under the agent's own home is also owner-defaulted.
+		{"Home subtree write", []string{"world", "agent", "12345", "secrets"}, WritePermission, true},
+
+		// Another agent's home is NOT owner-defaulted for this agent — the home
+		// default is self-relative. Write (and expand/grant/purge) fall through to
+		// the closed world defaults; read stays open per the world read default.
+		{"Other agent home write", []string{"world", "agent", "99999"}, WritePermission, false},
+		{"Other agent home grant", []string{"world", "agent", "99999"}, GrantPermission, false},
 
 		// Under world - should have specific defaults
 		{"World read", []string{"world"}, ReadPermission, true},      // Open by default

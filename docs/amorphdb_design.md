@@ -24,7 +24,7 @@ The first non-whitespace character on a line determines scope resolution:
 
 | Prefix | Meaning |
 |--------|---------|
-| `~`    | References the user's home |
+| `my`   | References the agent's home (`world.agent.{identity}`) |
 | `.`    | Reference is relative to the current scope |
 | ``     | Nearest matching upstream scope; otherwise behaves the same as `.` |
 
@@ -402,8 +402,7 @@ early. This allows commenting out code that itself contains comments.
 
     world.market.price             # Absolute path
     .local.variable               # Relative to current scope
-    ~.account.balance             # Relative to user's home
-    my.account.balance            # Same as above (from program root)
+    my.account.balance            # The agent's home (world.agent.{identity})
 
 **References** use the `(link)` keyword before a path:
 
@@ -480,10 +479,10 @@ Unknown; `x ?= 5` returns false instead. Only equality has a `?`-prefixed form;
 ordering comparisons (`<`, `>`, `<=`, `>=`) propagate Unknown like other
 expressions.
 
-**Path Resolution:** ., .., ~
+**Path Resolution:** ., .., my
 - `.` accesses child attributes
 - `..` accesses special operations on collections
-- `~` accesses user's home
+- `my` accesses the agent's home
 
 **Definite Equality:** ?=
 - `?=` returns a definite boolean when comparing equality, never Unknown
@@ -1053,7 +1052,7 @@ The keywords `my` and `world` access persistent data stored in the mesh:
 
 | Keyword | Destination |
 |---------|-------------|
-| `my` | The current agent's home in the mesh (`~`, i.e., `world.agent.{identity}`) |
+| `my` | The current agent's home in the mesh (`world.agent.{identity}`) |
 | `world` | The global root of the persistent hierarchy (reachable as `my.world`) |
 
     program's in-memory tree:
@@ -1118,7 +1117,7 @@ This is equivalent to either of the above.
 
 #### The Computer
 
-`~.computer` (accessible as `my.computer` from program root) is a virtual mount
+`my.computer` is a virtual mount
 in the agent's home that provides access to the local machine. It is not stored
 in the mesh — it is provided by the node the agent is connected from.
 
@@ -1644,7 +1643,7 @@ Any additional fields the developer adds to the record (display name,
 signature, routing rules, application metadata) are application-specific and
 ignored by the runtime.
 
-Account records can live anywhere — `~.email.<name>` for a personal account,
+Account records can live anywhere — `my.email.<name>` for a personal account,
 `world.email.<name>` for an organizational account, or any other path the
 developer chooses. The location does not affect behavior; only the contents
 of the record do.
@@ -1778,11 +1777,11 @@ stored per domain with SNI routing.
 
 In persistent storage, bare references do not cascade by default. Paths must be explicit. An attribute defined with `(cascade)` overrides this — its value becomes visible to bare references from descendant scopes in the persistent hierarchy.
 
-The `~` sigil always resolves to the current agent's home in the mesh, regardless of scope depth. It works inside bracket expressions and any other context where `my` is not in scope.
+The `my` prefix always resolves to the current agent's home in the mesh, regardless of scope depth. It works inside bracket expressions, watchers, and any other nested context.
 
 #### Watcher and Procedure Scope
 
-A watcher's sub-attributes are its persistent local data scope. The `.` prefix accesses these directly. The owning agent is the agent who created it, and `~` resolves to that agent's home. A watcher has access to `my.computer` only when executing on its originating node.
+A watcher's sub-attributes are its persistent local data scope. The `.` prefix accesses these directly. The owning agent is the agent who created it, and `my` resolves to that agent's home. A watcher has access to `my.computer` only when executing on its originating node.
 
 Procedures stored in the hierarchy work the same way — their sub-attributes are persistent local data accessible via `.` prefix.
 
@@ -2064,7 +2063,7 @@ world.announcements.@write = (link)world.agent.admin
 
 #### Defaults
 
-- Under `~` (an agent's home): all permissions default to owner-only.
+- Under `my` (an agent's home, `world.agent.{identity}`): all permissions default to owner-only.
 - Under `world` root: `@read` defaults to Anything; `@write`, `@expand`, `@grant`, and `@purge` default to Nothing.
 - Cascade means permissions are set at key points in the tree and flow downward until overridden.
 
@@ -2093,7 +2092,7 @@ The hierarchy has a single root — `world` — under which all shared data live
     ├── services                # shared services
     └── ...
 
-Each agent's home is at `world.agent.{identity}`, accessible via `~` universally or `my` from program root scope. The `world` root is reachable as `my.world` from any agent's perspective.
+Each agent's home is at `world.agent.{identity}`, accessible via `my`. The `world` root is reachable as `my.world` from any agent's perspective.
 
 ### Agent Types and Identity
 
@@ -2123,13 +2122,13 @@ All agents have identities and keys, but their relationship to the mesh differs 
 
 **Mobile Agent Home Structure:**
 ```
-~                               # agent's home (world.agent.{identity})
-~.stamp                         # agent's default stamp (persistent)
-~.filter                        # agent's active filter (persistent)
-~.world                         # the shared world (persistent)
-~.computer                      # local machine access (virtual mount)
-~.keys.public                   # public key (in mesh)
-~.keys.private                  # private key (encrypted with derived key)
+my                              # agent's home (world.agent.{identity})
+my.stamp                        # agent's default stamp (persistent)
+my.filter                       # agent's active filter (persistent)
+my.world                        # the shared world (persistent)
+my.computer                     # local machine access (virtual mount)
+my.keys.public                  # public key (in mesh)
+my.keys.private                 # private key (encrypted with derived key)
 ```
 
 Most of an agent's home is persistent and stored in the mesh. The `computer` sub-path is a virtual mount provided by the local node the agent connects through.
@@ -2654,8 +2653,8 @@ An agent's secrets — private keys, sensitive data — are stored in the mesh b
 encrypted with the agent's own derived key. The node hosting the agent's data
 stores this data but cannot read it. Only the authenticated agent can decrypt it.
 
-    ~.keys.public                   # in the mesh, readable by anyone
-    ~.keys.private                  # in the mesh, encrypted with agent's derived key
+    my.keys.public                  # in the mesh, readable by anyone
+    my.keys.private                 # in the mesh, encrypted with agent's derived key
 
 This provides end-to-end encryption: data travels encrypted over the mesh and remains encrypted at rest until the authenticated agent decrypts it.
 

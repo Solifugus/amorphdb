@@ -125,11 +125,14 @@ func (pe *PermissionEvaluator) getEffectivePermission(path []string, permType Pe
 
 // getDefaultPermission returns the default permission for a path based on context
 func (pe *PermissionEvaluator) getDefaultPermission(path []string, permType PermissionType, agent *Agent) bool {
-	// Under ~ (agent's home): all permissions default to owner-only.
-	// ~ is self-relative — it always resolves to the requesting agent's own
-	// home, so that agent is by definition the owner and holds every default
-	// permission on it.
-	if len(path) > 0 && path[0] == "~" {
+	// Under an agent's own home (world.agent.{id}.*): all permissions default to
+	// owner-only. This is self-relative — only the requesting agent, the owner of
+	// that home, holds default permissions on it; any other agent falls through to
+	// the closed default below. (Previously keyed off a `~` path prefix, which was
+	// self-relative by construction; `~` has since been removed from the language,
+	// so the rule now recognizes the resolved home path directly.)
+	if agent != nil && len(path) >= 3 && path[0] == "world" && path[1] == "agent" &&
+		path[2] == fmt.Sprintf("%d", agent.AgentID) {
 		return true
 	}
 

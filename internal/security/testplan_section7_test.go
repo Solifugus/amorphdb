@@ -1147,8 +1147,11 @@ func TestFilters_RedactedDisplay(t *testing.T) {
 // 7.4 PERMISSIONS
 //=============================================================================
 
-// Test 7.4.1: Default `~` permissions
-// Under agent home, all permissions default to owner-only — another agent cannot read
+// Test 7.4.1: Default home permissions
+// Under an agent's own home (world.agent.{id}.*), all permissions default to
+// owner-only. The rule is self-relative: each agent is the owner of its own
+// resolved home path, so it holds every default permission there, while another
+// agent gets no owner default on it.
 func TestPermissions_DefaultHomePermissions(t *testing.T) {
 	tree, _, _, permEval := newSecurityTestSetup(t)
 
@@ -1170,14 +1173,15 @@ func TestPermissions_DefaultHomePermissions(t *testing.T) {
 
 	permissions := []PermissionType{ReadPermission, WritePermission, ExpandPermission, GrantPermission, PurgePermission}
 
-	// `~` is self-relative: it always denotes the *calling* agent's own home, so
-	// by default an agent is the owner of its own `~` and holds every permission
-	// there. This holds for any agent — both owner and otherAgent get full
-	// default access to their own home path.
-	homePath := []string{"~", "private", "secrets"}
+	// The home default is self-relative: each agent holds every default permission
+	// on its OWN resolved home path (world.agent.{its id}.*), so we check each
+	// agent against a path under its own home. (Previously spelled `~`, since
+	// removed — `my.*` now resolves to exactly this shape.)
+	ownerHomePath := []string{"world", "agent", "11111", "private", "secrets"}
+	otherHomePath := []string{"world", "agent", "22222", "private", "secrets"}
 
 	for _, perm := range permissions {
-		allowed, err := permEval.CheckPermission(owner, homePath, perm)
+		allowed, err := permEval.CheckPermission(owner, ownerHomePath, perm)
 		if err != nil {
 			t.Errorf("CheckPermission error for owner %s: %v", perm, err)
 		}
@@ -1185,20 +1189,19 @@ func TestPermissions_DefaultHomePermissions(t *testing.T) {
 			t.Errorf("Expected owner to have %s permission to their own home", perm)
 		}
 
-		allowedOther, err := permEval.CheckPermission(otherAgent, homePath, perm)
+		allowedOther, err := permEval.CheckPermission(otherAgent, otherHomePath, perm)
 		if err != nil {
 			t.Errorf("CheckPermission error for other agent %s: %v", perm, err)
 		}
 		if !allowedOther {
-			t.Errorf("Expected other agent to have %s permission to its OWN home (~ is self-relative)", perm)
+			t.Errorf("Expected other agent to have %s permission to its OWN home (home default is self-relative)", perm)
 		}
 	}
 
-	// Cross-agent isolation is enforced on the resolved, absolute home path —
-	// not via `~`, which another agent can never use to name the owner's home.
-	// The owner's home is owner-only: grant every permission to "owner" alone and
-	// confirm the owner is allowed while the other agent is denied.
-	ownerHome := []string{"world", "agent", "owner", "private", "secrets"}
+	// Cross-agent isolation: the owner's home is owner-only. Grant every
+	// permission to "owner" alone on the owner's resolved home and confirm the
+	// owner is allowed while the other agent is denied.
+	ownerHome := []string{"world", "agent", "11111", "private", "secrets"}
 	for _, perm := range permissions {
 		if err := permEval.SetPermission(ownerHome, perm, types.Text{Value: "owner"}, ownerID); err != nil {
 			t.Fatalf("failed to set %s permission on owner home: %v", perm, err)

@@ -31,14 +31,14 @@ func NewStampManager(tree storage.ExtendedTree) *StampManager {
 	}
 }
 
-// CollectStamps gathers stamps from write point up to ~ and creates effective stamp
+// CollectStamps gathers stamps from write point up to the agent's home and creates effective stamp
 func (sm *StampManager) CollectStamps(writePath []string, agentID uint64) (*StampSnapshot, error) {
 	// Start with system-injected author
 	effectiveStamp := map[string]interface{}{
 		"@author": agentID, // System-level guarantee
 	}
 
-	// Add personal stamp from ~.stamp
+	// Add personal stamp from the agent's home stamp
 	personalStamp, err := sm.getPersonalStamp(agentID)
 	if err == nil && personalStamp != nil {
 		// Personal stamp attributes go into effective stamp
@@ -82,15 +82,15 @@ func (sm *StampManager) CollectStamps(writePath []string, agentID uint64) (*Stam
 	return snapshot, nil
 }
 
-// SetPersonalStamp sets the agent's personal stamp at ~.stamp
+// SetPersonalStamp sets the agent's personal stamp at the agent's home stamp
 func (sm *StampManager) SetPersonalStamp(stampFields map[string]interface{}, agentID uint64) error {
 	// Create a record with the stamp fields
 	stampRecord := types.Record{
 		Fields: stampFields,
 	}
 
-	// Store at ~.stamp
-	stampPath := []string{"~", "stamp"}
+	// Store at the agent's home stamp (per-agent, keyed by agentID)
+	stampPath := []string{"stamp"}
 	attrHash := storage.HashPath(stampPath)
 
 	// Serialize the stamp record
@@ -160,10 +160,10 @@ func (sm *StampManager) SetHierarchicalStamp(path []string, stampFields map[stri
 	return nil
 }
 
-// getPersonalStamp retrieves the agent's personal stamp from ~.stamp
+// getPersonalStamp retrieves the agent's personal stamp from the agent's home stamp
 func (sm *StampManager) getPersonalStamp(agentID uint64) (map[string]interface{}, error) {
-	// Get ~.stamp for this agent
-	stampPath := []string{"~", "stamp"}
+	// Get the home stamp for this agent
+	stampPath := []string{"stamp"}
 	attrHash := storage.HashPath(stampPath)
 
 	instance, err := sm.tree.GetInstance(attrHash, agentID)

@@ -77,15 +77,15 @@ func (fm *FilterManager) ApplyFilters(agent *Agent, instanceWithStamp map[string
 	return true, nil // Not all filter expressions matched, so data is visible
 }
 
-// getFilterCondition retrieves and parses an agent's filter from ~.filter
+// getFilterCondition retrieves and parses an agent's filter from the agent's home filter
 func (fm *FilterManager) getFilterCondition(agentID uint64) (*FilterCondition, error) {
 	// Check cache first
 	if condition, exists := fm.filterCache[agentID]; exists {
 		return condition, nil
 	}
 
-	// Get ~.filter for this agent
-	filterPath := []string{"~", "filter"}
+	// Get the home filter for this agent
+	filterPath := []string{"filter"}
 	attrHash := storage.HashPath(filterPath)
 
 	instance, err := fm.tree.GetInstance(attrHash, agentID)
@@ -276,9 +276,9 @@ func numericValue(v interface{}) (float64, bool) {
 	return 0, false
 }
 
-// SetFilter sets an agent's personal filter at ~.filter
+// SetFilter sets an agent's personal filter at the agent's home filter
 func (fm *FilterManager) SetFilter(filterCondition interface{}, agentID uint64) error {
-	filterPath := []string{"~", "filter"}
+	filterPath := []string{"filter"}
 	attrHash := storage.HashPath(filterPath)
 
 	// Serialize the filter
@@ -347,7 +347,7 @@ func (fm *FilterManager) ClearFilter(agentID uint64) error {
 	delete(fm.filterCache, agentID)
 
 	// Remove from storage - store empty filter or delete the attribute
-	filterPath := []string{"~", "filter"}
+	filterPath := []string{"filter"}
 	attrHash := storage.HashPath(filterPath)
 
 	// Create an empty filter to effectively clear it
