@@ -30,21 +30,28 @@ AmorphDB operates as a decentralized mesh. Every node is a peer. There is no cen
 
 ```bash
 # Build
-go build ./cmd/amorphd
-go build ./cmd/amorph
-go build ./cmd/amorphctl
+go build -o bin/amorphd   ./cmd/amorphd
+go build -o bin/amorph    ./cmd/amorph
+go build -o bin/amorphctl ./cmd/amorphctl
+
+# One-time: establish the node owner (prompts for a passphrase)
+amorphd init-owner
 
 # Start a standalone node
 amorphd
 
-# Connect with the client
+# Connect with the client (local socket = auto-authenticated as owner)
 amorph
 
 # Basic operations in the REPL
-AmorphDB> my.name = "Alice"
-AmorphDB> my.name
-"Alice"  (@2026-04-05 14:22:01 by kalevo)
+amorph> my.name = "Alice"
+Alice
+amorph> my.name
+Alice
 ```
+
+See [`docs/getting_started.md`](docs/getting_started.md) for the full
+walkthrough, including enrolling additional users.
 
 ### Mesh Operations
 
@@ -101,9 +108,9 @@ else unknown:
 
 | Document | Description |
 |----------|-------------|
+| [`docs/getting_started.md`](docs/getting_started.md) | **Start here** — build, bootstrap, and a hands-on REPL walkthrough |
+| [`docs/mbl_reference.md`](docs/mbl_reference.md) | MBL quick reference — types, watchers, procedures, permissions, `my.computer.*` |
 | [`docs/amorphdb_design.md`](docs/amorphdb_design.md) | Authoritative specification — language, storage, mesh, security |
-| [`docs/amorphdb_computer_library.md`](docs/amorphdb_computer_library.md) | `my.computer.*` library — network, files, system |
-| [`docs/AmorphDB_Tutorial.md`](docs/AmorphDB_Tutorial.md) | Learning guide |
 | [`docs/mesh_management_guide.md`](docs/mesh_management_guide.md) | Mesh operations |
 | [`docs/bridge_architecture.md`](docs/bridge_architecture.md) | Bridge implementation details |
 | [`docs/AmorphDB_Remaining_Work.md`](docs/AmorphDB_Remaining_Work.md) | Known gaps and remaining work |
