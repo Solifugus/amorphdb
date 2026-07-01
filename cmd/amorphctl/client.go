@@ -11,8 +11,8 @@ import (
 
 // ControlClient handles communication with AmorphDB service for administrative commands
 type ControlClient struct {
-	conn     net.Conn // UNIX socket connection to service
-	sequence uint32   // Message sequence counter
+	conn     net.Conn   // UNIX socket connection to service
+	sequence uint32     // Message sequence counter
 	mu       sync.Mutex // Protects sequence and conn access
 }
 
@@ -100,6 +100,33 @@ func (c *ControlClient) Stop() error {
 	}
 
 	return nil
+}
+
+// CreateInvite asks the daemon to mint a one-time enrollment token. The
+// connection's identity must be authorized (@grant on world.agent); over the
+// local socket the owner qualifies automatically.
+func (c *ControlClient) CreateInvite() (string, error) {
+	response, err := c.sendRequest(protocol.INVITE_CREATE, nil)
+	if err != nil {
+		return "", err
+	}
+
+	if response.Type == protocol.ERROR {
+		errorMsg, _ := protocol.DecodeErrorMessage(response.Payload)
+		return "", fmt.Errorf("server error %d: %s", errorMsg.Code, errorMsg.Message)
+	}
+	if response.Type != protocol.INVITE_CREATE_RESULT {
+		return "", fmt.Errorf("unexpected response type: 0x%02x", response.Type)
+	}
+
+	result, err := protocol.DecodeInviteCreateResultMessage(response.Payload)
+	if err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+	if !result.Success {
+		return "", fmt.Errorf("invite creation failed: %s", result.Error)
+	}
+	return result.Token, nil
 }
 
 // Compact triggers data compaction/defragmentation

@@ -513,6 +513,44 @@ func DecodeRegisterResultMessage(payload []byte) (*RegisterResultMessage, error)
 	return msg, nil
 }
 
+// DecodeInviteCreateResultMessage deserializes an InviteCreateResultMessage.
+func DecodeInviteCreateResultMessage(payload []byte) (*InviteCreateResultMessage, error) {
+	msg := &InviteCreateResultMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+		switch tag {
+		case 0x01:
+			b, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = b != 0
+		case 0x02:
+			token, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode token: %w", err)
+			}
+			msg.Token = token
+		case 0x03:
+			errStr, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode error: %w", err)
+			}
+			msg.Error = errStr
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+	return msg, nil
+}
+
 // DecodeStopAckMessage deserializes a StopAckMessage
 func DecodeStopAckMessage(payload []byte) (*StopAckMessage, error) {
 	msg := &StopAckMessage{}

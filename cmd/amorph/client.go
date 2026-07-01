@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/solifugus/amorphdb/internal/protocol"
+	"github.com/solifugus/amorphdb/internal/security"
 	"github.com/solifugus/amorphdb/internal/storage"
 )
 
@@ -193,6 +194,109 @@ func (c *ProtocolClient) WhoAmI() (uint64, string, error) {
 		return 0, "", fmt.Errorf("decode whoami response: %w", err)
 	}
 	return msg.AgentID, msg.Identity, nil
+}
+
+// Register enrolls this client as a new agent by submitting the public key it
+// generated locally, authorized by a one-time invite token. The private key
+// never leaves this process. It returns the new agent's numeric ID.
+func (c *ProtocolClient) Register(identity string, publicKey []byte, token string) (uint64, error) {
+	payload, err := protocol.EncodeRegisterMessage(&protocol.RegisterMessage{
+		Identity:  identity,
+		PublicKey: publicKey,
+		Token:     token,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("encode register: %w", err)
+	}
+
+	response, err := c.sendRequest(protocol.REGISTER, payload)
+	if err != nil {
+		return 0, err
+	}
+	if response.Type == protocol.ERROR {
+		errorMsg, _ := protocol.DecodeErrorMessage(response.Payload)
+		return 0, fmt.Errorf("server error %d: %s", errorMsg.Code, errorMsg.Message)
+	}
+	if response.Type != protocol.REGISTER_RESULT {
+		return 0, fmt.Errorf("unexpected response type 0x%02x to REGISTER", response.Type)
+	}
+
+	result, err := protocol.DecodeRegisterResultMessage(response.Payload)
+	if err != nil {
+		return 0, fmt.Errorf("decode register result: %w", err)
+	}
+	if !result.Success {
+		return 0, fmt.Errorf("%s", result.Error)
+	}
+	return result.AgentID, nil
+}
+
+// Authenticate performs the challenge-response handshake, proving possession of
+// the private key for identity. On success the daemon binds this connection to
+// identity, so subsequent operations (and `my.*` resolution) run as that agent.
+// Returns the bound agent ID and identity label.
+func (c *ProtocolClient) Authenticate(identity string, keyPair *security.KeyPair) (uint64, string, error) {
+	// AUTH_INIT -> AUTH_CHALLENGE.
+	initPayload, err := protocol.EncodeAuthInitMessage(&protocol.AuthInitMessage{Identity: identity})
+	if err != nil {
+		return 0, "", fmt.Errorf("encode auth init: %w", err)
+	}
+	response, err := c.sendRequest(protocol.AUTH_INIT, initPayload)
+	if err != nil {
+		return 0, "", err
+	}
+	if response.Type == protocol.ERROR {
+		errorMsg, _ := protocol.DecodeErrorMessage(response.Payload)
+		return 0, "", fmt.Errorf("server error %d: %s", errorMsg.Code, errorMsg.Message)
+	}
+	if response.Type != protocol.AUTH_CHALLENGE {
+		return 0, "", fmt.Errorf("unexpected response type 0x%02x to AUTH_INIT", response.Type)
+	}
+	chalWire, err := protocol.DecodeAuthChallengeMessage(response.Payload)
+	if err != nil {
+		return 0, "", fmt.Errorf("decode challenge: %w", err)
+	}
+	chal, err := security.DeserializeAuthChallenge(chalWire.Challenge)
+	if err != nil {
+		return 0, "", fmt.Errorf("deserialize challenge: %w", err)
+	}
+
+	// Prove possession of the private key by decrypting the challenge.
+	authenticator := security.NewAgentAuthenticator()
+	authResp, err := authenticator.RespondToChallenge(&security.AuthenticationChallenge{
+		ChallengeID:        chal.ChallengeID,
+		EncryptedData:      chal.EncryptedData,
+		EphemeralPublicKey: chal.EphemeralPublicKey,
+	}, keyPair)
+	if err != nil {
+		return 0, "", fmt.Errorf("respond to challenge: %w", err)
+	}
+	respWire := security.SerializeAuthResponse(&security.AuthResponseMessage{
+		AgentIdentity: identity,
+		ChallengeID:   authResp.ChallengeID,
+		DecryptedData: authResp.DecryptedData,
+	})
+	respPayload, err := protocol.EncodeAuthResponseMessage(&protocol.AuthResponseMessage{Response: respWire})
+	if err != nil {
+		return 0, "", fmt.Errorf("encode auth response: %w", err)
+	}
+
+	// AUTH_RESPONSE -> AUTH_RESULT.
+	result, err := c.sendRequest(protocol.AUTH_RESPONSE, respPayload)
+	if err != nil {
+		return 0, "", err
+	}
+	if result.Type != protocol.AUTH_RESULT {
+		return 0, "", fmt.Errorf("unexpected response type 0x%02x to AUTH_RESPONSE", result.Type)
+	}
+	authResult, err := protocol.DecodeAuthResultMessage(result.Payload)
+	if err != nil {
+		return 0, "", fmt.Errorf("decode auth result: %w", err)
+	}
+	if !authResult.Success {
+		return 0, "", fmt.Errorf("authentication failed: %s", authResult.Error)
+	}
+	return authResult.AgentID, authResult.Identity, nil
 }
 
 // sendRequest sends a protocol message and waits for response

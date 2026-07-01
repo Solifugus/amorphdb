@@ -243,6 +243,28 @@ func (c *Connection) handleRegister(msg *protocol.Message) *protocol.Message {
 	return protocol.CreateMessage(protocol.REGISTER_RESULT, msg.Sequence, payload)
 }
 
+// handleInviteCreate mints a one-time enrollment token on behalf of the
+// connection's current agent, provided that agent is authorized to issue invites
+// (@grant on world.agent). The owner qualifies over the local socket via
+// auto-auth; a delegated admin qualifies once network-authenticated. Anonymous
+// connections are refused.
+func (c *Connection) handleInviteCreate(msg *protocol.Message) *protocol.Message {
+	token, err := c.service.CreateInvite(c.agentID)
+
+	var result *protocol.InviteCreateResultMessage
+	if err != nil {
+		result = &protocol.InviteCreateResultMessage{Success: false, Error: err.Error()}
+	} else {
+		result = &protocol.InviteCreateResultMessage{Success: true, Token: token}
+	}
+
+	payload, encErr := protocol.EncodeInviteCreateResultMessage(result)
+	if encErr != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", encErr))
+	}
+	return protocol.CreateMessage(protocol.INVITE_CREATE_RESULT, msg.Sequence, payload)
+}
+
 // processNextMessage reads and processes one protocol message
 func (c *Connection) processNextMessage() error {
 	// Read message header (14 bytes: version + type + sequence + length)
@@ -325,6 +347,8 @@ func (c *Connection) handleMessage(msg *protocol.Message) *protocol.Message {
 		return c.handleAuthResponse(msg)
 	case protocol.REGISTER:
 		return c.handleRegister(msg)
+	case protocol.INVITE_CREATE:
+		return c.handleInviteCreate(msg)
 	default:
 		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Unknown message type: 0x%02x", msg.Type))
 	}

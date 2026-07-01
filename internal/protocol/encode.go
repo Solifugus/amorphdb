@@ -355,6 +355,35 @@ func EncodeRegisterResultMessage(msg *RegisterResultMessage) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// EncodeInviteCreateResultMessage serializes an InviteCreateResultMessage.
+func EncodeInviteCreateResultMessage(msg *InviteCreateResultMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	successData, err := encodeBool(0x01, msg.Success)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode success: %w", err)
+	}
+	buf.Write(successData)
+
+	if msg.Token != "" {
+		tokenData, err := encodeString(0x02, msg.Token)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode token: %w", err)
+		}
+		buf.Write(tokenData)
+	}
+
+	if msg.Error != "" {
+		errData, err := encodeString(0x03, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode error: %w", err)
+		}
+		buf.Write(errData)
+	}
+
+	return buf.Bytes(), nil
+}
+
 // EncodeStopAckMessage serializes a StopAckMessage
 func EncodeStopAckMessage(msg *StopAckMessage) ([]byte, error) {
 	var buf bytes.Buffer

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
 )
 
 func main() {
@@ -101,6 +100,8 @@ func main() {
 			os.Exit(1)
 		}
 		err = handleExtract(client, os.Args[2:])
+	case "invite":
+		err = handleInvite(client)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		fmt.Fprintf(os.Stderr, "Run '%s help' for usage information.\n", os.Args[0])
@@ -185,6 +186,20 @@ func handleInitPWA(appName, targetDir string) error {
 	return cmd.Run()
 }
 
+func handleInvite(client *ControlClient) error {
+	token, err := client.CreateInvite()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Enrollment invite created (one-time, valid 24h).")
+	fmt.Println()
+	fmt.Printf("  Token: %s\n", token)
+	fmt.Println()
+	fmt.Println("Give this token to the new agent, who enrolls with:")
+	fmt.Printf("  amorph enroll -node <host:port> -identity <name> -token %s\n", token)
+	return nil
+}
+
 func handleExtract(client *ControlClient, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("extract command requires a path")
@@ -262,6 +277,7 @@ func showHelp() {
 	fmt.Println("  bridge <address>  Create a bridge to another mesh")
 	fmt.Println("  detach [mesh]     Detach from mesh (or primary mesh if no name given)")
 	fmt.Println("  extract <path> [-o file]  Extract subtree as MBL script")
+	fmt.Println("  invite            Mint a one-time agent enrollment token")
 	fmt.Println("  init-pwa <appname> <directory>  Scaffold a new PWA project")
 	fmt.Println("  help              Show this help message")
 	fmt.Println()

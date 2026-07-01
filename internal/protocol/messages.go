@@ -54,6 +54,12 @@ const (
 	REGISTER        = 0x4A
 	REGISTER_RESULT = 0x4B
 
+	// Invite issuance: an authorized agent (@grant on world.agent) asks the daemon
+	// to mint a one-time enrollment token (INVITE_CREATE); the daemon returns the
+	// token or an authorization error (INVITE_CREATE_RESULT).
+	INVITE_CREATE        = 0x4C
+	INVITE_CREATE_RESULT = 0x4D
+
 	// Mesh management operations
 	CREATE_MESH            = 0x26
 	CREATE_MESH_ACK        = 0x27
@@ -227,6 +233,14 @@ type RegisterMessage struct {
 type RegisterResultMessage struct {
 	Success bool   // Whether registration succeeded
 	AgentID uint64 // New agent's numeric ID (on success)
+	Error   string // Human-readable failure reason (on failure)
+}
+
+// InviteCreateResultMessage reports the outcome of an invite-issuance request.
+// On success it carries the one-time enrollment token.
+type InviteCreateResultMessage struct {
+	Success bool   // Whether an invite was issued
+	Token   string // The one-time enrollment token (on success)
 	Error   string // Human-readable failure reason (on failure)
 }
 
