@@ -17,16 +17,18 @@ import (
 
 // Connection represents a client connection to the service
 type Connection struct {
-	id          string                   // Unique connection identifier
-	conn        net.Conn                 // Underlying network connection
-	isLocal     bool                     // Whether this is a local socket connection
-	service     *Service                 // Reference to parent service
-	interpreter *interpreter.Interpreter // Per-connection MBL interpreter
-	agentID     uint64                   // Current agent identity for this connection
-	reader      *bufio.Reader            // Buffered reader for the connection
-	writer      io.Writer                // Writer for responses
-	mu          sync.Mutex               // Protects connection state
-	closed      bool                     // Whether connection is closed
+	id            string                          // Unique connection identifier
+	conn          net.Conn                        // Underlying network connection
+	isLocal       bool                            // Whether this is a local socket connection
+	service       *Service                        // Reference to parent service
+	interpreter   *interpreter.Interpreter        // Per-connection MBL interpreter
+	agentID       uint64                          // Current agent identity for this connection
+	identityLabel string                          // CV identity label once authenticated (empty otherwise)
+	authSession   *security.AuthenticationSession // In-flight auth handshake state (nil when idle)
+	reader        *bufio.Reader                   // Buffered reader for the connection
+	writer        io.Writer                       // Writer for responses
+	mu            sync.Mutex                      // Protects connection state
+	closed        bool                            // Whether connection is closed
 }
 
 // NewConnection creates a new connection handler
@@ -114,7 +116,11 @@ func (c *Connection) createAgent() *security.Agent {
 // agent until network authentication is wired.
 func (c *Connection) handleWhoAmI(msg *protocol.Message) *protocol.Message {
 	identity := fmt.Sprintf("agent-%d", c.agentID)
-	if ownerIdent, ok := c.service.OwnerIdentity(); ok {
+	if c.identityLabel != "" {
+		// A completed network handshake bound this connection to a CV identity.
+		identity = c.identityLabel
+	} else if ownerIdent, ok := c.service.OwnerIdentity(); ok {
+		// Local connections adopt the owner without an explicit handshake.
 		if ownerID, ok := c.service.OwnerAgentID(); ok && ownerID == c.agentID {
 			identity = ownerIdent
 		}
@@ -126,6 +132,85 @@ func (c *Connection) handleWhoAmI(msg *protocol.Message) *protocol.Message {
 		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
 	}
 	return protocol.CreateMessage(protocol.WHOAMI_RESPONSE, msg.Sequence, payload)
+}
+
+// handleAuthInit begins a client authentication handshake. The client presents
+// the identity it claims to be; the daemon looks up that identity's stored
+// public key and issues a challenge encrypted to it. Possession of the matching
+// private key is proven in the follow-up AUTH_RESPONSE. If the identity is
+// unknown (no stored public key), the handshake is refused.
+func (c *Connection) handleAuthInit(msg *protocol.Message) *protocol.Message {
+	initMsg, err := protocol.DecodeAuthInitMessage(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid AUTH_INIT message: %v", err))
+	}
+
+	publicKey, ok := c.service.LookupAgentPublicKey(initMsg.Identity)
+	if !ok {
+		return c.createErrorResponse(msg.Sequence, 401, "Unknown identity")
+	}
+
+	session := security.NewAuthenticationSession(initMsg.Identity, publicKey)
+	challenge, err := session.CreateChallenge()
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Challenge creation failed: %v", err))
+	}
+	c.authSession = session
+
+	respMsg := &protocol.AuthChallengeMessage{Challenge: security.SerializeAuthChallenge(challenge)}
+	payload, err := protocol.EncodeAuthChallengeMessage(respMsg)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
+	}
+	return protocol.CreateMessage(protocol.AUTH_CHALLENGE, msg.Sequence, payload)
+}
+
+// handleAuthResponse completes an authentication handshake. It verifies the
+// client's decrypted challenge against the in-flight session; on success it
+// binds the connection to the authenticated agent's identity (updating agentID
+// and rebuilding the interpreter so my.* resolves under the new home) and clears
+// the session. A failure leaves the connection at its prior (default) identity.
+func (c *Connection) handleAuthResponse(msg *protocol.Message) *protocol.Message {
+	if c.authSession == nil {
+		return c.createErrorResponse(msg.Sequence, 400, "No authentication in progress (send AUTH_INIT first)")
+	}
+
+	respMsg, err := protocol.DecodeAuthResponseMessage(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid AUTH_RESPONSE message: %v", err))
+	}
+
+	authResponse, err := security.DeserializeAuthResponse(respMsg.Response)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid response payload: %v", err))
+	}
+
+	session := c.authSession
+	authenticated, err := session.VerifyResponse(authResponse)
+	// The handshake is single-use regardless of outcome: clear it so a failed
+	// attempt cannot be retried against the same challenge.
+	c.authSession = nil
+	if err != nil || !authenticated {
+		result := &protocol.AuthResultMessage{Success: false, AgentID: c.agentID, Error: "Authentication failed"}
+		payload, encErr := protocol.EncodeAuthResultMessage(result)
+		if encErr != nil {
+			return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", encErr))
+		}
+		return protocol.CreateMessage(protocol.AUTH_RESULT, msg.Sequence, payload)
+	}
+
+	// Success: bind the connection to the authenticated identity.
+	identity := session.AgentIdentity
+	c.agentID = ownerAgentID(identity)
+	c.identityLabel = identity
+	c.interpreter = interpreter.New(c.service.tree, c.agentID)
+
+	result := &protocol.AuthResultMessage{Success: true, AgentID: c.agentID, Identity: identity}
+	payload, err := protocol.EncodeAuthResultMessage(result)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
+	}
+	return protocol.CreateMessage(protocol.AUTH_RESULT, msg.Sequence, payload)
 }
 
 // processNextMessage reads and processes one protocol message
@@ -204,6 +289,10 @@ func (c *Connection) handleMessage(msg *protocol.Message) *protocol.Message {
 		return c.handleExtract(msg)
 	case protocol.WHOAMI:
 		return c.handleWhoAmI(msg)
+	case protocol.AUTH_INIT:
+		return c.handleAuthInit(msg)
+	case protocol.AUTH_RESPONSE:
+		return c.handleAuthResponse(msg)
 	default:
 		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Unknown message type: 0x%02x", msg.Type))
 	}

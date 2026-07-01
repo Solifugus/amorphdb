@@ -37,6 +37,17 @@ const (
 	WHOAMI           = 0x44
 	WHOAMI_RESPONSE  = 0x45
 
+	// Client authentication handshake (challenge-response over the client↔daemon
+	// connection). A client presents a claimed identity (AUTH_INIT); the daemon
+	// replies with a challenge encrypted to that identity's stored public key
+	// (AUTH_CHALLENGE); the client proves possession of the private key by
+	// decrypting it (AUTH_RESPONSE); the daemon reports the outcome and the
+	// agent ID the connection is now bound to (AUTH_RESULT).
+	AUTH_INIT      = 0x46
+	AUTH_CHALLENGE = 0x47
+	AUTH_RESPONSE  = 0x48
+	AUTH_RESULT    = 0x49
+
 	// Mesh management operations
 	CREATE_MESH            = 0x26
 	CREATE_MESH_ACK        = 0x27
@@ -163,6 +174,37 @@ type StatusResponseMessage struct {
 type WhoAmIResponseMessage struct {
 	AgentID  uint64 // Numeric agent ID the connection is authenticated as
 	Identity string // Human-readable identity label (e.g. CV syllables)
+}
+
+// AuthInitMessage begins a client authentication handshake by presenting the
+// identity the client claims to be. The daemon looks up that identity's stored
+// public key to build the challenge.
+type AuthInitMessage struct {
+	Identity string // Claimed agent identity (CV-syllable string)
+}
+
+// AuthChallengeMessage carries the daemon's authentication challenge to the
+// client. Challenge holds the opaque, security-layer-serialized challenge
+// (security.SerializeAuthChallenge) so the protocol layer stays agnostic to the
+// crypto encoding.
+type AuthChallengeMessage struct {
+	Challenge []byte // Serialized security.AuthChallengeMessage
+}
+
+// AuthResponseMessage carries the client's answer to the challenge. Response
+// holds the opaque, security-layer-serialized response
+// (security.SerializeAuthResponse).
+type AuthResponseMessage struct {
+	Response []byte // Serialized security.AuthResponseMessage
+}
+
+// AuthResultMessage reports the outcome of the handshake and, on success, the
+// agent ID and identity the connection is now authenticated as.
+type AuthResultMessage struct {
+	Success  bool   // Whether authentication succeeded
+	AgentID  uint64 // Agent ID the connection is now bound to (on success)
+	Identity string // Identity label the connection is now bound to (on success)
+	Error    string // Human-readable failure reason (on failure)
 }
 
 // StopMessage represents a request to stop the service

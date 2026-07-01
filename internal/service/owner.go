@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 
@@ -61,6 +62,33 @@ func (s *Service) OwnerAgentID() (uint64, bool) {
 		return 0, false
 	}
 	return ownerAgentID(identity), true
+}
+
+// LookupAgentPublicKey returns the stored public key for an enrolled agent
+// identity, reading world.agent.{ownerAgentID(identity)}.keys.public (hex of the
+// big.Int bytes, as written by InitOwner). It returns (key, true) when a public
+// key is present, else (nil, false). This is what the connection handshake uses
+// to build a challenge the genuine agent can answer.
+func (s *Service) LookupAgentPublicKey(identity string) (*big.Int, bool) {
+	id := ownerAgentID(identity)
+	path := []string{"world", "agent", fmt.Sprintf("%d", id), "keys", "public"}
+	v, err := s.tree.Read(path)
+	if err != nil || v.TypeTag == types.TypeNothing {
+		return nil, false
+	}
+	decoded, err := types.DeserializeValue(types.SerializedValue{TypeTag: v.TypeTag, Data: v.Data})
+	if err != nil {
+		return nil, false
+	}
+	text, ok := decoded.(types.Text)
+	if !ok || text.Value == "" {
+		return nil, false
+	}
+	raw, err := hex.DecodeString(text.Value)
+	if err != nil {
+		return nil, false
+	}
+	return new(big.Int).SetBytes(raw), true
 }
 
 // InitOwner bootstraps the node owner: the genesis agent that owns this host.

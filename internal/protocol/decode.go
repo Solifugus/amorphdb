@@ -315,6 +315,128 @@ func DecodeWhoAmIResponseMessage(payload []byte) (*WhoAmIResponseMessage, error)
 	return msg, nil
 }
 
+// DecodeAuthInitMessage deserializes an AuthInitMessage.
+func DecodeAuthInitMessage(payload []byte) (*AuthInitMessage, error) {
+	msg := &AuthInitMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+		switch tag {
+		case 0x01:
+			identity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode identity: %w", err)
+			}
+			msg.Identity = identity
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+	return msg, nil
+}
+
+// DecodeAuthChallengeMessage deserializes an AuthChallengeMessage.
+func DecodeAuthChallengeMessage(payload []byte) (*AuthChallengeMessage, error) {
+	msg := &AuthChallengeMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+		switch tag {
+		case 0x01:
+			blob, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode challenge: %w", err)
+			}
+			msg.Challenge = []byte(blob)
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+	return msg, nil
+}
+
+// DecodeAuthResponseMessage deserializes an AuthResponseMessage.
+func DecodeAuthResponseMessage(payload []byte) (*AuthResponseMessage, error) {
+	msg := &AuthResponseMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+		switch tag {
+		case 0x01:
+			blob, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode response: %w", err)
+			}
+			msg.Response = []byte(blob)
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+	return msg, nil
+}
+
+// DecodeAuthResultMessage deserializes an AuthResultMessage.
+func DecodeAuthResultMessage(payload []byte) (*AuthResultMessage, error) {
+	msg := &AuthResultMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+		switch tag {
+		case 0x01:
+			b, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = b != 0
+		case 0x02:
+			var id int64
+			if err := binary.Read(reader, binary.BigEndian, &id); err != nil {
+				return nil, fmt.Errorf("failed to decode agent id: %w", err)
+			}
+			msg.AgentID = uint64(id)
+		case 0x03:
+			identity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode identity: %w", err)
+			}
+			msg.Identity = identity
+		case 0x04:
+			errStr, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode error: %w", err)
+			}
+			msg.Error = errStr
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+	return msg, nil
+}
+
 // DecodeStopAckMessage deserializes a StopAckMessage
 func DecodeStopAckMessage(payload []byte) (*StopAckMessage, error) {
 	msg := &StopAckMessage{}
