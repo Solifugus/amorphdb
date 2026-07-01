@@ -12,8 +12,8 @@ import (
 
 // ProtocolClient implements the storage.Tree interface over the wire protocol
 type ProtocolClient struct {
-	conn     net.Conn // Network connection to service
-	sequence uint32   // Message sequence counter
+	conn     net.Conn   // Network connection to service
+	sequence uint32     // Message sequence counter
 	mu       sync.Mutex // Protects sequence and conn access
 }
 
@@ -174,6 +174,25 @@ func (c *ProtocolClient) Purge(path []string, from int64, to int64, author uint6
 	}
 
 	return nil
+}
+
+// WhoAmI asks the service which identity this connection is authenticated as,
+// so the REPL can resolve `my.*` under the correct home. Returns the numeric
+// agent ID and its label. On any error (e.g. an older service that doesn't
+// support WHOAMI), the caller should fall back to the default identity.
+func (c *ProtocolClient) WhoAmI() (uint64, string, error) {
+	response, err := c.sendRequest(protocol.WHOAMI, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	if response.Type != protocol.WHOAMI_RESPONSE {
+		return 0, "", fmt.Errorf("unexpected response type 0x%02x to WHOAMI", response.Type)
+	}
+	msg, err := protocol.DecodeWhoAmIResponseMessage(response.Payload)
+	if err != nil {
+		return 0, "", fmt.Errorf("decode whoami response: %w", err)
+	}
+	return msg.AgentID, msg.Identity, nil
 }
 
 // sendRequest sends a protocol message and waits for response

@@ -16,15 +16,15 @@ import (
 
 // REPL represents the Read-Eval-Print Loop implementation
 type REPL struct {
-	tree        storage.Tree              // Persistent storage (local or remote)
-	client      *ProtocolClient           // Protocol client for remote connections
+	tree        storage.Tree             // Persistent storage (local or remote)
+	client      *ProtocolClient          // Protocol client for remote connections
 	interpreter *interpreter.Interpreter // MBL execution engine
-	scanner     *bufio.Scanner            // Input reading
-	agentID     uint64                    // Default agent identity
-	agentName   string                    // Agent identity name
-	homeDir     string                    // User's AmorphDB directory
-	isRemote    bool                      // Whether using remote connection
-	address     string                    // Connection address
+	scanner     *bufio.Scanner           // Input reading
+	agentID     uint64                   // Default agent identity
+	agentName   string                   // Agent identity name
+	homeDir     string                   // User's AmorphDB directory
+	isRemote    bool                     // Whether using remote connection
+	address     string                   // Connection address
 }
 
 // NewREPL creates a new REPL instance with connection to AmorphDB service
@@ -53,6 +53,17 @@ func NewREPLWithClient(client *ProtocolClient, identity string) (*REPL, error) {
 	agentName := identity
 	if agentName == "" {
 		agentName = "anonymous"
+	}
+
+	// Ask the service who this connection is authenticated as, so `my.*`
+	// resolves under the correct home. Local socket connections are auto-authed
+	// as the node owner; on any error (older service, network peer) we keep the
+	// default anonymous identity.
+	if id, name, err := client.WhoAmI(); err == nil && id != 0 {
+		agentID = id
+		if name != "" {
+			agentName = name
+		}
 	}
 
 	// Initialize MBL interpreter with protocol client as storage

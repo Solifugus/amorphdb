@@ -18,50 +18,52 @@ const (
 	PURGE_ACK     = 0x15
 
 	// Advanced operations
-	READ_AT         = 0x16
-	READ_AT_RESPONSE = 0x17
-	CHILDREN        = 0x18
+	READ_AT           = 0x16
+	READ_AT_RESPONSE  = 0x17
+	CHILDREN          = 0x18
 	CHILDREN_RESPONSE = 0x19
-	EXECUTE         = 0x1A
-	EXECUTE_RESPONSE = 0x1B
+	EXECUTE           = 0x1A
+	EXECUTE_RESPONSE  = 0x1B
 
 	// Control operations
-	STATUS        = 0x20
-	STATUS_RESPONSE = 0x21
-	STOP          = 0x22
-	STOP_ACK      = 0x23
-	COMPACT       = 0x24
-	COMPACT_ACK   = 0x25
-	EXTRACT       = 0x42
+	STATUS           = 0x20
+	STATUS_RESPONSE  = 0x21
+	STOP             = 0x22
+	STOP_ACK         = 0x23
+	COMPACT          = 0x24
+	COMPACT_ACK      = 0x25
+	EXTRACT          = 0x42
 	EXTRACT_RESPONSE = 0x43
+	WHOAMI           = 0x44
+	WHOAMI_RESPONSE  = 0x45
 
 	// Mesh management operations
-	CREATE_MESH       = 0x26
-	CREATE_MESH_ACK   = 0x27
-	MESH_STATUS       = 0x28
-	MESH_STATUS_RESPONSE = 0x29
-	DISCOVER_MESH     = 0x2A
+	CREATE_MESH            = 0x26
+	CREATE_MESH_ACK        = 0x27
+	MESH_STATUS            = 0x28
+	MESH_STATUS_RESPONSE   = 0x29
+	DISCOVER_MESH          = 0x2A
 	DISCOVER_MESH_RESPONSE = 0x2B
-	JOIN_MESH         = 0x2C
-	JOIN_MESH_ACK     = 0x2D
-	CREATE_BRIDGE     = 0x2E
-	CREATE_BRIDGE_ACK = 0x2F
-	DETACH            = 0x40
-	DETACH_ACK        = 0x41
+	JOIN_MESH              = 0x2C
+	JOIN_MESH_ACK          = 0x2D
+	CREATE_BRIDGE          = 0x2E
+	CREATE_BRIDGE_ACK      = 0x2F
+	DETACH                 = 0x40
+	DETACH_ACK             = 0x41
 
 	// Mesh networking operations
-	KEY_EXCHANGE     = 0x30
-	KEY_EXCHANGE_ACK = 0x31
-	IDENTITY_REQUEST = 0x32
+	KEY_EXCHANGE      = 0x30
+	KEY_EXCHANGE_ACK  = 0x31
+	IDENTITY_REQUEST  = 0x32
 	IDENTITY_RESPONSE = 0x33
-	PEER_REQUEST     = 0x34
-	PEER_RESPONSE    = 0x35
-	HEARTBEAT        = 0x36
-	HEARTBEAT_ACK    = 0x37
-	GOSSIP           = 0x38
-	GOSSIP_ACK       = 0x39
-	ZONE_ASSIGN      = 0x3A
-	ZONE_TRANSFER    = 0x3B
+	PEER_REQUEST      = 0x34
+	PEER_RESPONSE     = 0x35
+	HEARTBEAT         = 0x36
+	HEARTBEAT_ACK     = 0x37
+	GOSSIP            = 0x38
+	GOSSIP_ACK        = 0x39
+	ZONE_ASSIGN       = 0x3A
+	ZONE_TRANSFER     = 0x3B
 
 	// Authority management operations (subscription model)
 	AUTHORITY_ANNOUNCE     = 0x3C
@@ -70,7 +72,7 @@ const (
 	AUTHORITY_VOTE         = 0x3F
 
 	// Error handling
-	ERROR         = 0xFF
+	ERROR = 0xFF
 )
 
 // Message represents a protocol message with header and payload
@@ -156,6 +158,13 @@ type StatusResponseMessage struct {
 	DataSize     int64  // Total data size in bytes
 }
 
+// WhoAmIResponseMessage reports the identity the service has assigned to the
+// current connection, so the client can resolve `my.*` under that identity.
+type WhoAmIResponseMessage struct {
+	AgentID  uint64 // Numeric agent ID the connection is authenticated as
+	Identity string // Human-readable identity label (e.g. CV syllables)
+}
+
 // StopMessage represents a request to stop the service
 type StopMessage struct {
 	Force bool // Whether to force immediate shutdown
@@ -174,8 +183,8 @@ type CompactMessage struct {
 
 // CompactAckMessage represents an acknowledgment of compact request
 type CompactAckMessage struct {
-	Success       bool   // Whether compaction started
-	Error         string // Error message if compact failed
+	Success        bool   // Whether compaction started
+	Error          string // Error message if compact failed
 	SpaceReclaimed int64  // Bytes reclaimed by compaction
 }
 
@@ -233,8 +242,8 @@ type HeartbeatAckMessage struct {
 
 // GossipMessage represents mesh membership gossip
 type GossipMessage struct {
-	FromNode    string      // Sending node identity
-	Timestamp   int64       // Gossip timestamp
+	FromNode    string        // Sending node identity
+	Timestamp   int64         // Gossip timestamp
 	NodeUpdates []*NodeUpdate // Node status updates
 }
 
@@ -254,8 +263,8 @@ type GossipAckMessage struct {
 
 // ZoneAssignMessage represents zone assignment/transfer
 type ZoneAssignMessage struct {
-	ZoneID      string   // Zone identifier
-	AuthorityNode string // New authority node
+	ZoneID        string   // Zone identifier
+	AuthorityNode string   // New authority node
 	ReplicaNodes  []string // Replica nodes
 	ZoneRange     []string // Path range for zone
 }
@@ -283,11 +292,11 @@ type CreateMeshMessage struct {
 
 // CreateMeshAckMessage represents acknowledgment of mesh creation
 type CreateMeshAckMessage struct {
-	Success     bool   // Whether mesh creation succeeded
-	Message     string // Human-readable message
-	MeshName    string // Created mesh name
-	NodeID      string // Node identity ID
-	IsFounder   bool   // Whether this node is the founder
+	Success   bool   // Whether mesh creation succeeded
+	Message   string // Human-readable message
+	MeshName  string // Created mesh name
+	NodeID    string // Node identity ID
+	IsFounder bool   // Whether this node is the founder
 }
 
 // MeshStatusMessage represents a request for mesh status
@@ -297,14 +306,14 @@ type MeshStatusMessage struct {
 
 // MeshStatusResponseMessage represents mesh status information
 type MeshStatusResponseMessage struct {
-	MeshName      string                        // Current mesh name
-	Status        string                        // Mesh status
-	IsFounder     bool                          // Whether this node is founder
-	NodeIdentity  string                        // Node identity ID
-	MemberCount   int                           // Number of mesh members
-	ZoneCount     int                           // Number of zones
-	FoundedAt     *int64                        // When mesh was founded (founder only)
-	Bridges       map[string]BridgeStatusInfo   // Bridge connections
+	MeshName     string                      // Current mesh name
+	Status       string                      // Mesh status
+	IsFounder    bool                        // Whether this node is founder
+	NodeIdentity string                      // Node identity ID
+	MemberCount  int                         // Number of mesh members
+	ZoneCount    int                         // Number of zones
+	FoundedAt    *int64                      // When mesh was founded (founder only)
+	Bridges      map[string]BridgeStatusInfo // Bridge connections
 }
 
 // BridgeStatusInfo represents bridge connection status
@@ -352,11 +361,11 @@ type CreateBridgeMessage struct {
 
 // CreateBridgeAckMessage represents the response to a bridge creation request
 type CreateBridgeAckMessage struct {
-	Success         bool   // Whether bridge creation was successful
-	Message         string // Status/error message
-	TargetMeshName  string // Name of the target mesh
-	BridgeIdentity  string // Identity assigned in the target mesh
-	BridgeStatus    string // Current bridge connection status
+	Success        bool   // Whether bridge creation was successful
+	Message        string // Status/error message
+	TargetMeshName string // Name of the target mesh
+	BridgeIdentity string // Identity assigned in the target mesh
+	BridgeStatus   string // Current bridge connection status
 }
 
 // DetachMessage represents a request to detach from a mesh or bridge
@@ -393,10 +402,10 @@ type BridgeClosureMessage struct {
 
 // AuthorityAnnounceMessage represents an authority change announcement
 type AuthorityAnnounceMessage struct {
-	Path         string // Path for which authority is being announced
-	AuthorityID  string // Identity of the new authority node
-	Reason       string // Reason for change: "promotion", "delegation", "split", "initial"
-	Timestamp    int64  // When the authority change occurred
+	Path            string // Path for which authority is being announced
+	AuthorityID     string // Identity of the new authority node
+	Reason          string // Reason for change: "promotion", "delegation", "split", "initial"
+	Timestamp       int64  // When the authority change occurred
 	FormerAuthority string // Identity of the previous authority (if any)
 }
 
@@ -420,12 +429,12 @@ type AuthorityElectionMessage struct {
 
 // AuthorityVoteMessage represents a vote in an authority election
 type AuthorityVoteMessage struct {
-	ElectionID string // Unique identifier for the election
-	Path       string // Path being elected for
-	VoterID    string // Identity of the voting node
+	ElectionID  string // Unique identifier for the election
+	Path        string // Path being elected for
+	VoterID     string // Identity of the voting node
 	CandidateID string // Identity of the chosen candidate
-	Timestamp  int64  // When the vote was cast
-	Uptime     int64  // Uptime of the chosen candidate (for tiebreaking)
+	Timestamp   int64  // When the vote was cast
+	Uptime      int64  // Uptime of the chosen candidate (for tiebreaking)
 }
 
 // ExecuteMessage represents a request to execute MBL code

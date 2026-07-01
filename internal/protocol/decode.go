@@ -279,6 +279,42 @@ func DecodeStatusResponseMessage(payload []byte) (*StatusResponseMessage, error)
 	return msg, nil
 }
 
+// DecodeWhoAmIResponseMessage deserializes a WhoAmIResponseMessage.
+func DecodeWhoAmIResponseMessage(payload []byte) (*WhoAmIResponseMessage, error) {
+	msg := &WhoAmIResponseMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Agent ID (int64 bits)
+			var id int64
+			if err := binary.Read(reader, binary.BigEndian, &id); err != nil {
+				return nil, fmt.Errorf("failed to decode agent id: %w", err)
+			}
+			msg.AgentID = uint64(id)
+
+		case 0x02: // Identity label
+			identity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode identity: %w", err)
+			}
+			msg.Identity = identity
+
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
 // DecodeStopAckMessage deserializes a StopAckMessage
 func DecodeStopAckMessage(payload []byte) (*StopAckMessage, error) {
 	msg := &StopAckMessage{}

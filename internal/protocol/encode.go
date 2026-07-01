@@ -230,6 +230,26 @@ func EncodeStatusResponseMessage(msg *StatusResponseMessage) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// EncodeWhoAmIResponseMessage serializes a WhoAmIResponseMessage. The agent ID
+// is carried as int64 bits (bit-preserving) so the full uint64 range round-trips.
+func EncodeWhoAmIResponseMessage(msg *WhoAmIResponseMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	idData, err := encodeInt64(0x01, int64(msg.AgentID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode agent id: %w", err)
+	}
+	buf.Write(idData)
+
+	identData, err := encodeString(0x02, msg.Identity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode identity: %w", err)
+	}
+	buf.Write(identData)
+
+	return buf.Bytes(), nil
+}
+
 // EncodeStopAckMessage serializes a StopAckMessage
 func EncodeStopAckMessage(msg *StopAckMessage) ([]byte, error) {
 	var buf bytes.Buffer

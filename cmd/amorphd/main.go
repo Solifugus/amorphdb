@@ -2,11 +2,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/solifugus/amorphdb/internal/config"
@@ -14,6 +16,17 @@ import (
 )
 
 func main() {
+	// init-owner is a one-time genesis subcommand: it establishes the node owner
+	// and exits without starting the service. Run it while the daemon is stopped
+	// (it needs exclusive access to the storage directory).
+	if len(os.Args) > 1 && os.Args[1] == "init-owner" {
+		if err := runInitOwner(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "init-owner failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Command line flags
 	var (
 		configFile   = flag.String("config", "", "Configuration file path (default: ~/.amorph/config.yaml)")
@@ -134,11 +147,86 @@ func main() {
 	fmt.Println("Service stopped successfully.")
 }
 
+// runInitOwner establishes the node owner (the genesis agent that owns this
+// host) and exits. It does not start the service. The passphrase is taken from
+// -passphrase, else the AMORPH_OWNER_PASSPHRASE environment variable, else read
+// interactively from stdin.
+func runInitOwner(args []string) error {
+	fs := flag.NewFlagSet("init-owner", flag.ExitOnError)
+	configFile := fs.String("config", "", "Configuration file path (default: ~/.amorph/config.yaml)")
+	storageDir := fs.String("data", "", "Data storage directory (default: ~/.amorph/data)")
+	socketPath := fs.String("socket", "", "UNIX socket path (default: ~/.amorph/socket)")
+	passphrase := fs.String("passphrase", "", "Owner passphrase (else AMORPH_OWNER_PASSPHRASE, else prompted)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	configPath := *configFile
+	if configPath == "" {
+		configPath = config.GetConfigPath()
+	}
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("load configuration: %w", err)
+	}
+	if *storageDir != "" {
+		cfg.Data.StorageDir = *storageDir
+	}
+	if *socketPath != "" {
+		cfg.Network.LocalSocketPath = *socketPath
+	}
+
+	serviceConfig := service.Config{
+		StorageDir:      cfg.Data.StorageDir,
+		LocalSocketPath: cfg.Network.LocalSocketPath,
+		NetworkPort:     cfg.Network.Port,
+		NodeIdentity:    cfg.Mesh.Identity,
+		MeshName:        cfg.Mesh.Name,
+		ConfigPath:      configPath,
+		// HTTP ports intentionally left disabled: init-owner never Start()s the
+		// service, so no listeners are opened.
+	}
+	if err := os.MkdirAll(serviceConfig.StorageDir, 0755); err != nil {
+		return fmt.Errorf("create storage directory: %w", err)
+	}
+
+	pass := *passphrase
+	if pass == "" {
+		pass = os.Getenv("AMORPH_OWNER_PASSPHRASE")
+	}
+	if pass == "" {
+		fmt.Print("Enter owner passphrase: ")
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		pass = strings.TrimSpace(line)
+	}
+	if pass == "" {
+		return fmt.Errorf("passphrase is required")
+	}
+
+	svc, err := service.New(serviceConfig)
+	if err != nil {
+		return fmt.Errorf("open service (is the daemon already running on this data dir?): %w", err)
+	}
+
+	identity, err := svc.InitOwner(pass)
+	if err != nil {
+		return err
+	}
+
+	id, _ := svc.OwnerAgentID()
+	fmt.Printf("Owner initialized.\n")
+	fmt.Printf("  Identity: %s\n", identity)
+	fmt.Printf("  Home:     world.agent.%d\n", id)
+	fmt.Printf("  Local clients now authenticate as this owner automatically.\n")
+	return nil
+}
+
 func showHelp() {
 	fmt.Println("AmorphDB Service Daemon")
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Printf("  %s [options]\n", os.Args[0])
+	fmt.Printf("  %s init-owner [-data <dir>] [-passphrase <pass>]   # one-time: establish the node owner\n", os.Args[0])
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  -config <file>   Configuration file path (default: ~/.amorph/config.yaml)")

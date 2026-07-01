@@ -17,25 +17,36 @@ import (
 
 // Connection represents a client connection to the service
 type Connection struct {
-	id          string        // Unique connection identifier
-	conn        net.Conn      // Underlying network connection
-	isLocal     bool          // Whether this is a local socket connection
-	service     *Service      // Reference to parent service
+	id          string                   // Unique connection identifier
+	conn        net.Conn                 // Underlying network connection
+	isLocal     bool                     // Whether this is a local socket connection
+	service     *Service                 // Reference to parent service
 	interpreter *interpreter.Interpreter // Per-connection MBL interpreter
-	agentID     uint64        // Current agent identity for this connection
-	reader      *bufio.Reader // Buffered reader for the connection
-	writer      io.Writer     // Writer for responses
-	mu          sync.Mutex    // Protects connection state
-	closed      bool          // Whether connection is closed
+	agentID     uint64                   // Current agent identity for this connection
+	reader      *bufio.Reader            // Buffered reader for the connection
+	writer      io.Writer                // Writer for responses
+	mu          sync.Mutex               // Protects connection state
+	closed      bool                     // Whether connection is closed
 }
 
 // NewConnection creates a new connection handler
 func NewConnection(id string, conn net.Conn, isLocal bool, service *Service) *Connection {
-	// Default agent ID for new connections
+	// Default agent ID for connections that have not authenticated.
 	const defaultAgentID uint64 = 1000
 
-	// Create per-connection interpreter
-	interp := interpreter.New(service.tree, defaultAgentID)
+	// Local socket connections are trusted by filesystem ownership (the spec's
+	// local-socket trust tier), so they adopt the node owner's identity once an
+	// owner has been established via init-owner. Network connections stay on the
+	// default until the challenge-response handshake is wired (later stage).
+	agentID := defaultAgentID
+	if isLocal {
+		if ownerID, ok := service.OwnerAgentID(); ok {
+			agentID = ownerID
+		}
+	}
+
+	// Create per-connection interpreter bound to the resolved identity
+	interp := interpreter.New(service.tree, agentID)
 
 	return &Connection{
 		id:          id,
@@ -43,7 +54,7 @@ func NewConnection(id string, conn net.Conn, isLocal bool, service *Service) *Co
 		isLocal:     isLocal,
 		service:     service,
 		interpreter: interp,
-		agentID:     defaultAgentID,
+		agentID:     agentID,
 		reader:      bufio.NewReader(conn),
 		writer:      conn,
 	}
@@ -90,11 +101,31 @@ func (c *Connection) Close() error {
 // createAgent creates a security.Agent object for the current connection
 func (c *Connection) createAgent() *security.Agent {
 	return &security.Agent{
-		Identity:  fmt.Sprintf("agent-%d", c.agentID),
-		Stamp:     make(map[string]interface{}), // Basic stamp for now
-		Tree:      c.service.tree, // Now service.tree is already ExtendedTree
-		AgentID:   c.agentID,
+		Identity: fmt.Sprintf("agent-%d", c.agentID),
+		Stamp:    make(map[string]interface{}), // Basic stamp for now
+		Tree:     c.service.tree,               // Now service.tree is already ExtendedTree
+		AgentID:  c.agentID,
 	}
+}
+
+// handleWhoAmI reports the identity this connection has been authenticated as,
+// so the client can resolve `my.*` under the correct home. Local connections
+// adopt the node owner (set in NewConnection); everything else is the default
+// agent until network authentication is wired.
+func (c *Connection) handleWhoAmI(msg *protocol.Message) *protocol.Message {
+	identity := fmt.Sprintf("agent-%d", c.agentID)
+	if ownerIdent, ok := c.service.OwnerIdentity(); ok {
+		if ownerID, ok := c.service.OwnerAgentID(); ok && ownerID == c.agentID {
+			identity = ownerIdent
+		}
+	}
+
+	resp := &protocol.WhoAmIResponseMessage{AgentID: c.agentID, Identity: identity}
+	payload, err := protocol.EncodeWhoAmIResponseMessage(resp)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
+	}
+	return protocol.CreateMessage(protocol.WHOAMI_RESPONSE, msg.Sequence, payload)
 }
 
 // processNextMessage reads and processes one protocol message
@@ -171,6 +202,8 @@ func (c *Connection) handleMessage(msg *protocol.Message) *protocol.Message {
 		return c.handleExecute(msg)
 	case protocol.EXTRACT:
 		return c.handleExtract(msg)
+	case protocol.WHOAMI:
+		return c.handleWhoAmI(msg)
 	default:
 		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Unknown message type: 0x%02x", msg.Type))
 	}
