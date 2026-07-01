@@ -437,6 +437,82 @@ func DecodeAuthResultMessage(payload []byte) (*AuthResultMessage, error) {
 	return msg, nil
 }
 
+// DecodeRegisterMessage deserializes a RegisterMessage.
+func DecodeRegisterMessage(payload []byte) (*RegisterMessage, error) {
+	msg := &RegisterMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+		switch tag {
+		case 0x01:
+			identity, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode identity: %w", err)
+			}
+			msg.Identity = identity
+		case 0x02:
+			key, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode public key: %w", err)
+			}
+			msg.PublicKey = []byte(key)
+		case 0x03:
+			token, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode token: %w", err)
+			}
+			msg.Token = token
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+	return msg, nil
+}
+
+// DecodeRegisterResultMessage deserializes a RegisterResultMessage.
+func DecodeRegisterResultMessage(payload []byte) (*RegisterResultMessage, error) {
+	msg := &RegisterResultMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+		switch tag {
+		case 0x01:
+			b, err := reader.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode success: %w", err)
+			}
+			msg.Success = b != 0
+		case 0x02:
+			var id int64
+			if err := binary.Read(reader, binary.BigEndian, &id); err != nil {
+				return nil, fmt.Errorf("failed to decode agent id: %w", err)
+			}
+			msg.AgentID = uint64(id)
+		case 0x03:
+			errStr, err := readString(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode error: %w", err)
+			}
+			msg.Error = errStr
+		default:
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+	return msg, nil
+}
+
 // DecodeStopAckMessage deserializes a StopAckMessage
 func DecodeStopAckMessage(payload []byte) (*StopAckMessage, error) {
 	msg := &StopAckMessage{}

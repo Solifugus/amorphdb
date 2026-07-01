@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/solifugus/amorphdb/internal/security"
@@ -141,6 +142,39 @@ func (s *Service) VerifyAndConsumeInvite(token string) (uint64, error) {
 	}
 
 	return issuerAgentID, nil
+}
+
+// RegisterAgent enrolls a new mesh agent by recording the PUBLIC key it
+// generated on its own device, authorized by a valid enrollment token. The
+// private key never reaches the daemon. It fails if the identity is already
+// registered (checked before the token is consumed, so a name clash does not
+// burn the invite) or if the token is invalid/used/expired. On success it stores
+// world.agent.{id}.keys.public and returns the new agent's numeric ID.
+func (s *Service) RegisterAgent(identity string, publicKey *big.Int, token string) (uint64, error) {
+	if identity == "" {
+		return 0, fmt.Errorf("identity is required")
+	}
+	if publicKey == nil {
+		return 0, fmt.Errorf("public key is required")
+	}
+
+	if _, exists := s.LookupAgentPublicKey(identity); exists {
+		return 0, fmt.Errorf("identity %q is already registered", identity)
+	}
+
+	if _, err := s.VerifyAndConsumeInvite(token); err != nil {
+		return 0, fmt.Errorf("invalid invite: %w", err)
+	}
+
+	id := ownerAgentID(identity)
+	pub := types.Text{Value: hex.EncodeToString(publicKey.Bytes())}
+	val := storage.Value{TypeTag: pub.TypeTag(), Data: pub.Serialize()}
+	path := []string{"world", "agent", fmt.Sprintf("%d", id), "keys", "public"}
+	if err := s.tree.Write(path, val, systemAuthor); err != nil {
+		return 0, fmt.Errorf("store public key: %w", err)
+	}
+
+	return id, nil
 }
 
 // readInviteLeaf reads and deserializes a single invite leaf, returning

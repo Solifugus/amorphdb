@@ -302,6 +302,59 @@ func EncodeAuthResultMessage(msg *AuthResultMessage) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// EncodeRegisterMessage serializes a RegisterMessage.
+func EncodeRegisterMessage(msg *RegisterMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	identData, err := encodeString(0x01, msg.Identity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode identity: %w", err)
+	}
+	buf.Write(identData)
+
+	keyData, err := encodeString(0x02, string(msg.PublicKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode public key: %w", err)
+	}
+	buf.Write(keyData)
+
+	tokenData, err := encodeString(0x03, msg.Token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode token: %w", err)
+	}
+	buf.Write(tokenData)
+
+	return buf.Bytes(), nil
+}
+
+// EncodeRegisterResultMessage serializes a RegisterResultMessage. The agent ID
+// is carried as int64 bits so the full uint64 range round-trips.
+func EncodeRegisterResultMessage(msg *RegisterResultMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	successData, err := encodeBool(0x01, msg.Success)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode success: %w", err)
+	}
+	buf.Write(successData)
+
+	idData, err := encodeInt64(0x02, int64(msg.AgentID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode agent id: %w", err)
+	}
+	buf.Write(idData)
+
+	if msg.Error != "" {
+		errData, err := encodeString(0x03, msg.Error)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode error: %w", err)
+		}
+		buf.Write(errData)
+	}
+
+	return buf.Bytes(), nil
+}
+
 // EncodeStopAckMessage serializes a StopAckMessage
 func EncodeStopAckMessage(msg *StopAckMessage) ([]byte, error) {
 	var buf bytes.Buffer

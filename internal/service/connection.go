@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"strings"
 	"sync"
@@ -213,6 +214,35 @@ func (c *Connection) handleAuthResponse(msg *protocol.Message) *protocol.Message
 	return protocol.CreateMessage(protocol.AUTH_RESULT, msg.Sequence, payload)
 }
 
+// handleRegister enrolls a new agent from an invite. It is deliberately NOT
+// gated by isLocal or the connection's current identity: a prospective agent
+// connects anonymously and presents a one-time token that an @grant-holder
+// issued. The daemon records only the public key the agent generated locally
+// (RegisterAgent); the private key never leaves the agent's device. After
+// registering, the agent authenticates normally via the AUTH_* handshake.
+func (c *Connection) handleRegister(msg *protocol.Message) *protocol.Message {
+	regMsg, err := protocol.DecodeRegisterMessage(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid REGISTER message: %v", err))
+	}
+
+	publicKey := new(big.Int).SetBytes(regMsg.PublicKey)
+	agentID, err := c.service.RegisterAgent(regMsg.Identity, publicKey, regMsg.Token)
+
+	var result *protocol.RegisterResultMessage
+	if err != nil {
+		result = &protocol.RegisterResultMessage{Success: false, Error: err.Error()}
+	} else {
+		result = &protocol.RegisterResultMessage{Success: true, AgentID: agentID}
+	}
+
+	payload, encErr := protocol.EncodeRegisterResultMessage(result)
+	if encErr != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", encErr))
+	}
+	return protocol.CreateMessage(protocol.REGISTER_RESULT, msg.Sequence, payload)
+}
+
 // processNextMessage reads and processes one protocol message
 func (c *Connection) processNextMessage() error {
 	// Read message header (14 bytes: version + type + sequence + length)
@@ -293,6 +323,8 @@ func (c *Connection) handleMessage(msg *protocol.Message) *protocol.Message {
 		return c.handleAuthInit(msg)
 	case protocol.AUTH_RESPONSE:
 		return c.handleAuthResponse(msg)
+	case protocol.REGISTER:
+		return c.handleRegister(msg)
 	default:
 		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Unknown message type: 0x%02x", msg.Type))
 	}

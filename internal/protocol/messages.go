@@ -48,6 +48,12 @@ const (
 	AUTH_RESPONSE  = 0x48
 	AUTH_RESULT    = 0x49
 
+	// Agent enrollment: a prospective agent redeems a one-time invite token to
+	// register the public key it generated locally (REGISTER); the daemon reports
+	// the outcome and the new agent's ID (REGISTER_RESULT).
+	REGISTER        = 0x4A
+	REGISTER_RESULT = 0x4B
+
 	// Mesh management operations
 	CREATE_MESH            = 0x26
 	CREATE_MESH_ACK        = 0x27
@@ -205,6 +211,23 @@ type AuthResultMessage struct {
 	AgentID  uint64 // Agent ID the connection is now bound to (on success)
 	Identity string // Identity label the connection is now bound to (on success)
 	Error    string // Human-readable failure reason (on failure)
+}
+
+// RegisterMessage carries a new agent's enrollment: the desired identity, the
+// public key it generated on its own device (raw big-endian bytes of the DH
+// public key), and the one-time invite token authorizing the registration.
+type RegisterMessage struct {
+	Identity  string // Desired agent identity (CV-syllable string)
+	PublicKey []byte // Agent's public key (big.Int bytes)
+	Token     string // One-time enrollment invite token
+}
+
+// RegisterResultMessage reports the outcome of an enrollment. On success it
+// carries the new agent's numeric ID.
+type RegisterResultMessage struct {
+	Success bool   // Whether registration succeeded
+	AgentID uint64 // New agent's numeric ID (on success)
+	Error   string // Human-readable failure reason (on failure)
 }
 
 // StopMessage represents a request to stop the service
