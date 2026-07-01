@@ -148,6 +148,19 @@ func (s *Service) InitOwner(passphrase string) (string, error) {
 		}
 	}
 
+	// Grant the owner @grant on world.agent so it can issue enrollment invites
+	// and delegate that authority to other admins. The condition matches the
+	// owner's connection identity ("agent-{id}", the form createAgent builds),
+	// which is how the permission evaluator recognizes the requesting agent.
+	if err := s.permEvaluator.SetPermission(
+		[]string{"world", "agent"},
+		security.GrantPermission,
+		types.Text{Value: fmt.Sprintf("agent-%d", id)},
+		systemAuthor,
+	); err != nil {
+		return "", fmt.Errorf("grant owner invite authority: %w", err)
+	}
+
 	return identity, nil
 }
 
