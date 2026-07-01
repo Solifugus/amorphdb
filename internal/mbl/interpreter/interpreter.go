@@ -1052,10 +1052,6 @@ func (i *Interpreter) resolvePath(parts []string) []string {
 	case "world":
 		// world.* -> world.*
 		return parts
-	case "~":
-		// ~.* -> world.agent.{identity}.home.*
-		homePath := []string{"world", "agent", fmt.Sprintf("%d", i.scope.agent), "home"}
-		return append(homePath, parts[1:]...)
 	default:
 		// Relative paths resolve to current agent context
 		agentPath := []string{"world", "agent", fmt.Sprintf("%d", i.scope.agent)}
@@ -1409,7 +1405,7 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 
 // isSpecialPath checks if a path starts with special identifiers
 func (i *Interpreter) isSpecialPath(name string) bool {
-	return name == "my" || name == "world" || name == "~"
+	return name == "my" || name == "world"
 }
 
 // ensureIntermediatePath ensures all intermediate nodes exist by creating empty records if needed

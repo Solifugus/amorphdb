@@ -208,11 +208,6 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 		}
 
-	case '~':
-		tok.Type = TILDE
-		tok.Literal = string(l.ch)
-		l.readChar()
-
 	case ';':
 		tok.Type = SEMICOLON
 		tok.Literal = string(l.ch)

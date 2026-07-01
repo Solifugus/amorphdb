@@ -423,12 +423,14 @@ func TestSection3_1_16_Operators_Assignment(t *testing.T) {
 }
 
 func TestSection3_1_17_PathPrefixes(t *testing.T) {
-	// Test case 3.1.17: Path prefixes - ~, ., +, bare
+	// Test case 3.1.17: Path prefixes - ., +, bare. The `~` home sigil was
+	// removed from the language (agent home is reached via `my`), so `~` is no
+	// longer a valid token and now lexes as ILLEGAL.
 	tests := []struct {
 		input        string
 		expectedType TokenType
 	}{
-		{"~", TILDE},
+		{"~", ILLEGAL},
 		{".", DOT},
 		{"+", PLUS},
 	}

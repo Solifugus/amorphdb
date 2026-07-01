@@ -4,7 +4,7 @@
 # === SETUP AGENT STAMPS ===
 
 # Set personal stamp for current agent
-~.stamp = {
+my.stamp = {
     role: "engineer",
     timezone: "America/New_York",
     employee_id: "ENG001"
@@ -48,7 +48,7 @@ my.world.company.department.secrets.@purge = (agent.identity ?= "kalevo" and age
 # === SETUP PERSONAL FILTER ===
 
 # Agent's personal filter - what they choose to see
-~.filter = {
+my.filter = {
     clearance: ["public", "internal"],        # Only see public and internal clearance
     department: "IT"                          # Only see IT department data
 }
@@ -136,13 +136,13 @@ my.world.company.department.secrets.classified = "Uses overridden secret permiss
 #    - Cascade down tree until overridden
 #    - Evaluated with agent properties (role, clearance, identity)
 #    - Different permissions for read/write/expand/grant/purge
-#    - Defaults: ~ owner-only, world read-open/write-closed
+#    - Defaults: agent home (my) owner-only, world read-open/write-closed
 
 # 3. FILTERS:
 #    - Personal curation of what agent sees
 #    - Operate on stamp attributes
 #    - Cannot bypass permissions
-#    - Stored at ~.filter
+#    - Stored at my.filter
 
 # Output all test data to verify security framework
 my.world.company.department.task42.results

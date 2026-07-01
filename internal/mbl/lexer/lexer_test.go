@@ -557,7 +557,7 @@ func TestOperators(t *testing.T) {
 }
 
 func TestDelimiters(t *testing.T) {
-	input := "( ) [ ] { } , . ~"
+	input := "( ) [ ] { } , ."
 
 	tests := []struct {
 		expectedType    TokenType
@@ -571,7 +571,6 @@ func TestDelimiters(t *testing.T) {
 		{RBRACE, "}"},
 		{COMMA, ","},
 		{DOT, "."},
-		{TILDE, "~"},
 		{EOF, ""},
 	}
 

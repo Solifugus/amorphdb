@@ -54,23 +54,23 @@ const (
 	EMBED
 
 	// Operators
-	SPREAD     // ...
-	PLUS       // +
-	MINUS      // -
-	MULTIPLY   // *
-	DIVIDE     // /
-	MODULO     // %
-	POWER      // ^
-	CONCAT     // &
-	EQUAL      // ?=
-	NOT_EQUAL  // !=
-	GT         // >
-	LT         // <
-	GTE        // >=
-	LTE        // <=
-	ASSIGN     // =
-	RANGE      // ..
-	DEFINE     // :
+	SPREAD    // ...
+	PLUS      // +
+	MINUS     // -
+	MULTIPLY  // *
+	DIVIDE    // /
+	MODULO    // %
+	POWER     // ^
+	CONCAT    // &
+	EQUAL     // ?=
+	NOT_EQUAL // !=
+	GT        // >
+	LT        // <
+	GTE       // >=
+	LTE       // <=
+	ASSIGN    // =
+	RANGE     // ..
+	DEFINE    // :
 
 	// Delimiters
 	LPAREN    // (
@@ -81,7 +81,6 @@ const (
 	RBRACE    // }
 	COMMA     // ,
 	DOT       // .
-	TILDE     // ~
 	SEMICOLON // ;
 
 	// Indentation
@@ -244,8 +243,6 @@ func (t TokenType) String() string {
 		return "COMMA"
 	case DOT:
 		return "DOT"
-	case TILDE:
-		return "TILDE"
 	case SEMICOLON:
 		return "SEMICOLON"
 	case INDENT:
@@ -283,39 +280,39 @@ func (t Token) String() string {
 
 // Keywords map for identifying reserved words
 var keywords = map[string]TokenType{
-	"if":       IF,
-	"else":     ELSE,
-	"while":    WHILE,
-	"for":      FOR,
-	"in":       IN,
-	"consider": CONSIDER,
-	"watch":    WATCH,
-	"append":   APPEND,
-	"as":       AS,
-	"return":   RETURN,
-	"break":    BREAK,
-	"pass":     PASS,
+	"if":        IF,
+	"else":      ELSE,
+	"while":     WHILE,
+	"for":       FOR,
+	"in":        IN,
+	"consider":  CONSIDER,
+	"watch":     WATCH,
+	"append":    APPEND,
+	"as":        AS,
+	"return":    RETURN,
+	"break":     BREAK,
+	"pass":      PASS,
 	"new":       NEW,
 	"catch":     CATCH,
 	"procedure": PROCEDURE,
 	"and":       AND,
-	"or":       OR,
-	"not":      NOT,
-	"true":     TRUE,
-	"false":    FALSE,
-	"my":       MY,
-	"world":    WORLD,
-	"quote":    QUOTE,
-	"tab":      TAB,
-	"newline":  NEWLINE_LITERAL,
-	"empty":    EMPTY,
-	"pi":       PI,
-	"euler":    EULER,
-	"nothing":  NOTHING,   // Fixed: lowercase
-	"unknown":  UNKNOWN,   // Fixed: lowercase
-	"anything": ANYTHING,  // Fixed: lowercase
-	"embed":    EMBED,
-	"quietly":  QUIETLY,   // Added: quietly should be a keyword
+	"or":        OR,
+	"not":       NOT,
+	"true":      TRUE,
+	"false":     FALSE,
+	"my":        MY,
+	"world":     WORLD,
+	"quote":     QUOTE,
+	"tab":       TAB,
+	"newline":   NEWLINE_LITERAL,
+	"empty":     EMPTY,
+	"pi":        PI,
+	"euler":     EULER,
+	"nothing":   NOTHING,  // Fixed: lowercase
+	"unknown":   UNKNOWN,  // Fixed: lowercase
+	"anything":  ANYTHING, // Fixed: lowercase
+	"embed":     EMBED,
+	"quietly":   QUIETLY, // Added: quietly should be a keyword
 }
 
 // LookupIdent checks if an identifier is a keyword and returns the appropriate token type

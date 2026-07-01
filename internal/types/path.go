@@ -171,9 +171,9 @@ func (pv *PathValidator) isReservedMeshName(meshName string) bool {
 // isReservedComponent checks if a path component is reserved
 func (pv *PathValidator) isReservedComponent(component string) bool {
 	reserved := []string{
-		"", // Empty components not allowed
+		"",        // Empty components not allowed
 		".", "..", // Relative path components
-		"~", "my", "world", // Scope prefixes
+		"my", "world", // Scope prefixes
 	}
 
 	for _, reservedComponent := range reserved {
