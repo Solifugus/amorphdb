@@ -137,7 +137,24 @@ type Interpreter struct {
 	// registration but still populates i.watchers so tests can verify
 	// the binding without wiring a real watcher engine.
 	watcherRegistrar WatcherRegistrar
+	// callDepth tracks the current MBL procedure-call nesting depth so
+	// runaway recursion is caught and reported as an Unknown rather than
+	// being allowed to exhaust the Go goroutine stack (an uncatchable
+	// fatal error that would take the whole daemon down). See
+	// MaxCallDepth and Procedure.Call.
+	callDepth int
 }
+
+// MaxCallDepth bounds MBL procedure-call nesting. Unbounded recursion in MBL
+// maps directly onto Go-stack recursion through Procedure.Call; without a
+// ceiling a script like `procedure loop(n): return loop(n)` grows the
+// goroutine stack until the runtime aborts with an uncatchable
+// `fatal error: stack overflow`, crashing the entire process. When the depth
+// reaches this limit, Call returns a types.Unknown instead, which propagates
+// through the expression as a normal recoverable error. The value is chosen to
+// be far below the depth at which the Go stack actually overflows while still
+// admitting any realistic legitimate recursion.
+const MaxCallDepth = 1000
 
 // New creates a new interpreter instance
 func New(tree storage.Tree, agent uint64) *Interpreter {
@@ -1884,6 +1901,20 @@ func (p *Procedure) Call(interpreter *Interpreter, args []interface{}) interface
 				p.Name, len(p.Parameters), len(args)),
 		}
 	}
+
+	// Guard against runaway recursion. MBL recursion is implemented via Go
+	// recursion through Call, so an unbounded chain would exhaust the
+	// goroutine stack and abort the process with an uncatchable fatal error.
+	// Instead, cap the nesting depth and surface an Unknown that the caller
+	// can handle like any other recoverable error.
+	if interpreter.callDepth >= MaxCallDepth {
+		return types.Unknown{
+			Reason: fmt.Sprintf("call depth exceeded %d (possible infinite recursion in '%s')",
+				MaxCallDepth, p.Name),
+		}
+	}
+	interpreter.callDepth++
+	defer func() { interpreter.callDepth-- }()
 
 	// Create new scope for procedure execution
 	procScope := p.Closure.NewChildScope()
