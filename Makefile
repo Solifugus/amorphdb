@@ -19,15 +19,24 @@ BINARY_NAME_CONTROL=amorphctl
 BUILD_DIR=./bin
 CMD_DIR=./cmd
 
+# Version metadata stamped into the binaries via -ldflags -X. VERSION can be
+# overridden on the command line (e.g. `make build VERSION=1.2.3`); it defaults
+# to the latest git tag, or "dev" when there are no tags.
+VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+BUILD_DATE?=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+VERSION_PKG=github.com/solifugus/amorphdb/internal/version
+LDFLAGS=-X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).Date=$(BUILD_DATE)
+
 all: build
 
 ## Build all binaries
 build:
-	@echo "Building AmorphDB binaries..."
+	@echo "Building AmorphDB binaries ($(VERSION))..."
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME_DAEMON) $(CMD_DIR)/$(BINARY_NAME_DAEMON)
-	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME_CLIENT) $(CMD_DIR)/$(BINARY_NAME_CLIENT)
-	$(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME_CONTROL) $(CMD_DIR)/$(BINARY_NAME_CONTROL)
+	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME_DAEMON) $(CMD_DIR)/$(BINARY_NAME_DAEMON)
+	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME_CLIENT) $(CMD_DIR)/$(BINARY_NAME_CLIENT)
+	$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME_CONTROL) $(CMD_DIR)/$(BINARY_NAME_CONTROL)
 	@echo "✅ Build complete: binaries in $(BUILD_DIR)/"
 
 ## Run unit tests

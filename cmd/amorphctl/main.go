@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/solifugus/amorphdb/internal/version"
 )
 
 func main() {
@@ -19,6 +21,12 @@ func main() {
 	// Show help without requiring service connection
 	if command == "help" || command == "--help" || command == "-h" {
 		showHelp()
+		return
+	}
+
+	// Report build metadata without requiring a service connection.
+	if command == "version" || command == "--version" || command == "-version" {
+		fmt.Printf("amorphctl %s\n", version.String())
 		return
 	}
 
@@ -279,6 +287,7 @@ func showHelp() {
 	fmt.Println("  extract <path> [-o file]  Extract subtree as MBL script")
 	fmt.Println("  invite            Mint a one-time agent enrollment token")
 	fmt.Println("  init-pwa <appname> <directory>  Scaffold a new PWA project")
+	fmt.Println("  version           Print build version and exit")
 	fmt.Println("  help              Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")

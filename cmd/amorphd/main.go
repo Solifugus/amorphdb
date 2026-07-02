@@ -13,9 +13,27 @@ import (
 
 	"github.com/solifugus/amorphdb/internal/config"
 	"github.com/solifugus/amorphdb/internal/service"
+	"github.com/solifugus/amorphdb/internal/version"
 )
 
+// isVersionArg reports whether the given argument is a request for version
+// information (`version`, `--version`, or `-version`).
+func isVersionArg(arg string) bool {
+	switch arg {
+	case "version", "--version", "-version":
+		return true
+	}
+	return false
+}
+
 func main() {
+	// version is a pre-flight subcommand: report build metadata and exit
+	// without connecting to or starting anything.
+	if len(os.Args) > 1 && isVersionArg(os.Args[1]) {
+		fmt.Printf("amorphd %s\n", version.String())
+		return
+	}
+
 	// init-owner is a one-time genesis subcommand: it establishes the node owner
 	// and exits without starting the service. Run it while the daemon is stopped
 	// (it needs exclusive access to the storage directory).
@@ -227,6 +245,7 @@ func showHelp() {
 	fmt.Println("Usage:")
 	fmt.Printf("  %s [options]\n", os.Args[0])
 	fmt.Printf("  %s init-owner [-data <dir>] [-passphrase <pass>]   # one-time: establish the node owner\n", os.Args[0])
+	fmt.Printf("  %s version                                          # print build version and exit\n", os.Args[0])
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  -config <file>   Configuration file path (default: ~/.amorph/config.yaml)")

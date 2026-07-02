@@ -6,9 +6,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/solifugus/amorphdb/internal/version"
 )
 
+// isVersionArg reports whether the given argument is a request for version
+// information (`version`, `--version`, or `-version`).
+func isVersionArg(arg string) bool {
+	switch arg {
+	case "version", "--version", "-version":
+		return true
+	}
+	return false
+}
+
 func main() {
+	// version is a pre-flight subcommand: report build metadata and exit.
+	if len(os.Args) >= 2 && isVersionArg(os.Args[1]) {
+		fmt.Printf("amorph %s\n", version.String())
+		return
+	}
+
 	// Enrollment/login are subcommands (they take their own flags) rather than
 	// top-level flags, so dispatch them before the default flag parsing.
 	if len(os.Args) >= 2 && (os.Args[1] == "enroll" || os.Args[1] == "login") {
@@ -136,6 +154,7 @@ func showHelp() {
 	fmt.Println("                    Enroll as a new agent using an invite token")
 	fmt.Printf("  %s login -node <host:port> -identity <name>\n", os.Args[0])
 	fmt.Println("                    Authenticate as an enrolled agent, then open the REPL")
+	fmt.Printf("  %s version         Print build version and exit\n", os.Args[0])
 	fmt.Println()
 	fmt.Println("Interactive Commands:")
 	fmt.Println("  exit, quit, :q    Exit the REPL")

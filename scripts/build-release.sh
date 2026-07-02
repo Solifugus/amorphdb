@@ -9,6 +9,12 @@ VERSION="${VERSION:-$(date +%Y.%m.%d)}"
 BUILD_DIR="./dist"
 RELEASE_DIR="$BUILD_DIR/release-$VERSION"
 
+# Version metadata stamped into every binary via -ldflags -X.
+COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo none)}"
+BUILD_DATE="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+VERSION_PKG="github.com/solifugus/amorphdb/internal/version"
+VERSION_LDFLAGS="-s -w -X ${VERSION_PKG}.Version=${VERSION} -X ${VERSION_PKG}.Commit=${COMMIT} -X ${VERSION_PKG}.Date=${BUILD_DATE}"
+
 # Platforms to build for
 PLATFORMS=(
     "linux/amd64"
@@ -58,9 +64,9 @@ for platform in "${PLATFORMS[@]}"; do
         ext=""
     fi
 
-    GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "$platform_dir/bin/amorphd$ext" ./cmd/amorphd
-    GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "$platform_dir/bin/amorph$ext" ./cmd/amorph
-    GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "$platform_dir/bin/amorphctl$ext" ./cmd/amorphctl
+    GOOS=$os GOARCH=$arch go build -ldflags="$VERSION_LDFLAGS" -o "$platform_dir/bin/amorphd$ext" ./cmd/amorphd
+    GOOS=$os GOARCH=$arch go build -ldflags="$VERSION_LDFLAGS" -o "$platform_dir/bin/amorph$ext" ./cmd/amorph
+    GOOS=$os GOARCH=$arch go build -ldflags="$VERSION_LDFLAGS" -o "$platform_dir/bin/amorphctl$ext" ./cmd/amorphctl
 
     # Copy documentation and examples
     cp -r docs/* "$platform_dir/docs/"
