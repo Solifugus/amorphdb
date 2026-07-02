@@ -1,0 +1,45 @@
+# Publishes a GitHub Release whenever a version tag (v*) is pushed.
+#
+# Cross-compiles the Linux binaries via GoReleaser, generates a checksum file,
+# and signs it with keyless cosign (Sigstore). No secrets to configure beyond
+# the automatically provided GITHUB_TOKEN — keyless signing uses the workflow's
+# OIDC identity (that is what `id-token: write` grants).
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the release and upload assets
+  id-token: write # keyless cosign OIDC token
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the changelog and git describe work
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

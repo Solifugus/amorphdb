@@ -1,0 +1,122 @@
+# GoReleaser configuration for AmorphDB.
+# Docs: https://goreleaser.com
+#
+# Builds Linux binaries (amd64 + arm64) for all three commands, bundles them
+# into one archive per architecture, publishes a checksum file, signs that
+# checksum with keyless cosign (Sigstore), and creates a GitHub Release.
+#
+# Triggered from CI by .github/workflows/release.yml on a `v*` tag push.
+# Try it locally without publishing:  goreleaser release --snapshot --clean
+version: 2
+
+project_name: amorphdb
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: amorphd
+    main: ./cmd/amorphd
+    binary: amorphd
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags: &ldflags
+      - -s -w
+      - -X github.com/solifugus/amorphdb/internal/version.Version={{ .Version }}
+      - -X github.com/solifugus/amorphdb/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/solifugus/amorphdb/internal/version.Date={{ .Date }}
+
+  - id: amorph
+    main: ./cmd/amorph
+    binary: amorph
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags: *ldflags
+
+  - id: amorphctl
+    main: ./cmd/amorphctl
+    binary: amorphctl
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags: *ldflags
+
+archives:
+  - id: default
+    ids:
+      - amorphd
+      - amorph
+      - amorphctl
+    name_template: "amorphdb-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    formats:
+      - tar.gz
+    files:
+      - README.md
+      # Add a LICENSE file to the repo root and it will be bundled automatically
+      # (GoReleaser includes README/LICENSE/CHANGELOG globs by default too).
+      #
+      # Only user-facing docs are shipped — deliberately NOT `docs/**/*`, which
+      # would sweep in docs/business/ (business plans, pricing) and internal
+      # planning docs. Add new public docs here explicitly.
+      - src: docs/getting_started.md
+        dst: docs/getting_started.md
+      - src: docs/mbl_reference.md
+        dst: docs/mbl_reference.md
+      - src: docs/amorphdb_design.md
+        dst: docs/amorphdb_design.md
+      - src: docs/AmorphDB_PWA_Boilerplate_Spec.md
+        dst: docs/AmorphDB_PWA_Boilerplate_Spec.md
+      - src: docs/mesh_management_guide.md
+        dst: docs/mesh_management_guide.md
+      - src: docs/bridge_architecture.md
+        dst: docs/bridge_architecture.md
+      - src: docs/AmorphDB_Remaining_Work.md
+        dst: docs/AmorphDB_Remaining_Work.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# Keyless (Sigstore/Fulcio) signature of the checksum file. Because
+# checksums.txt lists the SHA-256 of every artifact, signing it transitively
+# covers the whole release. In GitHub Actions with `id-token: write`, cosign
+# picks up the OIDC identity automatically — no long-lived private key.
+# Verify:
+#   cosign verify-blob \
+#     --certificate checksums.txt.pem \
+#     --signature checksums.txt.sig \
+#     --certificate-identity-regexp 'https://github.com/solifugus/amorphdb/.*' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     checksums.txt
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "AmorphDB {{ .Tag }}"
