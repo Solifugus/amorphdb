@@ -191,4 +191,9 @@ amorphdb/
 
 ## License
 
-MIT
+AmorphDB is proprietary software — see [LICENSE](LICENSE). It is licensed, not
+sold, and no open source license is granted.
+
+The license permits internal evaluation, testing, and development. Production
+and commercial deployment, on-premise or hosted, requires a separate written
+commercial license. Contact matthewct@gmail.com.

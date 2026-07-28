@@ -57,9 +57,11 @@ archives:
     formats:
       - tar.gz
     files:
+      # Setting `files` REPLACES GoReleaser's default README/LICENSE/CHANGELOG
+      # globs rather than adding to them, so every shipped file must be listed
+      # explicitly here — including the license.
       - README.md
-      # Add a LICENSE file to the repo root and it will be bundled automatically
-      # (GoReleaser includes README/LICENSE/CHANGELOG globs by default too).
+      - LICENSE
       #
       # Only user-facing docs are shipped — deliberately NOT `docs/**/*`, which
       # would sweep in docs/business/ (business plans, pricing) and internal

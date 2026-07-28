@@ -1,288 +1,220 @@
 # AmorphDB — Remaining Work
 
-This document tracks all known remaining work on AmorphDB, organized by
-priority. Updated after completing the test plan (Sections 1–12), P0
-correctness audit, P1 missing implementations, and P2 feature completeness
-(record literals, projections, procedure persistent sub-attributes).
+Known remaining work on AmorphDB, organized by priority.
+
+**Last verified: 2026-07-28** against a full `go test ./...` run and direct
+inspection of the code. Items marked *verified* were checked in that pass;
+items marked *inherited* come from earlier status notes and have not been
+re-confirmed.
+
+> This document ships in release archives. It is a status report, not a
+> specification — `docs/amorphdb_design.md` is the source of truth for
+> intended behavior.
 
 ---
 
-## What's Done and Verified
+## Current State
 
-These areas have been tested, audited, and confirmed working correctly:
+**Build and tests: green.** `go build ./...` is clean and `go test ./...`
+passes across all 25 test packages with 0 failures. *(verified)*
 
-- **Storage engine:** Values, instances, attributes, deduplication with
-  reference counting, children enumeration, concurrent writes, crash recovery
-- **Type system:** All 8 core types, 3 meta types (Unknown, Queued, Redacted),
-  full type coercion, Unknown/Queued propagation
-- **MBL lexer:** All token types, Unicode identifiers, multi-quote strings,
-  money literals, time literals, `@` disambiguation, indentation/dedent
-  tracking, block comment syntax (`##`, `###`)
-- **MBL parser:** Full expression parsing, operator precedence, context-
-  sensitive `=`, bracket filters with temporal queries, projections, record
-  literals, collection operations (`..count`, `..remove`, `..combine`), all
-  control flow (if/else/for/while/break/return/pass), procedures, watchers
-  (value-change, append, multi-path, predicate), catch/else, embed, scope
+The system runs end to end: a daemon starts, serves a REPL over a local
+socket, persists to disk, forms a mesh, authenticates network clients, and
+serves a PWA over HTTP.
+
+### What works today
+
+- **Storage engine** — values, instances, attributes, deduplication with
+  reference counting, children enumeration, concurrent writes, crash
+  recovery, leaf-path enumeration
+- **Type system** — all core types plus the meta types (Unknown, Queued,
+  Redacted), coercion, Unknown/Queued propagation
+- **MBL lexer** — all token types, Unicode identifiers, multi-quote strings,
+  money and time literals, `@` disambiguation, indentation tracking, block
+  comments
+- **MBL parser** — full expression parsing, operator precedence,
+  context-sensitive `=`, definite equality `?=`, bracket filters with
+  temporal queries, projections, record literals, collection operations,
+  all control flow, procedures, watchers, catch/else, embed, scope
   statements, error recovery with line/column info
-- **MBL interpreter:** Expression evaluation, variable scope (local vs
-  persistent), control flow, collection operations, 15+ built-in functions,
-  bracket queries with AND/OR/temporal, record literal expansion to storage,
-  projections, procedure persistent sub-attributes, catch/else exception
-  handling
-- **Watchers:** Value-change triggers, multi-path with OR semantics and
-  deduplication, append watchers with predicate filters, enable/disable,
-  watcher attributes (`@enabled`, `@watching`, `@last_run`, etc.)
-- **Heartbeat atomicity:** Real staging buffer (CommitBuffer), 10,000 write
-  limit, flush on success, discard on unhandled Unknown, watcher cascade
-  deferred to next tick, outer run staging
-- **shouldRollback():** Correctly triggers only when Unknown escapes watcher
-  body unhandled — caught Unknown allows commits
-- **Stamps:** Auto-injection of `@agent` and `@time`, custom stamps, stamp
-  inheritance, stamp queries
-- **Embed:** Basic embed, spread syntax, host-wins collision, later-embed-wins
-  collision, multiple embeds, identity preservation
-- **Filters:** Hide matching data, client-side isolation, remove/reveal,
-  multiple active filters, redacted display
-- **Permissions:** All 5 permission types (`@read`, `@write`, `@expand`,
-  `@grant`, `@purge`), defaults for `~` and `world`, cascade inheritance,
-  agent lists, "Anything"/"Nothing" special values
-- **Protocol:** EXECUTE message type for remote MBL execution, full
-  encode/decode with checksums
-- **Service:** Per-connection MBL interpreter instances, EXECUTE handling
-- **Mesh:** Mesh creation, name validation, identity assignment (CV syllables),
-  heartbeat (333ms), gossip propagation, failure detection, authority
-  management
-- **Security:** Diffie-Hellman key exchange, identity generation,
-  challenge-response protocol, bridge authentication
-- **Purge:** Soft purge with TTL, hard purge, cascade purge, temporal queries
-  during soft purge, basic compaction
+- **MBL interpreter** — expression evaluation, variable scope, control flow
+  (including correct early `return`), collection operations, 15+ built-ins,
+  bracket queries with AND/OR/temporal, record literal expansion,
+  projections over both in-memory records and stored paths, scope
+  statements, catch/else, call-depth guard against runaway recursion
+- **Bracket key-selectors** — in assignment targets and in terminal read
+  position, with static and dynamic keys
+- **Watchers** — value-change and append forms, multi-path with OR semantics
+  and deduplication, predicate filters, enable/disable, watcher attributes
+- **Heartbeat atomicity** — real staging buffer, write limit, flush on
+  success, discard on unhandled Unknown, watcher cascade deferred to the
+  next tick
+- **Stamps, filters, permissions** — auto-injected `@agent`/`@time`, custom
+  and hierarchical stamps, hide-on-match filters, all five permission types
+  with cascade inheritance, grants round-tripping through the daemon
+- **Mesh** — formation, joining, CV-syllable identity, heartbeat, gossip,
+  failure detection, path directory, subscription registry, write authority
+  with promotion and delegation
+- **Distribution** — subscription-based replication is the only model; the
+  zone/hash-ring model has been retired to `internal/zone_deprecated/`
+- **Security** — ElGamal/DH challenge-response, agent-level encryption,
+  bridge authentication, owner bootstrap, grant-gated enrollment
+- **Authentication** — owner genesis via `amorphd init-owner`, local-socket
+  auto-auth, network challenge-response handshake, invite-based enrollment
+  (`amorphctl invite`, `amorph enroll`/`login`) with client-side keygen —
+  the private key never reaches the daemon
+- **File I/O** — `my.computer.files` (read, write, exists, delete, list,
+  info), XML import/export, ARI fixed-width import
+- **Web** — outbound HTTP verbs, JSON helpers, inbound request queue, SSE,
+  TLS with SNI, PWA asset serving including nested paths
+- **PWA** — client boilerplate served from the binary at `/amorphdb/pwa.js`,
+  Go bridge with device/token/identity routing, `deploy_pwa()` writer,
+  domain discovery, Argon2id password helpers
+- **Purge** — soft purge with TTL, hard purge, cascade purge, temporal
+  queries during soft purge, basic compaction
 
 ---
 
 ## Remaining Work
 
-### Tier 1 — Required Before Real Use
+### Tier 1 — Blocks building real applications
 
-These block building applications on AmorphDB.
+#### 1.1 Reference auth watchers do not run end to end
+`web/boilerplate/auth/login.mbl` and `signup.mbl` are written but cannot
+execute. Three parser gaps stand in the way:
 
-#### 1.1 Projection reading from expanded storage
-Record literals expand into individual field paths (`my.person.name`,
-`my.person.age`), but projections need to reconstruct records by reading
-those expanded paths back. Currently projections parse and partially
-evaluate but can't fully reconstruct a record from its expanded fields.
+- **Trailing field access after a bracket** — `tokens[token].identity` and
+  `users[u].intent.logout` drop the field after the bracket.
+  `parseCallExpression` discards the field name following a non-path
+  expression.
+- **Bracket selectors in watch names and paths** — `watch my.h[user](...)`
+  does not resolve.
+- **Record reconstruction on read** — a dotted read of a record returns no
+  fields, so a whole-record read cannot stand in for the above.
 
-**Where:** `internal/mbl/interpreter/` — projection evaluation logic
-**Spec:** "Projections select a subset of sub-attributes from a path"
+Until these land, PWA authentication must be driven from the Go bridge
+rather than from MBL watchers.
 
-#### 1.2 ScopeStatement interpreter support
-The parser produces `ScopeStatement` AST nodes but the interpreter returns
-"unsupported statement type." This means `my.scope.` trailing-dot syntax
-for setting scope context doesn't execute.
+**Where:** `internal/mbl/parser/parser.go`, `internal/mbl/interpreter/`
 
-**Where:** `internal/mbl/interpreter/interpreter.go` — add case for
-`*parser.ScopeStatement` in `evalStatement()`
-**Spec:** Notation and Language § Suffixes — `.` sets the current scope
+#### 1.2 `(quietly)` does not suppress watcher firing *(verified)*
+The modifier lexes and parses (`parser.go:1864`, `parseQuietlyExpression`)
+but is never plumbed through to the watcher engine —
+`watcher.WatcherEngine.RecordChange(path string)` takes only a path and has
+no suppression parameter, and the interpreter's assignment path consults
+`node.Modifier` only for `cascade` and the heritability modifiers.
 
-#### 1.3 Function call parsing in REPL context
-The `amorph` client fails on function call syntax — "unexpected token
-RPAREN" errors. Basic expressions work but procedure calls don't parse
-correctly through the EXECUTE protocol path.
+This matters: `(quietly)` is the documented mechanism for preventing
+infinite watcher loops, so a watcher that writes to a path it observes will
+re-trigger itself.
 
-**Where:** `cmd/amorph/` and `internal/service/connection.go`
-**Spec:** Procedures § Calling
-
-#### 1.4 `my.computer.output` and `my.computer.input`
-These don't exist yet. Any MBL program that prints output or reads input
-will fail. Essential for scripts and REPL interaction.
-
-**Where:** `internal/mbl/interpreter/` — built-in procedure registration
-**Spec:** Computer Library § I/O Operations
-
-#### 1.5 Regression failures in existing test packages
-12 packages fail on `go test ./...`. None are regressions from the test
-plan work — all are pre-existing or build configuration issues. But they
-need fixing before the codebase is clean:
-- `testutil` — missing `pkg/client` package (empty directory)
-- `cmd/amorph` — ScopeStatement and function call issues (see 1.2, 1.3)
-- `internal/interpreter` — bridge connectivity logic
-- `internal/mbl/interpreter` — ScopeStatement (see 1.2)
-- `internal/mbl/lexer` — keyword recognition gaps (`Nothing`, `Anything`)
-- `internal/mbl/parser` — watch statement and assignment modifier parsing
-- `internal/mesh` — config struct field mismatches, missing zone references
-- `internal/security` — filter logic test failures
-- `internal/storage` — temporal query and `isVariableLength` test conflicts
-- `internal/zone_deprecated` — hash ring replica logic
-- `test/integration` — protocol permission issues
-- `tests/integration` — config struct and storage API mismatches
-
-#### 1.6 Quiet assignment `(quietly)` integration with watchers
-The `(quietly)` modifier is parsed but its integration with the watcher
-trigger system needs verification. Watchers should not fire when a path
-is written with `(quietly)`.
-
-**Where:** `internal/watcher/` and `internal/mbl/interpreter/`
+**Where:** `internal/mbl/interpreter/interpreter.go` (assignment eval),
+`internal/watcher/engine.go`
 **Spec:** Watchers § Quiet Assignment
 
----
+#### 1.3 Collection higher-order functions *(verified absent)*
+`sort`, `filter`, `map`, and `reduce` are not dispatched by the
+interpreter. Working with collections beyond `..count`, `..append`,
+`..prepend`, `..remove`, and `..combine` requires explicit loops.
 
-### Tier 2 — Important for Feature Completeness
-
-These are specified features not yet implemented. Not strictly blocking
-for an initial application but needed for full MBL support.
-
-#### 2.1 Same-line definitions
-`my.config.host: "localhost"; my.config.port: 5432`
-Multiple statements on the same line separated by semicolons.
-
-**Spec status:** 🚧 explicitly marked not yet implemented
-
-#### 2.2 Recursive assignment
-`my.new.deeply.nested.value = 42` should auto-create intermediate nodes.
-Currently all intermediate nodes must exist before assignment.
-
-**Spec status:** 🚧 explicitly marked not yet implemented
-
-#### 2.3 Wildcard projections
-`my.products{ price_of_* }`, `my.products{ * }`,
-`my.products{ *, not internal_code }`
-
-**Spec status:** 🚧 explicitly marked not yet implemented
-
-#### 2.4 Embed keyword in record bodies
-```
-my.report.data:
-    title: "Q3 Report"
-    embed my.context.project_stamp
-    revenue: $14200
-```
-
-**Spec status:** Listed as specified but may not be in interpreter
-
-#### 2.5 Time formatting and parsing functions
-`format_time(time, format)` and `parse_time(text, format)`
-
-**Where:** `internal/mbl/interpreter/` — built-in procedure registration
-
-#### 2.6 `convert(value, type)` built-in
-Explicit type conversion function.
-
-**Where:** `internal/mbl/interpreter/` — built-in procedure registration
-
-#### 2.7 Collection functions: `sort`, `filter`, `map`, `reduce`
-Higher-order collection operations that take procedures as arguments.
-
-**Where:** `internal/mbl/interpreter/` — built-in procedure registration
+**Where:** `internal/mbl/interpreter/` — built-in dispatch
 **Spec:** System Operations § Collection Operations
 
-#### 2.8 `add_time(time, days, hours, minutes)` built-in
-Time arithmetic function.
+---
 
-**Where:** `internal/mbl/interpreter/` — built-in procedure registration
+### Tier 2 — Specified but not implemented
+
+#### 2.1 Wildcard projections
+`{ price_of_* }`, `{ * }`, `{ *, not field }`. Named-field projections work.
+
+#### 2.2 Embed resolution in record bodies
+`embed my.record` and the `...path` spread form parse and produce AST nodes,
+but embedded attributes are not made visible during record reads. The
+structural resolution layer is unbuilt.
+
+#### 2.3 Time and conversion built-ins *(verified absent)*
+`format_time(time, format)`, `parse_time(text, format)`,
+`add_time(time, days, hours, minutes)`, and `convert(value, type)` are not
+dispatched.
+
+#### 2.4 Import/export formats
+JSON, CSV, TSV, and TOML are stubbed in `my.computer.files.import/export`.
+XML and ARI fixed-width import work. Fixed-width *export* via ARI is not
+built.
+
+#### 2.5 Email library
+`my.computer.network.email` — send, fetch, IMAP IDLE subscription.
+
+#### 2.6 REPL display hints and pagination
+`:tree`, `:table`, `:list` hints and slice pagination; auto-inferred table
+rendering for homogeneous lists.
 
 ---
 
-### Tier 3 — Security Features
+### Tier 3 — Security hardening *(inherited)*
 
-Specified in the security section but not yet implemented.
+#### 3.1 Key rotation
+Rotate a device secret, re-encrypt stored data, invalidate the old secret.
 
-#### 3.1 Agent-level encryption
-Agent's private key stored encrypted in mesh with agent's derived key.
-Node hosting the data cannot read it.
+#### 3.2 Multiple device secrets per agent
+Register two devices; both authenticate. The spec's §Recovery describes
+this; enrollment currently provisions one device secret per agent.
 
-**Where:** `internal/security/` and `internal/crypto/`
-**Spec:** Security § Agent-Level Encryption
+#### 3.3 Transport encryption policy
+Local Unix socket connections should skip encryption; TCP connections
+should require the full encryption stack. The handshake exists; the
+policy split is not enforced.
 
-#### 3.2 Key rotation
-Rotate device secret, re-encrypt stored data, old secret no longer works.
-
-**Spec:** Security § Recovery
-
-#### 3.3 Multiple device secrets
-Two devices registered, both can authenticate.
-
-**Spec:** Security § Recovery
-
-#### 3.4 Local socket no-encryption / network socket mandatory encryption
-Unix socket connections should skip encryption. TCP connections require
-full encryption stack.
-
-**Spec:** Security § Protocol — "The same protocol operates over both
-local Unix sockets (no encryption) and network TCP sockets (full
-encryption stack)."
+#### 3.4 Credential handling polish
+Passphrase entry is not masked (no `x/term` dependency). Agent homes are
+keyed by numeric ID (`world.agent.{number}`); readable CV-string homes are
+deferred.
 
 ---
 
-### Tier 4 — Distributed Systems / Multi-Node
-
-These require the multi-node test harness and in some cases the
-subscription-based distribution model that is replacing the zone model.
+### Tier 4 — Distributed systems
 
 #### 4.1 Multi-node test harness
-Go test harness in `test/multinode/` that uses `exec.Command` to
-start/stop `amorphd` instances on different ports.
+A harness that starts and stops real `amorphd` processes on separate ports.
+Current multi-node coverage is in-process.
 
-#### 4.2 Subscription-based data distribution
-Replace zone/consistent-hashing with explicit write authority per path,
-subscription-based reads, authority promotion on failure.
+> ⚠️ **Resource warning.** A past stress run started 10 VMs at ~600 MB each
+> and froze the host. Never exceed 2–3 concurrent VMs without checking
+> available memory first.
 
-**Spec status:** Spec describes new model. Code still has old model.
-`internal/zone/` is deprecated. `internal/mesh/replication.go` has both
-legacy and subscription-based code.
+#### 4.2 Network partition handling
+Split-brain operation during a partition and reconciliation on heal.
 
-#### 4.3 Write authority routing
-Writes route to path authority. Authority splitting when overwhelmed.
-Subscription load balancing for fan-out.
-
-#### 4.4 Network partition handling
-Split-brain operation during partition, reconciliation on heal.
-
-#### 4.5 Integration tests (Sections 13–14)
-End-to-end tests covering single-node lifecycle, multi-node
-write/read, distributed watcher pipelines, stress/chaos testing,
-and full MBL program tests.
+#### 4.3 Authority splitting under load
+Write-rate-triggered authority splitting and subscription load balancing
+for fan-out. Announcement, promotion, and voluntary delegation are built.
 
 ---
 
-### Tier 5 — Future / Design Phase
-
-These are planned but not yet specified in detail.
+### Tier 5 — Planned, not yet specified in detail
 
 - MCARS standard interface convention
 - WAGLE notation for custom interfaces
-- PWA standard component shell
-- ARI fixed-width export
+- PWA component system (reusable section templates) and widget library
+  (date pickers, data tables, charts)
 - Excel import/export
-- XML import/export (partially specified)
+- Email OAuth 2.0 for Gmail / Microsoft 365
+- Examples library
 - LLM fine-tuning for MBL assistance
-- REPL display hints (`:tree`, `:table`, `:list`) and slice pagination
-- Auto-inferred table rendering for homogeneous lists
 
 ---
 
-## Quick Reference: What Works End-to-End Today
+## Known Rough Edges
 
-An MBL program can:
-- Create and read scalar values at paths (`my.x = 42`)
-- Create records from literals (`my.person = { name: "Matt", age: 55 }`)
-- Query with bracket filters (`my.users[age > 18]`)
-- Use projections (`person{ name, age }`) — partial, needs reconstruction
-- Define and call procedures with parameters
-- Use persistent procedure sub-attributes
-- Set up watchers that fire on data changes
-- Use append watchers with predicate filters
-- Handle errors with catch/else
-- Use all arithmetic, comparison, logical operators
-- Use 15+ built-in functions (string, math, type checking)
-- Execute remotely via the EXECUTE protocol
-- Authenticate with challenge-response
-- Operate in a mesh with heartbeat and gossip
-
-An MBL program cannot yet:
-- Use `my.computer.output()` or `my.computer.input()`
-- Use same-line definitions or recursive assignment
-- Use wildcard projections
-- Use embed keyword in record bodies
-- Use `sort`, `filter`, `map`, `reduce` on collections
-- Format or parse times
-- Rely on agent-level encryption at rest
-- Operate across nodes with subscription-based distribution
+- **`internal/temporal/`** is empty or in progress; temporal query support
+  lives in the storage and interpreter layers.
+- **`cmd` package port binding** — two test-plan tests bind a fixed port
+  5000 and a shared socket path, so they can flake under full-suite
+  parallel load. They pass in isolation.
+- **`go vet`** reports a context-cancel leak on an error path in
+  `internal/service/service.go`.
+- **Several files are not gofmt-clean** (`coordinator.go` and a handful of
+  test files). Left alone to avoid noise in unrelated diffs.
+- **Root `DEVPLAN.md` is historical** — all 16 of its steps completed in
+  April 2026. Work since then is tracked in commit history rather than in a
+  plan document.
