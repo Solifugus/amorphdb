@@ -199,6 +199,14 @@ func (i *Interpreter) Interpret(program *parser.Program) (interface{}, error) {
 	for _, statement := range program.Statements {
 		result = i.evalStatement(statement)
 
+		// A top-level return ends the program with that value; the remaining
+		// statements are skipped. The program is a return boundary, so the
+		// sentinel is consumed here rather than escaping to the caller.
+		if signal, ok := result.(returnSignal); ok {
+			result = signal.value
+			break
+		}
+
 		// Note: Unknown values are valid results in MBL, representing resilient computation
 		// They should not halt execution unless they represent critical errors
 		// Rollback only occurs if the final result is an unhandled Unknown
@@ -1506,6 +1514,25 @@ func (i *Interpreter) expandRecordToStorage(basePath []string, record types.Reco
 // enclosing loop consumes it. It is never visible as an MBL value.
 type breakSignal struct{}
 
+// returnSignal is an internal control-flow sentinel produced by a return
+// statement. It carries the returned value up through every enclosing block,
+// conditional, and loop until an execution boundary — a procedure call, a
+// watcher firing, or the top level of a program — consumes it. Without it a
+// return only supplied the value of its own statement and execution fell
+// through to the statements after it, so the *last* return in a body won
+// rather than the first one reached. It is never visible as an MBL value.
+type returnSignal struct{ value interface{} }
+
+// unwrapReturn consumes a return sentinel at an execution boundary, yielding
+// the value the return statement produced. Any other result passes through
+// unchanged.
+func unwrapReturn(result interface{}) interface{} {
+	if signal, ok := result.(returnSignal); ok {
+		return signal.value
+	}
+	return result
+}
+
 func (i *Interpreter) evalBlockStatement(node *parser.BlockStatement) interface{} {
 	var result interface{} = types.Nothing{}
 
@@ -1520,6 +1547,12 @@ func (i *Interpreter) evalBlockStatement(node *parser.BlockStatement) interface{
 		// Stop and propagate a break so it can escape nested blocks (e.g. the
 		// body of an if inside a loop) and reach the enclosing loop.
 		if _, ok := result.(breakSignal); ok {
+			return result
+		}
+
+		// Stop and propagate a return so the statements after it are skipped
+		// and the value reaches the enclosing procedure, watcher, or program.
+		if _, ok := result.(returnSignal); ok {
 			return result
 		}
 	}
@@ -1573,6 +1606,12 @@ func (i *Interpreter) evalWhileStatement(node *parser.WhileStatement) interface{
 		// A break statement exits the loop normally.
 		if _, ok := result.(breakSignal); ok {
 			break
+		}
+
+		// A return exits the loop and keeps travelling outward to the
+		// enclosing procedure, watcher, or program boundary.
+		if _, ok := result.(returnSignal); ok {
+			return result
 		}
 
 		// Safety check: if commit buffer is getting large, flush periodically
@@ -1639,6 +1678,12 @@ func (i *Interpreter) evalForStatement(node *parser.ForStatement) interface{} {
 			break
 		}
 
+		// A return exits the loop carrying its value onward; leave the signal
+		// intact so the boundary below the loop restores scope and propagates.
+		if _, ok := result.(returnSignal); ok {
+			break
+		}
+
 		// Safety check: flush buffer periodically for large iterations
 		if idx%1000 == 0 && len(i.commitBuffer.writes) > 5000 {
 			err := i.flushBuffer()
@@ -1689,9 +1734,16 @@ func (i *Interpreter) evalConsiderStatement(node *parser.ConsiderStatement) inte
 
 func (i *Interpreter) evalReturnStatement(node *parser.ReturnStatement) interface{} {
 	if node.ReturnValue != nil {
-		return i.evalExpression(node.ReturnValue)
+		value := i.evalExpression(node.ReturnValue)
+		// An Unknown keeps propagating as a bare Unknown so the existing
+		// rollback and catch/else machinery still recognises it; wrapping it
+		// would hide it from those checks.
+		if unknown, ok := value.(types.Unknown); ok && unknown.Reason != "" {
+			return unknown
+		}
+		return returnSignal{value: value}
 	}
-	return types.Nothing{}
+	return returnSignal{value: types.Nothing{}}
 }
 
 func (i *Interpreter) evalProcedureStatement(node *parser.ProcedureStatement) interface{} {
@@ -1944,7 +1996,9 @@ func (p *Procedure) Call(interpreter *Interpreter, args []interface{}) interface
 	interpreter.currentScopePathRaw = oldRaw
 	interpreter.currentScopePath = oldResolved
 
-	return result
+	// The procedure is a return boundary: unwrap the sentinel into the plain
+	// value the caller sees.
+	return unwrapReturn(result)
 }
 
 // Watcher represents a user-defined watcher bound at a path. It captures
@@ -1981,7 +2035,8 @@ func (w *Watcher) Fire(interp *Interpreter, items []interface{}) interface{} {
 	interp.scope = fireScope
 	defer func() { interp.scope = oldScope }()
 
-	return interp.evalBlockStatement(w.Body)
+	// A watcher body is a return boundary just like a procedure body.
+	return unwrapReturn(interp.evalBlockStatement(w.Body))
 }
 
 // WatcherRegistrar is the hook used by the interpreter to forward
