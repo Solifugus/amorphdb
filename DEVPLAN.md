@@ -805,6 +805,12 @@ grep -l "asset()" docs/pending_code_changes.md
 | 16 | Archive old specs, verify current specs | Cleanup | TODO |
 | 17 | Extended text literal syntax `_"…"_` | MBL Language | DONE (2026-07-29) |
 | 18 | Interpolating text literal `~"…{path}…"~` | MBL Language | DONE (2026-07-29) |
+| 19 | Make time literals produce a real `types.Time` | Date/Time | TODO |
+| 20 | Time part access via `.@year` meta-attributes | Date/Time | TODO |
+| 21 | `format_time` / `parse_time` and timezones | Date/Time | TODO |
+| 22 | Duration type and interval syntax | Date/Time | TODO |
+| 23 | Calendar adjusters | Date/Time | TODO |
+| 24 | Recurrence rules (RFC 5545 RRULE) | Date/Time | TODO |
 
 ---
 
@@ -875,3 +881,513 @@ Tests: `internal/mbl/lexer/interpolated_string_test.go` (tokenizing, sigil
 non-cross-termination, unterminated, bare `~`) and
 `internal/mbl/interpreter/interpolated_string_test.go` (values, multi-line,
 storage round-trip, coercion-matches-`&`, and the path-only rejections).
+
+---
+
+# Phase 6 — Date and Time
+
+Six steps, deliberately ordered: **Step 19 is a hard prerequisite for the rest.**
+Until time literals produce a `types.Time`, every function in Steps 20–24 would
+receive a `types.Text` and there would be nothing to operate on.
+
+**Design inspiration** (surveyed 2026-07-29):
+- **Temporal (ECMAScript 2026, TC39 Stage 4 March 2026)** — the type model.
+  Its core idea is distinguishing an *instant* from a *plain date* from a
+  *zoned datetime*. AmorphDB already has half of this in `types.Time.Precision`.
+- **Postgres `interval`** — the three-field duration representation (months,
+  days, seconds kept separate). The only correct model; see Step 22.
+- **`java.time.TemporalAdjusters`** — the calendar-navigation vocabulary
+  ("last Wednesday of the month"). Small, closed, composable; proven for a decade.
+- **RFC 5545 `RRULE`** (iCalendar) — the recurrence standard. Adopting it rather
+  than inventing a syntax buys interoperability with every calendar system.
+
+**Do not merge these concerns.** Adjusting one date, generating a series, and
+formatting for display are three different jobs and get three different APIs.
+
+**A recurring rule across all six steps:** when an operation cannot be answered
+truthfully, return `unknown` naming the reason — never invent a plausible value.
+A minute that was never specified, a comparison between `1 month` and `30 days`,
+an unsupported RRULE part: each returns `unknown` rather than a guess. A silently
+wrong schedule or timestamp is worse than an absent one.
+
+**Standing constraint:** times are stored as UTC. Only *rendering* converts to a
+timezone. Nothing in these steps may change how a timestamp is serialized.
+
+---
+
+### Step 19 — Make time literals produce a real `types.Time`
+
+**Status:** TODO
+
+**Spec reference:** `docs/amorphdb_design.md` §Text/Number/... (Time type),
+§Lexical Structure — time literals
+
+**Scope:** `internal/mbl/lexer/lexer.go`, `internal/mbl/parser/parser.go`,
+`internal/mbl/interpreter/interpreter.go`, `internal/types/coerce.go`
+
+**Do not touch:** storage serialization, mesh, security, watcher. The on-disk
+format of a timestamp must not change.
+
+**Four verified defects this step fixes** (all reproduced 2026-07-29):
+
+1. **A time literal never becomes a `types.Time`.** `parseTimeLiteral`
+   (`parser.go:1737`) sets `lit.Value = parsedTime`, a Go `time.Time`.
+   `convertToMBLType` (`interpreter.go`) has no case for that type, so it falls
+   to `default:` and returns `Text{fmt.Sprintf("%v", v)}`. Result:
+   `x = @2026-01-15` evaluates to `types.Text` reading
+   `2026-01-15 00:00:00 +0000 UTC`. The `Precision` field and
+   `formatTimeByPrecision` are unreachable from MBL.
+2. **Three spec'd precisions do not parse.** The format list in
+   `parseTimeLiteral` lacks `2006`, `2006-01`, and `2006-01-02 15:04`, so
+   `@2026`, `@2026-01` and `@2026-01-15 14:30` are parse errors — even though
+   `docs/amorphdb_design.md` documents them.
+3. **Time comparison is unusable.** `readTimeLiteral` (`lexer.go`) consumes a
+   trailing space unconditionally while looking for an optional time part, so
+   `@2026-01-15 > @2026-01-01` lexes the literal as `"@2026-01-15 "` (trailing
+   space) and fails with `could not parse "@2026-01-15 " as time`.
+4. **`now()` is malformed.** `evalNowFunction` (`interpreter.go:2737`) returns
+   `types.Time{Timestamp: time.Now()}` — `Precision` is left 0, which is outside
+   the valid range 1–7 that `types.go:432` enforces, so `formatTimeByPrecision`
+   hits its `default:` branch and prints full microseconds. It also carries the
+   machine's local zone rather than UTC.
+
+**What to do:**
+1. Read `parseTimeLiteral`, `readTimeLiteral`, `convertToMBLType`,
+   `evalNowFunction` and `formatTimeByPrecision` in full first.
+2. In `readTimeLiteral`, only consume the space after the date when the *next*
+   character is a digit. Everything else is a separate token.
+3. In `parseTimeLiteral`, pair each layout with the precision it implies and set
+   both fields, producing a `types.Time` rather than a Go `time.Time`:
+
+   | Layout | Precision |
+   |---|---|
+   | `2006` | `PrecisionYear` |
+   | `2006-01` | `PrecisionMonth` |
+   | `2006-01-02` | `PrecisionDay` |
+   | `2006-01-02 15:04` | `PrecisionMinute` |
+   | `2006-01-02 15:04:05` | `PrecisionSecond` |
+   | `2006-01-02T15:04:05`, `…Z07:00` | `PrecisionSecond` |
+
+   Go's `time.Parse` accepts a fractional second after the seconds field even
+   when the layout omits it; detect a `.` in the literal and use
+   `PrecisionSubsecond` in that case. There is no hour-only literal form —
+   `PrecisionHour` stays reachable only through truncation in Step 22.
+   Parse in UTC (`time.ParseInLocation(..., time.UTC)`), not local.
+4. Add a `case time.Time:` and `case types.Time:` to `convertToMBLType` as a
+   safety net so a stray Go time can never silently become Text again.
+5. Fix `now()`: `time.Now().UTC()` with `Precision: PrecisionSubsecond`.
+6. **Change text coercion to drop the `@`.** `formatTimeByPrecision`
+   (`coerce.go:331`) currently prefixes `@`, which is *source syntax* and wrong
+   in output — `~"Shipped {my.order.date}"~` should read `Shipped 2026-01-15`.
+   Leave `Time.String()` (`types.go:173`) alone: the `@` form is correct there,
+   for REPL display and round-tripping. Precision already handles the rest —
+   a day-precision value renders `2026-01-15` with no `00:00:00`, which is the
+   sensible-default behaviour and needs no new code.
+
+**New tests to write:**
+```go
+// Type, not text
+`x = @2026-01-15`            // types.Time, PrecisionDay
+`x = now()`                  // types.Time, PrecisionSubsecond, UTC
+
+// All spec'd precisions parse
+`x = @2026`                  // PrecisionYear
+`x = @2026-01`               // PrecisionMonth
+`x = @2026-01-15 14:30`      // PrecisionMinute
+`x = @2026-01-15 14:30:22`   // PrecisionSecond
+`x = @2026-01-15 14:30:22.5` // PrecisionSubsecond
+
+// Comparison works (regression test for the lexer space bug)
+`x = @2026-01-15 > @2026-01-01`   // true
+`x = @2026-01-15 ?= @2026-01-15`  // true
+
+// Coercion omits absent components and the @ sigil
+`x = "on " & @2026-01-15`         // "on 2026-01-15"
+`x = "at " & @2026-01-15 14:30`   // "at 2026-01-15 14:30"
+`x = ~"on {my.d}"~`               // matches the & form exactly
+```
+
+**Verification:**
+```bash
+go test ./internal/mbl/... ./internal/types/...
+go test ./...   # must stay at the 25-package baseline
+```
+
+---
+
+### Step 20 — Time part access via `.@year` meta-attributes
+
+**Status:** TODO
+
+**Depends on:** Step 19
+
+**Scope:** `internal/mbl/parser/` (only if the meta-attribute path needs it),
+`internal/mbl/interpreter/`
+
+**Do not touch:** storage, mesh, watcher
+
+**Why meta-attributes rather than plain attributes:** `my.order.date.year` would
+read better but collides with path traversal — it becomes ambiguous the moment a
+user stores a child attribute named `year`. The `@` sigil keeps computed parts
+unambiguously distinct from stored data, and the syntax already exists:
+`my.account.balance.@time` parses today (see
+`internal/mbl/parser/testplan_section4_test.go`).
+
+**What to do:**
+1. Find where `.@`-prefixed path segments are resolved in the interpreter and
+   add time-part handling for a `types.Time` receiver.
+2. Implement: `.@year`, `.@month`, `.@day`, `.@hour`, `.@minute`, `.@second`,
+   `.@weekday`, `.@precision`.
+3. `.@year` … `.@second` return `types.Number`. `.@weekday` returns
+   `types.Text` (`"wednesday"`) — lowercase, matching the argument spelling the
+   adjusters in Step 22 accept, so the two compose.
+4. Requesting a part finer than the value's precision returns `unknown` with a
+   clear reason, e.g. `@2026-01-15.@minute` → `unknown("time has day precision;
+   minute is not known")`. **Do not silently return 0** — that is exactly the
+   `00:00:00` fiction this phase exists to remove.
+5. Applying a time part to a non-Time returns `unknown`.
+
+**New tests to write:**
+```go
+`my.d = @2026-01-15 14:30
+x = my.d.@year`     // 2026
+`... my.d.@month`   // 1
+`... my.d.@day`     // 15
+`... my.d.@hour`    // 14
+`... my.d.@weekday` // "wednesday"
+
+// Precision honesty — the primary failure case
+`my.d = @2026-01-15
+x = my.d.@minute`   // unknown, NOT 0
+
+// Non-Time receiver
+`my.n = 5
+x = my.n.@year`     // unknown
+```
+
+**Verification:**
+```bash
+go test ./internal/mbl/...
+```
+
+---
+
+### Step 21 — `format_time` / `parse_time` and timezones
+
+**Status:** TODO
+
+**Depends on:** Step 19
+
+**Scope:** `internal/mbl/interpreter/`, `internal/types/`
+
+**Do not touch:** storage serialization — timezone is a *rendering* concern only.
+
+**What to do:**
+1. Add `format_time(t, pattern)` and `format_time(t, pattern, zone)` to the
+   builtin dispatch (alongside `case "now"`, `interpreter.go:2432`).
+2. **Pattern vocabulary — follow Unicode LDML**, which Java, .NET and every
+   major date library already use. Adopting the convention people know is the
+   opposite of making them learn a table. Keep it to this closed set:
+
+   | Token | Meaning | Token | Meaning |
+   |---|---|---|---|
+   | `YYYY` / `YY` | year | `HH` | hour, 24-hour |
+   | `MMMM` / `MMM` | month name | `hh` | hour, 12-hour |
+   | `MM` / `M` | month number | `mm` | minute |
+   | `DD` / `D` | day of month | `ss` | second |
+   | `dddd` / `ddd` | weekday name | `A` | AM/PM |
+
+   ⚠️ **`MM` is month and `mm` is minute; `HH` is 24-hour and `hh` is 12-hour.**
+   This trips everyone. Document it at the top of the reference entry and make
+   the error message for an unknown token name the valid set.
+3. Add `parse_time(text)` and `parse_time(text, pattern)`, returning `unknown`
+   with a useful reason on failure rather than a zero time. Without a pattern,
+   accept the same forms the literal syntax accepts and infer precision the same
+   way, so `parse_time` and `@…` agree.
+4. **Timezone, two layers:**
+   - A node default, `my.computer.timezone` (IANA name, e.g.
+     `"America/Chicago"`), matching the `my.computer.*` convention. Unset means
+     UTC, preserving today's behaviour.
+   - An optional third argument to `format_time` overriding it per call.
+   For the PWA the browser reports its zone, so per-user storage on the user
+   record is the natural home — a watcher then renders correctly for users in
+   different zones. Note this in the spec; no PWA code changes in this step.
+5. An invalid IANA zone name returns `unknown`, never a silent fallback to UTC.
+
+**New tests to write:**
+```go
+`x = format_time(@2026-01-15 14:30, "YYYY-MM-DD HH:mm")`  // "2026-01-15 14:30"
+`x = format_time(@2026-01-15, "dddd, MMMM D, YYYY")`      // "Wednesday, January 15, 2026"
+`x = format_time(@2026-01-15 14:30, "hh:mm A")`           // "02:30 PM"
+
+// Timezone conversion, storage untouched
+`x = format_time(@2026-01-15 14:30, "HH:mm", "America/Chicago")`  // "08:30"
+`x = format_time(@2026-01-15 14:30, "HH:mm", "Not/AZone")`        // unknown
+
+// Round trip
+`x = parse_time("2026-01-15")`         // types.Time, PrecisionDay
+`x = parse_time("nonsense")`           // unknown
+`x = format_time(parse_time("2026-01-15"), "YYYY-MM-DD")`  // "2026-01-15"
+```
+
+**Verification:**
+```bash
+go test ./internal/mbl/... ./internal/types/...
+```
+
+
+---
+
+### Step 22 — Duration type and interval syntax
+
+**Status:** TODO
+
+**Depends on:** Step 19
+
+**Scope:** `internal/types/`, `internal/mbl/lexer/`, `internal/mbl/parser/`,
+`internal/mbl/interpreter/`
+
+**Do not touch:** mesh, security, watcher. Storage gains one new type tag and
+nothing else.
+
+**Why a type rather than a bare Number:** `mbl_reference.md` justifies Money as a
+type because "currency is part of the value." A duration's unit is part of its
+value in exactly the same way. Without the type, `my.terms.payment_days = 30`
+puts the unit in the *attribute name* — the schema — so changing "Net 30" to
+"Net 6 weeks" requires renaming the attribute and updating every watcher that
+reads it. A business user changing a payment term must not require a schema
+change. Two AmorphDB-specific reasons reinforce it: temporal history of a stored
+term is only meaningful if each instance carries its unit; and a watcher
+comparing elapsed time against a stored SLA is comparing two bare Numbers and
+trusting the units match, which fails silently.
+
+**Representation — three fields, not one integer:**
+
+```go
+type Duration struct {
+    Months  int64  // calendar months; cannot reduce to days
+    Days    int64  // calendar days; cannot reduce to seconds under DST
+    Seconds float64 // exact time, sub-second capable
+}
+```
+
+This is Postgres's `interval` design and it is the only correct one. Months have
+no fixed length (28–31 days). Days are not always 86,400 seconds once Step 21
+introduces local-time rendering. Collapsing either loses information that cannot
+be recovered, and the split costs nothing to carry now but cannot be retrofitted
+after data exists.
+
+`types.Money` is the implementation template — see `Serialize` (`types.go:177`),
+`TypeTag` and `DeserializeTime` (`types.go:423`) for the full surface a new type
+must cover.
+
+**What to do:**
+1. Read `internal/types/types.go`, `coerce.go` and `compare.go` fully, using
+   `Money` as the worked example of adding a type.
+2. Add `types.Duration` with a new type tag, `Serialize`/`Deserialize`, and
+   `String()`.
+3. **Literal syntax** — the same notation serves both storing and arithmetic:
+   ```
+   my.sla.response = 4 hours 30 minutes
+   my.due = my.invoice.date + 30 days
+   ```
+   A duration literal is one or more `<number> <unit>` pairs, juxtaposed with no
+   separator. Units are a **closed keyword set** so a typo fails at parse time:
+   `year`, `month`, `week`, `day`, `hour`, `minute`, `second`, each accepting a
+   plural `s`. `week` normalises to 7 days at parse time; `year` to 12 months.
+4. `+` and `-` between a Time and a Duration return a Time. Apply in a fixed,
+   documented order — **months first, then days, then seconds** — because
+   calendar arithmetic is not commutative (`+ 1 month + 1 day` differs from
+   `+ 1 day + 1 month` starting from 31 January). Month arithmetic clamps:
+   31 January plus one month is 28/29 February, never 2/3 March.
+5. `+` and `-` between two Durations return a Duration. Negation is allowed;
+   durations may be negative.
+6. **Remove `add_time` / `subtract_time`** from the Step 22 draft that preceded
+   this revision — the interval syntax replaces them, and reads as intent rather
+   than mechanism.
+7. `difference(a, b)` returns a **Duration** rather than a Number plus a unit
+   string. Sign convention: `difference(later, earlier)` is positive.
+8. **Text coercion omits zero components** — `3 days 2 hours`, never
+   `3 days 0 hours 0 seconds`. Same principle as not printing `00:00:00`.
+9. **Comparison across the month/day boundary returns `unknown`.** Is
+   `1 month > 30 days`? Genuinely undefined — it depends which month. Postgres
+   answers by assuming 30-day months, which is a documented lie. Durations whose
+   `Months` are both zero compare exactly; otherwise, unless anchored to a date,
+   return `unknown`. This matches the honesty rule running through the phase.
+10. **Result precision.** `@2026-01-15 + 2 hours` — the operand is day-precision
+    and knows nothing about hours. Adding a sub-day duration to a day-precision
+    time returns `unknown`, consistent with Step 20 refusing to invent a minute
+    that was never specified. Adding whole days to a day-precision time is fine
+    and keeps day precision.
+
+**New tests to write:**
+```go
+// Stored as a value, with its unit intact
+`my.sla = 4 hours 30 minutes`        // types.Duration
+`x = "SLA: " & my.sla`               // "SLA: 4 hours 30 minutes"
+`my.d = 3 days 0 hours
+x = "" & my.d`                       // "3 days"   (zero components omitted)
+
+// Arithmetic
+`x = @2026-01-15 + 30 days`          // @2026-02-14
+`x = @2026-01-31 + 1 month`          // @2026-02-28  (clamp, not 3 Mar)
+`x = @2026-01-15 - 1 week`           // @2026-01-08
+`x = @2026-01-15 14:00 + 2 hours 15 minutes`  // @2026-01-15 16:15
+
+// Non-commutativity is real and must be documented, not "fixed"
+`x = @2026-01-31 + 1 month + 1 day`  // @2026-03-01
+`x = @2026-01-31 + 1 day + 1 month`  // @2026-03-01 ... assert actual, document it
+
+// Duration arithmetic and difference
+`x = 2 hours + 30 minutes`                       // 2 hours 30 minutes
+`x = difference(@2026-01-15, @2026-01-01)`       // 14 days
+`x = difference(@2026-01-01, @2026-01-15)`       // -14 days
+
+// Comparison honesty — the primary failure case
+`x = 90 minutes > 1 hour`            // true   (both month-free)
+`x = 1 month > 30 days`              // unknown, NOT a guess
+
+// Precision honesty
+`x = @2026-01-15 + 2 hours`          // unknown (day-precision operand)
+`x = @2026-01-15 + 3 days`           // @2026-01-18, still day precision
+
+// Parse-time failures
+`my.x = 3 fortnights`                // parse error naming the valid units
+`my.x = 3 dayz`                      // parse error
+```
+
+**Verification:**
+```bash
+go test ./internal/types/... ./internal/mbl/...
+go test ./...   # must stay at the 25-package baseline
+```
+
+---
+
+### Step 23 — Calendar adjusters
+
+**Status:** TODO
+
+**Depends on:** Steps 19, 20, 22
+
+**Scope:** `internal/mbl/interpreter/`, `internal/types/`
+
+**Do not touch:** storage, mesh, security, watcher
+
+Modeled on `java.time.TemporalAdjusters` — a small, closed, composable
+vocabulary that has been proven for a decade. This is the "last Wednesday of the
+month" capability, which is the thing scheduling actually needs and which plain
+duration arithmetic cannot express.
+
+**What to do:**
+1. `start_of(t, unit)` and `end_of(t, unit)`. **These are the workhorses** —
+   they absorb roughly six `java.time` adjusters (`lastDayOfMonth`,
+   `firstDayOfNextMonth` and siblings) into two functions that also work for
+   weeks, quarters and years. `start_of` sets the resulting precision to match
+   the unit; `end_of` returns the last representable instant within it. Week
+   boundaries use ISO Monday as the documented first day.
+2. Adjusters, taking the lowercase weekday spellings `.@weekday` returns in
+   Step 20 so the two compose directly:
+   - `next_weekday(t, "wednesday")` / `previous_weekday(t, "wednesday")`
+   - `first_weekday_in_month(t, "wednesday")`
+   - `last_weekday_in_month(t, "wednesday")`
+   - `nth_weekday_in_month(t, 3, "wednesday")` — negative `n` counts back from
+     the end, so `-1` equals `last_weekday_in_month`
+3. An out-of-range `n` (a fifth Wednesday in a month with four) returns
+   `unknown`, never a silently rolled-over date.
+4. Every function returns `unknown` for a non-Time receiver or an unknown unit,
+   and the message names the valid vocabulary.
+
+**New tests to write:**
+```go
+`x = start_of(@2026-01-15 14:30, "month")`   // @2026-01-01, PrecisionDay
+`x = end_of(@2026-01-15, "month")`           // last instant of 31 Jan
+`x = start_of(@2026-01-15, "week")`          // Monday 12 Jan
+
+// The headline capability
+`x = last_weekday_in_month(@2026-01-15, "wednesday")`   // @2026-01-28
+`x = first_weekday_in_month(@2026-01-15, "wednesday")`  // @2026-01-07
+`x = nth_weekday_in_month(@2026-01-15, 3, "wednesday")` // @2026-01-21
+`x = nth_weekday_in_month(@2026-01-15, -1, "wednesday")`// @2026-01-28
+`x = nth_weekday_in_month(@2026-01-15, 5, "wednesday")` // unknown
+`x = next_weekday(@2026-01-15, "wednesday")`            // @2026-01-21
+
+// Composes with Steps 20 and 22
+`my.d = last_weekday_in_month(@2026-01-15, "wednesday")
+x = my.d.@day`                                          // 28
+`x = last_weekday_in_month(@2026-01-15, "wednesday") - 2 days`  // @2026-01-26
+
+// Failure cases
+`x = start_of(@2026-01-15, "fortnight")`     // unknown, names valid units
+`x = next_weekday("not a time", "monday")`   // unknown
+```
+
+**Verification:**
+```bash
+go test ./internal/mbl/... ./internal/types/...
+```
+
+---
+
+### Step 24 — Recurrence rules (RFC 5545 RRULE)
+
+**Status:** TODO
+
+**Depends on:** Step 23
+
+**Scope:** `internal/mbl/interpreter/`, `internal/types/`, possibly
+`internal/watcher/`
+
+**Why RRULE:** RFC 5545 is the recurrence standard every calendar system speaks.
+Last Wednesday of every month is `FREQ=MONTHLY;BYDAY=-1WE`; second and fourth
+Fridays is `FREQ=MONTHLY;BYDAY=2FR,4FR`. Adopting it rather than inventing a
+syntax means AmorphDB schedules interoperate with iCalendar, Google Calendar and
+every scheduling tool for free. Do **not** design a bespoke recurrence notation.
+
+**What to do:**
+1. Represent an RRULE as `types.Text` holding the RFC 5545 string. Resist adding
+   a type until there is a reason — the string *is* the interoperable form, which
+   is the opposite of the Duration argument in Step 22, where the unit had
+   nowhere else to live.
+2. `next_occurrence(rule, after)` → the first occurrence strictly after `after`.
+3. `occurrences_between(rule, start, end)` → a `types.List` of times. **This must
+   be bounded** — a malformed or unbounded rule must not generate indefinitely.
+   Apply a configurable cap and return `unknown` when exceeded, in the spirit of
+   the existing commit-buffer limit and `MaxCallDepth` guard.
+4. Support at minimum `FREQ` (`DAILY`/`WEEKLY`/`MONTHLY`/`YEARLY`), `INTERVAL`,
+   `BYDAY` (including negative ordinals such as `-1WE`), `BYMONTHDAY`, `BYMONTH`,
+   `COUNT` and `UNTIL`. Return `unknown` **naming the offending part** for
+   anything unsupported rather than ignoring it silently — silently dropping a
+   constraint produces a schedule that is wrong rather than absent, the worst
+   failure mode here.
+5. Validate the rule when first used and report the specific syntax error.
+6. **Watcher integration is a separate decision.** A watcher firing on a schedule
+   is a natural pairing, but it interacts with the heartbeat model and write
+   authority. Scope it as its own step once Steps 19–24 are settled; do not fold
+   it in here.
+
+**New tests to write:**
+```go
+`my.r = "FREQ=MONTHLY;BYDAY=-1WE"
+x = next_occurrence(my.r, @2026-01-01)`        // @2026-01-28
+
+`my.r = "FREQ=WEEKLY;BYDAY=MO,WE,FR"
+x = occurrences_between(my.r, @2026-01-01, @2026-01-15)`  // list of 6
+
+`my.r = "FREQ=MONTHLY;BYDAY=2FR,4FR"
+x = next_occurrence(my.r, @2026-01-01)`        // @2026-01-09
+
+`my.r = "FREQ=DAILY;COUNT=3"
+x = occurrences_between(my.r, @2026-01-01, @2026-12-31)`  // exactly 3
+
+// Failure cases
+`x = next_occurrence("FREQ=NONSENSE", @2026-01-01)`   // unknown, names the error
+`x = next_occurrence("FREQ=SECONDLY", @2026-01-01)`   // unknown if unsupported
+// Unbounded rule over a wide range must hit the cap, not hang
+```
+
+**Verification:**
+```bash
+go test ./internal/mbl/... ./internal/types/...
+go test ./...
+```
