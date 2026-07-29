@@ -812,6 +812,9 @@ grep -l "asset()" docs/pending_code_changes.md
 | 22 | Duration type and interval syntax | Date/Time | TODO |
 | 23 | Calendar adjusters | Date/Time | TODO |
 | 24 | Recurrence rules (RFC 5545 RRULE) | Date/Time | TODO |
+| 25 | As-of temporal queries `path[@time]` | Temporal | TODO |
+| 26 | Comparison and range temporal queries | Temporal | TODO |
+| 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | TODO |
 
 ---
 
@@ -1465,4 +1468,173 @@ x = occurrences_between(my.r, @2026-01-01, @2026-12-31)`  // exactly 3
 ```bash
 go test ./internal/mbl/... ./internal/types/...
 go test ./...
+```
+
+---
+
+# Phase 7 — Temporal Queries
+
+The headline claim of the product — "query any historical value" — documented in
+four places in `docs/mbl_reference.md` and unreachable from MBL today.
+
+**The storage engine is already built.** Verified 2026-07-29 by direct test:
+
+- `StorageTree.ReadAt(path, timestampMicros)` (`internal/storage/tree.go:187`)
+  returns the value as of a timestamp. Confirmed working: two writes of 100 then
+  250 return 100 at the earlier timestamp, 250 at now, and a clean
+  "no instance found at timestamp" error before the first instance.
+- `InstanceStore.FindInstanceAtTime` (`instances.go:202`) and
+  `GetInstanceChain` (`instances.go:141`) provide the primitives underneath.
+- `types.getTimeRange` (`internal/types/compare.go:330`) already converts a
+  precision into a `[start, end]` window, which is exactly what an as-of query on
+  a coarse literal like `@2026-01-15` needs.
+
+So this phase is **plumbing, not construction**: `evalBracketFilter`
+(`internal/mbl/interpreter/interpreter.go:3062`) evaluates its base to the
+*current* value and then filters, with no path that reaches `ReadAt`. A temporal
+bracket has to be recognised *before* the base is read.
+
+**Depends on:** Phase 6 Step 19 (time literals must produce a real `types.Time`
+before a bracket can carry one). Steps 20–24 are not required.
+
+---
+
+### Step 25 — As-of temporal queries `path[@time]`
+
+**Status:** TODO
+
+**Spec reference:** `docs/mbl_reference.md` §Temporal filters, §Reading history
+
+**Scope:** `internal/mbl/interpreter/interpreter.go`
+
+**Do not touch:** storage (the primitives exist and work), parser (the bracket
+already parses as `BracketFilterExpression`), lexer
+
+**What to do:**
+1. Read `evalBracketFilter` in full. Note the ordering problem: it calls
+   `i.evalExpression(node.Left)` first, which reads the current value. A temporal
+   query must be detected before that, alongside the existing key-selector
+   special case, and route to `ReadAt` instead.
+2. Recognise a temporal bracket: base is a `*PathExpression` and the single
+   filter evaluates to a `types.Time`.
+3. **Precision defines the instant.** `person.name[@2026-01-15]` means "most
+   recent at or before that date" — with day precision that is the *end* of
+   15 January, not midnight. Use `getTimeRange` to obtain the window and query at
+   its end. A subsecond literal queries that exact instant. Getting this wrong
+   makes `[@2026-01-15]` silently return the previous day's value.
+4. Convert to the microseconds `ReadAt` expects, matching `Time.Serialize`.
+5. A time before the first instance returns `unknown` naming the reason, not the
+   oldest value and not an empty result.
+
+**New tests to write:**
+```go
+`my.bal = 100
+my.bal = 250
+x = my.bal`                       // 250 — current value unaffected
+
+// As-of, using now() captured between writes
+`x = my.bal[@2026-01-01]`         // the value in effect on that date
+`x = my.bal[@1970-01-01]`         // unknown — before any instance
+
+// Precision means the whole window
+`x = my.bal[@2026]`               // most recent at or before 31 Dec 2026
+
+// Non-temporal brackets must keep working — regression guard
+`my.u = { name: "A" }
+x = my.users[name = "A"]`         // filter semantics unchanged
+`x = my.list[0]`                  // index semantics unchanged
+`x = ...users[username]`          // key-selector semantics unchanged
+```
+
+**Verification:**
+```bash
+go test ./internal/mbl/... ./internal/storage/...
+go test ./...
+```
+
+---
+
+### Step 26 — Comparison and range temporal queries
+
+**Status:** TODO
+
+**Depends on:** Step 25
+
+**Spec reference:** `docs/mbl_reference.md` — `[<@t]`, `[>=@t]`,
+`[@ >= @a, @ < @b]`
+
+**Scope:** `internal/mbl/interpreter/interpreter.go`, `internal/storage/tree.go`
+(a read-only chain accessor may be needed)
+
+**Design decision required before starting:** what does a range query *return*?
+A range spans several instances, so it cannot return a bare value.
+(a) a `types.List` of values — simple, but discards when each was recorded, which
+is usually the reason for asking; or (b) a List of Records carrying the value
+alongside `@time` and `@agent`. **(b) is the more useful answer and pairs with
+Step 27; decide and record it here before writing code.**
+
+**What to do:**
+1. Support the bare comparison forms `[<@t]`, `[<=@t]`, `[>@t]`, `[>=@t]`.
+2. Support the two-part range form `[@ >= @a, @ < @b]`, where bare `@` denotes
+   the instance timestamp. Note the parser already yields a leading-`@`
+   `PathExpression` for bare `@` (`parser.go` parseTimeLiteral).
+3. Add a chain accessor over `GetInstanceChain` filtered by time window. Reads
+   only — do not change how instances are written.
+4. **Bound the result.** A long chain must not materialise without limit; apply a
+   cap and return `unknown` when exceeded, matching the commit-buffer and
+   `MaxCallDepth` guards.
+5. Ordering must be documented and stable — newest-first or oldest-first, chosen
+   once and asserted in tests.
+
+**New tests to write:**
+```go
+`x = my.bal[>=@2026-01-01]`                    // instances at or after
+`x = my.bal[<@2026-01-01]`                     // strictly before
+`x = my.bal[@ >= @2026-01-01, @ < @2026-02-01]`// range
+`x = my.bal[@ >= @2030-01-01]`                 // empty list, not unknown
+// A chain longer than the cap returns unknown naming the limit
+```
+
+---
+
+### Step 27 — Instance meta attributes
+
+**Status:** TODO
+
+**Depends on:** Step 25
+
+**Spec reference:** `docs/mbl_reference.md` — `person.name.@time`, `.@agent`,
+`.@previous_instance_id`, `.@size`
+
+**Scope:** `internal/mbl/interpreter/interpreter.go`
+
+⚠️ **Collides with Phase 6 Step 20.** Step 20 adds time *parts* as `.@year`,
+`.@month` and so on, applied to a `types.Time`. This step adds instance *meta* as
+`.@time`, `.@agent`, applied to any stored value. Both are `.@name` on a path, so
+resolution order must be explicit and documented: **instance meta is a property
+of the stored instance and takes precedence; time parts apply only when the
+receiver is a `types.Time` value.** `my.d.@time` on a stored time therefore means
+"when was this recorded", not "the time component". Settle this in whichever step
+lands second, and cross-reference it here.
+
+**What to do:**
+1. Implement `.@time` (`types.Time` at subsecond precision), `.@agent`,
+   `.@previous_instance_id`, `.@size`.
+2. Source them from the `Instance` record, not the value.
+3. Composes with Step 25: `my.bal[@2026-01-01].@agent` answers "who set the value
+   that was in effect then" — add an explicit test.
+4. Meta on a path with no instance returns `unknown`.
+
+**New tests to write:**
+```go
+`my.bal = 100
+x = my.bal.@time`                  // types.Time, close to now()
+`x = my.bal.@agent`                // the writing agent
+`x = my.bal[@2026-01-01].@agent`   // composes with as-of
+`x = my.missing.@time`             // unknown
+```
+
+**Verification:**
+```bash
+go test ./internal/mbl/... && go test ./...
 ```
