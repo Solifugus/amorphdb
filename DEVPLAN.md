@@ -803,3 +803,75 @@ grep -l "asset()" docs/pending_code_changes.md
 | 14 | Cutover: enable subscription model | Mesh Distribution | TODO |
 | 15 | Update status messages and CLI output | Cleanup | TODO |
 | 16 | Archive old specs, verify current specs | Cleanup | TODO |
+| 17 | Extended text literal syntax `_"…"_` | MBL Language | DONE (2026-07-29) |
+| 18 | Interpolating text literal `~"…{path}…"~` | MBL Language | DONE (2026-07-29) |
+
+---
+
+## Step 17 — Extended text literal syntax `_"…"_`
+
+Status: `DONE (2026-07-29)` — user-directed language change, not part of the
+original plan.
+
+Replaced the bare multi-quote text literal form (`""…""`, `"""…"""`) with an
+explicit extended form: `_` plus a run of quotes to open, the same run of quotes
+plus `_` to close. The simple `"…"` form is unchanged and remains the normal way
+to write text; the extended form exists for text that embeds quote characters.
+
+- `internal/mbl/lexer/lexer.go` — `readString` simplified to the single-quote
+  form and now reports termination explicitly; new `readExtendedString` +
+  `findExtendedClose` scan the extended form; new exported `UnquoteText` is the
+  one place delimiters are stripped. The opening run backs off to the longest
+  length that has a matching close, so content may begin with a quote.
+- `internal/mbl/interpreter/interpreter.go` — both unwrapping sites now call
+  `lexer.UnquoteText` instead of stripping a single character per side.
+
+This also fixed a live bug: the old code stripped exactly one quote per side
+regardless of the opening run, so `""He said "Hello" to me""` evaluated to
+`"He said "Hello" to me"` with the delimiters leaking into the value. The lexer
+tests only asserted raw token text, so nothing caught it. New tests assert
+values, not just token text: `internal/mbl/lexer/string_literal_test.go` and
+`internal/mbl/interpreter/string_literal_test.go` (including storage round-trip).
+
+Spec updated: `docs/amorphdb_design.md` (Text type, Text literals) and
+`docs/mbl_reference.md` (Types table). Dated `amorphdb_design_*` archive copies
+were deliberately left untouched.
+
+---
+
+## Step 18 — Interpolating text literal `~"…{path}…"~`
+
+Status: `DONE (2026-07-29)` — user-directed language change, follows Step 17.
+
+Third text literal form, using `~` as the sigil (free since the `~` home sigil was
+removed on 2026-06-30). It scans identically to `_"…"_`, including the matching
+quote-run rule, so `~""…""~` works the same way.
+
+Design decisions, all deliberate:
+- **Paths only** between the braces. Arithmetic, calls and literals are parse
+  errors, not silent evaluation.
+- **`{{` escapes** an opening brace. An unmatched `}` is literal.
+- **Simple `"…"` stays inert** — PWA assets assign CSS as MBL strings
+  (`...assets["css/app.css"] = "body{color:red}"`), so braces must stay literal
+  there. Interpolation could not be always-on, and could not live in `_"…"_`
+  either, since JSON needs embedded quotes *and* literal braces at once.
+- **Coercion goes through `types.Concatenate`**, so an interpolated value renders
+  exactly as `&` renders it — including absorbing an Unknown as text rather than
+  making the whole literal Unknown. A test asserts the two paths agree.
+
+- `internal/mbl/lexer/tokens.go` — new `INTERP_TEXT` token type.
+- `internal/mbl/lexer/lexer.go` — `readExtendedString`/`findExtendedClose`
+  generalised to `readSigilString`/`findSigilClose` taking the sigil byte; the
+  pre-switch lookahead now accepts `_` and `~`; `UnquoteText` accepts both sigils
+  and requires the closing sigil to match the opening one.
+- `internal/mbl/parser/ast.go` — `InterpolatedStringExpression` + `InterpolationPart`.
+- `internal/mbl/parser/parser.go` — `parseInterpolatedString` splits the body;
+  `parseInterpolationPath` runs each placeholder through a nested parser, so
+  placeholders accept exactly the path syntax the language does (including
+  leading-dot scope ascent) and anything not a `PathExpression` is rejected.
+- `internal/mbl/interpreter/interpreter.go` — `evalInterpolatedString`.
+
+Tests: `internal/mbl/lexer/interpolated_string_test.go` (tokenizing, sigil
+non-cross-termination, unterminated, bare `~`) and
+`internal/mbl/interpreter/interpolated_string_test.go` (values, multi-line,
+storage round-trip, coercion-matches-`&`, and the path-only rejections).

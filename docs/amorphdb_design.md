@@ -120,12 +120,28 @@ Text, Number, Boolean, Time, Money, Picture, Reference, Procedure, Watcher, Embe
 
 - Text
   UTF-8 dynamic character string.
-  In MBL, a text literal is specified between one or more adjacent quote (") characters.
-  The number of adjacent quotes that opens a text literal value are required to end it.
+  In MBL, a text literal is written between quote (") characters. A simple literal
+  opens and closes with a single quote and cannot itself contain a quote.
+  To embed quote characters, use the extended form: an underscore then one or more
+  adjacent quotes to open (_"), and the same number of quotes then an underscore to
+  close ("_). Because the terminator is a quote run followed by an underscore, quotes
+  inside the text need no escaping; lengthen the run only when the text itself
+  contains a quote-run-then-underscore sequence.
+  A third form interpolates: a tilde then one or more adjacent quotes to open (~"),
+  and the same number of quotes then a tilde to close ("~). Inside it, {path} is
+  replaced by the value at that path, rendered exactly as the & operator would
+  render it. Only paths may appear between the braces — no arithmetic, calls, or
+  other expressions — and {{ produces a literal opening brace. A closing brace with
+  no matching open is literal. An unresolved path is absorbed as its Unknown text
+  rather than making the whole literal Unknown, again matching &.
+  Text literals of every form may span multiple lines; a newline is part of the text.
   Only visible characters (including whitespace, newlines, etc) are allowed.
   Examples:
   - "Hello World"
-  - ""I said "Hello World", didn't I?""
+  - _"I said "Hello World", didn't I?"_
+  - _""Text containing a "_ sequence""_
+  - ~"my name is {my.user.name} and I like that name"~
+  - ~"a literal {{ brace, and the order total is {my.order.total}"~
 - Number
   The largest floating point number supported by the processor architecture.
   In MBL, literal numbers may not begin or end with a period (.), may begin with a negation (-), and may include underscore characters (though they are ignored--only for visual clarity purposes).
@@ -385,11 +401,24 @@ early. This allows commenting out code that itself contains comments.
     @2026-01-15 14:30:22           # Including seconds
     @2026-01-15 14:30:22.500       # Including milliseconds
 
-**Text literals** are enclosed in quotes. Use multiple quotes to include quotes in the text:
+**Text literals** are enclosed in quotes. Use the extended `_"…"_` form to include
+quotes in the text, and the interpolating `~"…"~` form to substitute paths:
 
-    "Hello"                        # Simple string
-    ""He said "Hello" to me""      # Includes quotes
-    """Complex "quoted" text"""    # More quotes
+    "Hello"                          # Simple string
+    _"He said "Hello" to me"_        # Includes quotes
+    _""Complex "quoted" text""_      # Doubled delimiter run
+    _""Contains a "_ sequence""_     # Lengthen the run to guard "_ in the text
+    ~"Hello {my.user.name}"~         # Interpolates the value at that path
+    ~"a literal {{ brace"~           # {{ escapes an opening brace
+
+All three forms may span multiple lines, which makes the interpolating form
+convenient for long templates:
+
+    my.letter = ~"Dear {my.user.name},
+
+    Your order {my.order.id} has shipped.
+
+    Thanks!"~
 
 **Operators** include arithmetic, comparison, logical, and concatenation operators:
 

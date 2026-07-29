@@ -236,8 +236,8 @@ func TestSection3_1_8_Text_Simple(t *testing.T) {
 }
 
 func TestSection3_1_9_Text_MultiQuote(t *testing.T) {
-	// Test case 3.1.9: Text - multi-quote - ""He said "Hello"""
-	input := `""He said "Hello"""`
+	// Test case 3.1.9: Text embedding quotes - _"He said "Hello""_
+	input := `_"He said "Hello""_`
 
 	l := New(input)
 	tok := l.NextToken()
@@ -248,11 +248,18 @@ func TestSection3_1_9_Text_MultiQuote(t *testing.T) {
 	if tok.Literal != input {
 		t.Fatalf("test 3.1.9 - literal wrong. expected=%q, got=%q", input, tok.Literal)
 	}
+	value, ok := UnquoteText(tok.Literal)
+	if !ok {
+		t.Fatalf("test 3.1.9 - UnquoteText did not recognise %q", tok.Literal)
+	}
+	if want := `He said "Hello"`; value != want {
+		t.Fatalf("test 3.1.9 - value wrong. expected=%q, got=%q", want, value)
+	}
 }
 
 func TestSection3_1_10_Text_TripleQuote(t *testing.T) {
-	// Test case 3.1.10: Text - triple-quote - """Complex "quoted" text"""
-	input := `"""Complex "quoted" text"""`
+	// Test case 3.1.10: Text with a doubled delimiter run - _""Complex "quoted" text""_
+	input := `_""Complex "quoted" text""_`
 
 	l := New(input)
 	tok := l.NextToken()
@@ -262,6 +269,13 @@ func TestSection3_1_10_Text_TripleQuote(t *testing.T) {
 	}
 	if tok.Literal != input {
 		t.Fatalf("test 3.1.10 - literal wrong. expected=%q, got=%q", input, tok.Literal)
+	}
+	value, ok := UnquoteText(tok.Literal)
+	if !ok {
+		t.Fatalf("test 3.1.10 - UnquoteText did not recognise %q", tok.Literal)
+	}
+	if want := `Complex "quoted" text`; value != want {
+		t.Fatalf("test 3.1.10 - value wrong. expected=%q, got=%q", want, value)
 	}
 }
 
@@ -515,18 +529,25 @@ func TestSection3_1_20_Comment_vs_Unknown(t *testing.T) {
 }
 
 func TestSection3_1_21_References(t *testing.T) {
-	// Test case 3.1.21: References - ""world.agent.kalevo"" (double-quoted path tokens)
-	input := `""world.agent.kalevo""`
+	// Test case 3.1.21: References - a quoted path is text, not a reference.
+	input := `"world.agent.kalevo"`
 
 	l := New(input)
 	tok := l.NextToken()
 
-	// References should be tokenized as TEXT tokens with double quotes
+	// A quoted path tokenizes as TEXT — quoting does not create a reference.
 	if tok.Type != TEXT {
 		t.Fatalf("test 3.1.21 - token type wrong. expected=TEXT, got=%v", tok.Type)
 	}
 	if tok.Literal != input {
 		t.Fatalf("test 3.1.21 - literal wrong. expected=%q, got=%q", input, tok.Literal)
+	}
+	value, ok := UnquoteText(tok.Literal)
+	if !ok {
+		t.Fatalf("test 3.1.21 - UnquoteText did not recognise %q", tok.Literal)
+	}
+	if want := `world.agent.kalevo`; value != want {
+		t.Fatalf("test 3.1.21 - value wrong. expected=%q, got=%q", want, value)
 	}
 }
 

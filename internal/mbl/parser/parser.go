@@ -96,6 +96,7 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(lexer.MY, p.parseMyExpression)
 	p.registerPrefix(lexer.WORLD, p.parseWorldExpression)
 	p.registerPrefix(lexer.TEXT, p.parseStringLiteral)
+	p.registerPrefix(lexer.INTERP_TEXT, p.parseInterpolatedString)
 	p.registerPrefix(lexer.NUMBER, p.parseNumberLiteral)
 	p.registerPrefix(lexer.TIME, p.parseTimeLiteral)
 	p.registerPrefix(lexer.MONEY, p.parseMoneyLiteral)
@@ -1624,6 +1625,91 @@ func (p *Parser) parseStringLiteral() Expression {
 		Token: p.currentToken,
 		Value: p.currentToken.Literal,
 	}
+}
+
+// parseInterpolatedString parses an interpolating text literal, ~"…{my.path}…"~ ,
+// splitting the body into literal runs and paths. Only paths are permitted
+// between the braces; {{ produces a literal brace.
+func (p *Parser) parseInterpolatedString() Expression {
+	tok := p.currentToken
+	body, ok := lexer.UnquoteText(tok.Literal)
+	if !ok {
+		p.errors = append(p.errors, fmt.Sprintf(
+			"malformed interpolating text literal %q at line %d", tok.Literal, tok.Line))
+		return &InterpolatedStringExpression{Token: tok}
+	}
+
+	expr := &InterpolatedStringExpression{Token: tok}
+	var literal strings.Builder
+
+	for i := 0; i < len(body); {
+		switch {
+		case strings.HasPrefix(body[i:], "{{"):
+			// Escape for a literal brace.
+			literal.WriteByte('{')
+			i += 2
+
+		case body[i] == '{':
+			end := strings.IndexByte(body[i:], '}')
+			if end < 0 {
+				p.errors = append(p.errors, fmt.Sprintf(
+					"unclosed { in interpolating text literal at line %d", tok.Line))
+				return expr
+			}
+			source := strings.TrimSpace(body[i+1 : i+end])
+			if source == "" {
+				p.errors = append(p.errors, fmt.Sprintf(
+					"empty {} in interpolating text literal at line %d", tok.Line))
+				return expr
+			}
+
+			path := p.parseInterpolationPath(source, tok)
+			if path == nil {
+				return expr
+			}
+			if literal.Len() > 0 {
+				expr.Parts = append(expr.Parts, InterpolationPart{Literal: literal.String()})
+				literal.Reset()
+			}
+			expr.Parts = append(expr.Parts, InterpolationPart{Path: path})
+			i += end + 1
+
+		default:
+			literal.WriteByte(body[i])
+			i++
+		}
+	}
+
+	if literal.Len() > 0 {
+		expr.Parts = append(expr.Parts, InterpolationPart{Literal: literal.String()})
+	}
+	return expr
+}
+
+// parseInterpolationPath parses the contents of a {…} placeholder. The source is
+// run through a nested parser so placeholders accept exactly the path syntax the
+// rest of the language does, including leading-dot scope ascent. Anything that
+// is not a path is rejected — interpolation is deliberately path-only.
+func (p *Parser) parseInterpolationPath(source string, tok lexer.Token) Expression {
+	sub := New(lexer.New(source))
+	expr := sub.parseExpression(LOWEST)
+
+	if len(sub.errors) != 0 || expr == nil {
+		p.errors = append(p.errors, fmt.Sprintf(
+			"invalid path %q in interpolating text literal at line %d", source, tok.Line))
+		return nil
+	}
+	if sub.peekToken.Type != lexer.EOF && sub.currentToken.Type != lexer.EOF {
+		p.errors = append(p.errors, fmt.Sprintf(
+			"invalid path %q in interpolating text literal at line %d", source, tok.Line))
+		return nil
+	}
+	if _, ok := expr.(*PathExpression); !ok {
+		p.errors = append(p.errors, fmt.Sprintf(
+			"only paths may be interpolated, got %q at line %d", source, tok.Line))
+		return nil
+	}
+	return expr
 }
 
 // parseNumberLiteral parses numeric literals

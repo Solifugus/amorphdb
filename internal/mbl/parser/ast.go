@@ -181,6 +181,34 @@ func (le *LiteralExpression) String() string {
 func (le *LiteralExpression) TokenLiteral() string { return le.Token.Literal }
 func (le *LiteralExpression) Position() (int, int) { return le.Token.Line, le.Token.Column }
 
+// InterpolationPart is one piece of an interpolating text literal: either a run
+// of literal text or a path to evaluate. Exactly one of the two is set — Path is
+// nil for literal chunks.
+type InterpolationPart struct {
+	Literal string
+	Path    Expression
+}
+
+// InterpolatedStringExpression represents an interpolating text literal,
+// ~"…{my.path}…"~ . The parts are evaluated in order and concatenated using the
+// same coercion as the & operator. Only paths may appear between the braces; a
+// literal brace is written as {{.
+type InterpolatedStringExpression struct {
+	Token lexer.Token
+	Parts []InterpolationPart
+}
+
+func (ise *InterpolatedStringExpression) expressionNode() {}
+
+func (ise *InterpolatedStringExpression) String() string {
+	return ise.Token.Literal
+}
+
+func (ise *InterpolatedStringExpression) TokenLiteral() string { return ise.Token.Literal }
+func (ise *InterpolatedStringExpression) Position() (int, int) {
+	return ise.Token.Line, ise.Token.Column
+}
+
 // ReferenceExpression represents a reference to a path, not its value (e.g., (link)world.market.price)
 type ReferenceExpression struct {
 	Token lexer.Token // The LINK token

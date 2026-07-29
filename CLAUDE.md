@@ -154,6 +154,10 @@ Use this as a quick reference. The spec documents have full detail.
 - `unknown` / `unknown("reason")` syntax
 - `..append()` and `..prepend()` collection operations
 - `&` string concatenation operator
+- Text literal forms: simple `"…"`, extended `_"…"_` (embeds quotes, matching
+  quote runs), and interpolating `~"…{my.path}…"~` (paths only, `{{` escapes a
+  brace, coercion identical to `&`). All three may span multiple lines. The old
+  bare multi-quote form (`""…""`) is gone — `""` is the empty string.
 - `pass` statement, `break` statement, block comments
 - Alternate watcher syntax (`watch name(paths):`)
 - `my.computer.run()` shell execution

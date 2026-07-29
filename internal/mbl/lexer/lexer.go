@@ -97,6 +97,25 @@ func (l *Lexer) NextToken() Token {
 	tok.Column = l.column
 	tok.Position = l.position
 
+	// Sigil-delimited text literals: _"…"_ (extended) and ~"…"~ (interpolating).
+	// Checked ahead of the main switch because '_' otherwise begins an
+	// identifier, so the decision needs one char of lookahead.
+	if (l.ch == '_' || l.ch == '~') && l.peekChar() == '"' {
+		sigil := byte(l.ch)
+		literal, terminated := l.readSigilString(sigil)
+		switch {
+		case !terminated:
+			tok.Type = ILLEGAL
+		case sigil == '~':
+			tok.Type = INTERP_TEXT
+		default:
+			tok.Type = TEXT
+		}
+		tok.Literal = literal
+		l.previousToken = tok.Type
+		return tok
+	}
+
 	switch l.ch {
 	case 0:
 		// Handle final DEDENT tokens at EOF
@@ -127,16 +146,13 @@ func (l *Lexer) NextToken() Token {
 		}
 
 	case '"':
-		stringLiteral := l.readString()
-		// Check if string is properly terminated by checking if it ends with quote(s)
-		if !strings.HasSuffix(stringLiteral, "\"") {
-			// Unterminated string
-			tok.Type = ILLEGAL
-			tok.Literal = stringLiteral
-		} else {
+		stringLiteral, terminated := l.readString()
+		if terminated {
 			tok.Type = TEXT
-			tok.Literal = stringLiteral
+		} else {
+			tok.Type = ILLEGAL
 		}
+		tok.Literal = stringLiteral
 
 	case '@':
 		tok.Type = TIME
@@ -517,60 +533,129 @@ func (l *Lexer) readNumber() string {
 	return result.String()
 }
 
-// readString reads a quoted string with matching delimiter counting
-func (l *Lexer) readString() string {
-	const MAX_CONSECUTIVE_QUOTES = 10 // Reasonable limit for quote nesting
+// MaxConsecutiveQuotes bounds the length of the opening quote run in an
+// extended text literal, so a runaway file of quote characters cannot make the
+// lexer scan indefinitely.
+const MaxConsecutiveQuotes = 10
 
+// readString reads a simple text literal: "…". A simple literal cannot contain
+// a quote character — the first quote encountered closes it. Text that needs to
+// embed quotes uses the extended form (see readExtendedString).
+//
+// Returns the raw literal with its delimiters still attached (callers such as
+// the parser round-trip the token text) and whether it was terminated.
+func (l *Lexer) readString() (string, bool) {
 	startPos := l.position
+	l.readChar() // consume the opening quote
 
-	// Count opening quotes with safety limit
-	openQuotes := 0
-	for l.ch == '"' && openQuotes < MAX_CONSECUTIVE_QUOTES {
-		openQuotes++
-		l.readChar()
-	}
-
-	// If we hit the limit, consume remaining quotes as regular content
-	if l.ch == '"' {
-		// Too many quotes - treat as malformed, consume one quote and return
-		l.readChar()
-		return l.input[startPos:l.position]
-	}
-
-	if openQuotes == 0 {
-		return `"`
-	}
-
-	// Read until we find matching closing quotes or EOF
 	for l.ch != 0 {
 		if l.ch == '"' {
-			// Look ahead to count consecutive closing quotes with safety limit
-			lookAheadPos := l.position
-			closeQuotes := 0
+			l.readChar() // consume the closing quote
+			return l.input[startPos:l.position], true
+		}
+		l.readChar()
+	}
 
-			// Count quotes from current position with bounds checking
-			for lookAheadPos < len(l.input) && l.input[lookAheadPos] == '"' && closeQuotes < MAX_CONSECUTIVE_QUOTES {
-				closeQuotes++
-				lookAheadPos++
-			}
+	// EOF before a closing quote.
+	return l.input[startPos:l.position], false
+}
 
-			if closeQuotes >= openQuotes {
-				// Found enough closing quotes - consume all available quotes
-				for i := 0; i < closeQuotes; i++ {
-					l.readChar()
-				}
-				return l.input[startPos:l.position]
-			} else {
-				// Not enough quotes, consume one as content
+// readSigilString reads a sigil-delimited text literal, where the opening and
+// closing runs of quotes are the same length: _"…"_ , _""…""_ , and so on. The
+// sigil is '_' for the extended (literal) form and '~' for the interpolating
+// form; both scan identically. Because the terminator is a quote run followed
+// by the sigil, quote characters inside the content need no escaping — lengthen
+// the run only when the content itself contains a quote-run-then-sigil sequence.
+//
+// Returns the raw literal with its delimiters still attached and whether it was
+// terminated.
+func (l *Lexer) readSigilString(sigil byte) (string, bool) {
+	startPos := l.position
+
+	// Measure the maximal run of quotes after the opening sigil. Quotes are
+	// ASCII, so byte indexing into the input is safe.
+	runStart := startPos + 1
+	maxRun := 0
+	for runStart+maxRun < len(l.input) && l.input[runStart+maxRun] == '"' && maxRun < MaxConsecutiveQuotes {
+		maxRun++
+	}
+
+	// Take the longest opening run that actually has a matching close. The run
+	// length is the delimiter width, but the content may itself begin with
+	// quotes — in _""hi" he said"_ the opening run is one quote, not two — so a
+	// shorter run can be the correct reading. Preferring the longest keeps
+	// _""…""_ meaning a two-quote delimiter whenever that closes.
+	for openQuotes := maxRun; openQuotes >= 1; openQuotes-- {
+		if end, ok := findSigilClose(l.input, runStart+openQuotes, openQuotes, sigil); ok {
+			for l.position < end {
 				l.readChar()
 			}
-		} else {
-			l.readChar()
+			return l.input[startPos:l.position], true
 		}
 	}
 
-	// EOF reached - return what we have
-	return l.input[startPos:l.position]
+	// Unterminated — consume to EOF so the caller reports a single ILLEGAL token.
+	for l.ch != 0 {
+		l.readChar()
+	}
+	return l.input[startPos:l.position], false
+}
+
+// findSigilClose scans for the terminator of a sigil-delimited text literal: a
+// run of at least openQuotes quote characters immediately followed by the
+// sigil. Returns the byte offset just past the terminator.
+func findSigilClose(input string, from, openQuotes int, sigil byte) (int, bool) {
+	for i := from; i < len(input); {
+		if input[i] != '"' {
+			i++
+			continue
+		}
+		runEnd := i
+		for runEnd < len(input) && input[runEnd] == '"' {
+			runEnd++
+		}
+		if runEnd-i >= openQuotes && runEnd < len(input) && input[runEnd] == sigil {
+			return runEnd + 1, true
+		}
+		i = runEnd
+	}
+	return 0, false
+}
+
+// UnquoteText strips the delimiters from a TEXT token literal and returns the
+// string's value. It accepts both the simple form ("…") and the extended form
+// (_"…"_ with matching quote runs). The boolean reports whether the input was
+// recognised as a delimited text literal; when false the input is returned
+// unchanged, so callers can pass through strings that are already values.
+func UnquoteText(literal string) (string, bool) {
+	// Sigil-delimited forms: _"…"_ and ~"…"~ . This mirrors readSigilString —
+	// take the longest opening run that leaves a matching closing run — so the
+	// value agrees with the delimiter width the lexer chose. For the
+	// interpolating form the result is the raw body, still containing any {path}
+	// placeholders; splitting those is the parser's job.
+	if len(literal) >= 4 && (literal[0] == '_' || literal[0] == '~') && literal[len(literal)-1] == literal[0] {
+		maxRun := 0
+		for 1+maxRun < len(literal)-1 && literal[1+maxRun] == '"' && maxRun < MaxConsecutiveQuotes {
+			maxRun++
+		}
+		for openQuotes := maxRun; openQuotes >= 1; openQuotes-- {
+			if len(literal) < 2*openQuotes+2 {
+				continue
+			}
+			closing := literal[len(literal)-1-openQuotes : len(literal)-1]
+			if closing == strings.Repeat(`"`, openQuotes) {
+				return literal[1+openQuotes : len(literal)-1-openQuotes], true
+			}
+		}
+		return literal, false
+	}
+
+	// Simple form: "…"
+	if len(literal) >= 2 && literal[0] == '"' && literal[len(literal)-1] == '"' {
+		return literal[1 : len(literal)-1], true
+	}
+
+	return literal, false
 }
 
 // readTimeLiteral reads a time literal starting with @

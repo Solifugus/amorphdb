@@ -581,6 +581,8 @@ func (i *Interpreter) evalExpression(node parser.Expression) interface{} {
 	switch node := node.(type) {
 	case *parser.LiteralExpression:
 		return i.evalLiteral(node)
+	case *parser.InterpolatedStringExpression:
+		return i.evalInterpolatedString(node)
 	case *parser.PathExpression:
 		return i.evalPath(node)
 	case *parser.BinaryExpression:
@@ -613,6 +615,25 @@ func (i *Interpreter) evalExpression(node parser.Expression) interface{} {
 }
 
 // evalLiteral evaluates literal values
+// evalInterpolatedString evaluates a ~"…{my.path}…"~ literal by concatenating
+// its literal runs and its interpolated paths in order. Concatenation goes
+// through types.Concatenate so a path's value renders exactly as it would with
+// the & operator — including an Unknown path, which is absorbed as its text
+// rendering rather than propagating and making the whole literal Unknown.
+func (i *Interpreter) evalInterpolatedString(node *parser.InterpolatedStringExpression) interface{} {
+	var result interface{} = types.Text{Value: ""}
+
+	for _, part := range node.Parts {
+		if part.Path == nil {
+			result = types.Concatenate(result, types.Text{Value: part.Literal})
+			continue
+		}
+		result = types.Concatenate(result, i.evalExpression(part.Path))
+	}
+
+	return result
+}
+
 func (i *Interpreter) evalLiteral(node *parser.LiteralExpression) interface{} {
 	if node.Value != nil {
 		// Special case: intercept 'unknown' literals in catch/else context
@@ -640,9 +661,9 @@ func (i *Interpreter) evalLiteral(node *parser.LiteralExpression) interface{} {
 		return types.Number{Value: num}
 	}
 
-	// Strings (remove quotes)
-	if len(literal) >= 2 && literal[0] == '"' && literal[len(literal)-1] == '"' {
-		return types.Text{Value: literal[1 : len(literal)-1]}
+	// Strings (remove delimiters) — simple ("…") and extended (_"…"_) forms
+	if value, ok := lexer.UnquoteText(literal); ok {
+		return types.Text{Value: value}
 	}
 
 	// Booleans
@@ -3950,11 +3971,9 @@ func convertToMBLType(value interface{}) interface{} {
 			}
 			return types.Unknown{Reason: reason}
 		}
-		// Remove quotes if they exist (in case parser stored raw token)
-		s := v
-		if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-			s = s[1 : len(s)-1]
-		}
+		// Remove delimiters if they exist (in case parser stored raw token).
+		// Handles both the simple form ("…") and the extended form (_"…"_).
+		s, _ := lexer.UnquoteText(v)
 		return types.Text{Value: s}
 	case bool:
 		return types.Boolean{Value: v}

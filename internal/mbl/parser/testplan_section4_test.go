@@ -299,16 +299,16 @@ func TestSection4_1_18_MetaAttributeAccess(t *testing.T) {
 }
 
 func TestSection4_1_19_InstanceMetaInBrackets(t *testing.T) {
-	input := "result = my.log[@agent = \"\"world.agent.kalevo\"\"]"
+	input := "result = my.log[@agent = \"world.agent.kalevo\"]"
 	program, errors := parseProgram(input)
 
 	if len(errors) != 0 {
 		t.Fatalf("parser errors: %v", errors)
 	}
 
-	// Should parse instance meta filter with reference syntax
+	// Should parse instance meta filter with a quoted agent path
 	checkAST(t, program, "BracketFilterExpression", "@agent")
-	checkAST(t, program, "BracketFilterExpression", "\"\"world.agent.kalevo\"\"")
+	checkAST(t, program, "BracketFilterExpression", "\"world.agent.kalevo\"")
 }
 
 // ============================================================================

@@ -215,8 +215,10 @@ func TestQuotedStrings(t *testing.T) {
 		expected string
 	}{
 		{`"hello"`, `"hello"`},
-		{`""she said "hi"""`, `""she said "hi"""`},
-		{`"""triple quoted"""`, `"""triple quoted"""`},
+		// Text containing quotes uses the extended form _"…"_ ; the bare
+		// multi-quote form ("" … "") is no longer a single literal.
+		{`_"she said "hi""_`, `_"she said "hi""_`},
+		{`_""triple quoted""_`, `_""triple quoted""_`},
 		{`"multi
 line
 string"`, `"multi

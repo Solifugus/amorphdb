@@ -93,7 +93,7 @@ x: procedure(n): return n * 2   # Definition — introduces a callable
 
 | Type | Literal | Notes |
 |---|---|---|
-| Text | `"Hello"` | UTF-8. Use more adjacent quotes at each end to embed inner quotes: `""He said "hi" loudly.""` |
+| Text | `"Hello"` | UTF-8. A simple literal cannot contain a quote. To embed quotes use the extended form `_"…"_`: `_"He said "hi" loudly."_`. Lengthen the quote run on both ends when the text itself contains `"_`: `_""a "_ sequence""_`. To interpolate, use `~"…"~`: `~"Hello {my.user.name}"~` — paths only, `{{` for a literal brace. All forms may span multiple lines. |
 | Number | `42`, `3.14`, `1_000_000` | Largest float the processor supports |
 | Boolean | `true`, `false` | |
 | Time | `@2026-01-15 14:30:22.500` | UNIX time in UTC |

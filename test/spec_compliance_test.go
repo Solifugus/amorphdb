@@ -659,9 +659,9 @@ func TestSpecCompliance_AdditionalSyntax(t *testing.T) {
 		},
 		{
 			name:     "old double-quote reference",
-			input:    `""world.foo""`,
+			input:    `"world.foo"`,
 			shouldFail: false, // Should be string literal
-			reason:   "double-quotes should be string, not reference",
+			reason:   "a quoted path should be text, not a reference",
 		},
 	}
 

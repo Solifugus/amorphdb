@@ -13,11 +13,12 @@ const (
 	NEWLINE
 
 	// Identifiers and literals
-	IDENT  // bare words
-	TEXT   // "quoted strings"
-	NUMBER // 123, 123.456, 1.23e-4
-	TIME   // @2026-02-01, @2026-02-01 15:30:00
-	MONEY  // ¤19.95 USD
+	IDENT       // bare words
+	TEXT        // "quoted strings", _"extended "quoted" strings"_
+	INTERP_TEXT // ~"interpolating {my.path} strings"~
+	NUMBER      // 123, 123.456, 1.23e-4
+	TIME        // @2026-02-01, @2026-02-01 15:30:00
+	MONEY       // ¤19.95 USD
 
 	// Keywords
 	IF
@@ -123,6 +124,8 @@ func (t TokenType) String() string {
 		return "IDENT"
 	case TEXT:
 		return "TEXT"
+	case INTERP_TEXT:
+		return "INTERP_TEXT"
 	case NUMBER:
 		return "NUMBER"
 	case TIME:
