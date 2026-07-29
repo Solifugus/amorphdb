@@ -787,22 +787,22 @@ grep -l "asset()" docs/pending_code_changes.md
 
 | Step | Description | Phase | Status |
 |---|---|---|---|
-| 1 | Replace embed() with asset() constructor | Terminology | TODO |
-| 2 | Record literal assignment | MBL Language | TODO |
-| 3 | Recursive assignment | MBL Language | TODO |
-| 4 | Same-line definitions | MBL Language | TODO |
-| 5 | Projection syntax | MBL Language | TODO |
-| 6 | Embed keyword in record bodies | MBL Language | TODO |
-| 7 | REPL auto-inferred display and hints | REPL | TODO |
-| 8 | XML import and export | File I/O | TODO |
-| 9 | ARI fixed-width file import | File I/O | TODO |
-| 10 | Path directory data structure | Mesh Distribution | TODO |
-| 11 | Subscription registry data structure | Mesh Distribution | TODO |
-| 12 | Write authority assignment and promotion | Mesh Distribution | TODO |
-| 13 | Subscription-based replication | Mesh Distribution | TODO |
-| 14 | Cutover: enable subscription model | Mesh Distribution | TODO |
-| 15 | Update status messages and CLI output | Cleanup | TODO |
-| 16 | Archive old specs, verify current specs | Cleanup | TODO |
+| 1 | Replace embed() with asset() constructor | Terminology | DONE (2026-04-02) |
+| 2 | Record literal assignment | MBL Language | DONE (2026-04-02) |
+| 3 | Recursive assignment | MBL Language | DONE (2026-04-02) |
+| 4 | Same-line definitions | MBL Language | DONE (2026-04-02) |
+| 5 | Projection syntax | MBL Language | DONE (2026-04-02) |
+| 6 | Embed keyword in record bodies | MBL Language | DONE (2026-04-02) |
+| 7 | REPL auto-inferred display and hints | REPL | DONE (2026-04-02) |
+| 8 | XML import and export | File I/O | DONE (2026-04-02) |
+| 9 | ARI fixed-width file import | File I/O | DONE (2026-04-02) |
+| 10 | Path directory data structure | Mesh Distribution | DONE (2026-04-02) |
+| 11 | Subscription registry data structure | Mesh Distribution | DONE (2026-04-02) |
+| 12 | Write authority assignment and promotion | Mesh Distribution | DONE (2026-04-02) |
+| 13 | Subscription-based replication | Mesh Distribution | DONE (2026-04-02) |
+| 14 | Cutover: enable subscription model | Mesh Distribution | DONE (2026-04-02) |
+| 15 | Update status messages and CLI output | Cleanup | DONE (2026-04-02) |
+| 16 | Archive old specs, verify current specs | Cleanup | DONE (2026-04-02) |
 | 17 | Extended text literal syntax `_"…"_` | MBL Language | DONE (2026-07-29) |
 | 18 | Interpolating text literal `~"…{path}…"~` | MBL Language | DONE (2026-07-29) |
 | 19 | Make time literals produce a real `types.Time` | Date/Time | DONE (2026-07-29) |

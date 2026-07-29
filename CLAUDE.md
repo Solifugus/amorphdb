@@ -77,8 +77,8 @@ amorphdb/
 │   ├── temporal/       # temporal query support (in progress)
 │   ├── types/          # type system (types, coerce, compare, path, serialize, agent)
 │   ├── watcher/        # watcher engine (engine, heartbeat integration)
-│   └── zone/           # zone/hash-ring (hashring, split) — BEING REPLACED
-│                       #   see Data Distribution Model in amorphdb_design.md
+│   └── zone_deprecated/ # old zone/hash-ring — SUPERSEDED by the subscription
+│                       #   model; residual imports only, do not add more
 ├── pkg/
 │   └── client/         # public client library
 ├── docs/               # specification documents — DO NOT MODIFY WITHOUT INSTRUCTION
@@ -118,7 +118,7 @@ amorphdb/
 - MBL lives under `internal/mbl/` with three sub-packages: `lexer`, `parser`, `interpreter`
 - There is a separate `internal/interpreter/` package for bridge scope — distinct from `internal/mbl/interpreter/`
 - The `my.computer` library is fully specified in `amorphdb_design.md` (The Computer section). There is no separate library spec file.
-- `internal/zone/` contains the hash ring and zone split logic — this package is being replaced by the new subscription-based distribution model. Do not add new dependencies on it.
+- `internal/zone_deprecated/` is the old hash ring and zone split logic. The cutover to the subscription model completed on 2026-04-02 (DEVPLAN Step 14) and the package was renamed. Three files still import it — `internal/mesh/replication.go`, `internal/mbl/interpreter/coordinator.go`, and `internal/mesh/replication_test.go` — and that residue is not yet cleaned up. Do not add new dependencies on it.
 - `internal/temporal/` exists but appears empty or in-progress
 - `web/boilerplate/` contains the PWA client-side framework. The test copy at `web/boilerplate/test/amorphdb-pwa.js` must stay in sync with `web/boilerplate/amorphdb-pwa.js`.
 - Test files are spread across `test/integration/`, `tests/integration/`, `tests/phase3/`, and `tests/unit/` — be aware of both locations
@@ -158,6 +158,13 @@ Use this as a quick reference. The spec documents have full detail.
   quote runs), and interpolating `~"…{my.path}…"~` (paths only, `{{` escapes a
   brace, coercion identical to `&`). All three may span multiple lines. The old
   bare multi-quote form (`""…""`) is gone — `""` is the empty string.
+- Time literals produce a real `types.Time` carrying the precision supplied
+  (`@2026`, `@2026-01`, `@2026-01-15`, `… 14:30`, `… 14:30:22`, `… .500`).
+  Comparison works; `now()` is UTC at subsecond precision; times persist to
+  storage with precision intact. Text coercion drops the `@` and shows only the
+  components specified, so `@2026-01-15` renders `2026-01-15`, never
+  `2026-01-15 00:00:00`. Time *formatting*, part access, arithmetic, durations
+  and recurrence are Phase 6 Steps 20–24 and are NOT yet built.
 - `pass` statement, `break` statement, block comments
 - Alternate watcher syntax (`watch name(paths):`)
 - `my.computer.run()` shell execution
@@ -209,12 +216,15 @@ Use this as a quick reference. The spec documents have full detail.
 - Examples library
 - LLM fine-tuning
 
-### ⚠️ Architecture Change In Progress
-- **Mesh distribution model:** The zone/consistent-hashing model in the current
-  code is being replaced by a subscription-based model with explicit write
-  authority per path. The spec reflects the new model. The code still reflects
-  the old model. **Do not build new features that depend on the zone model.**
-  See DEVPLAN.md for the migration plan.
+### ⚠️ Architecture Change — cutover done, residue remains
+- **Mesh distribution model:** The subscription-based model with explicit write
+  authority per path is **live and the default** — the cutover completed
+  2026-04-02 (DEVPLAN Steps 10–14), and the old package was renamed to
+  `internal/zone_deprecated/`. Spec and code now agree on the model. What remains
+  is cleanup: `internal/mesh/replication.go` and
+  `internal/mbl/interpreter/coordinator.go` still import the deprecated package,
+  and some legacy zone-based tests survive. **Do not build new features that
+  depend on the zone model.**
 
 ---
 
