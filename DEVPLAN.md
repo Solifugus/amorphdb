@@ -813,6 +813,8 @@ grep -l "asset()" docs/pending_code_changes.md
 | 23 | Calendar adjusters | Date/Time | TODO |
 | 24 | Recurrence rules (RFC 5545 RRULE) | Date/Time | TODO |
 | 25 | As-of temporal queries `path[@time]` | Temporal | DONE (2026-07-29) |
+| 28 | `(quietly)` assignment: fix lost write + suppression | Defect | DONE (2026-07-29) |
+| 29 | Watcher cascade collection is dead — needs decision | Defect | TODO |
 | 26 | Comparison and range temporal queries | Temporal | TODO |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | TODO |
 
@@ -1650,3 +1652,73 @@ x = my.bal.@time`                  // types.Time, close to now()
 ```bash
 go test ./internal/mbl/... && go test ./...
 ```
+
+
+---
+
+### Step 28 — `(quietly)` assignment: lost write and suppression
+
+**Status:** DONE (completed: 2026-07-29)
+
+`(quietly)` had two problems, and the first was far worse than the second.
+
+**1. The write was silently lost.** `parseAssignmentStatement` recognised
+modifiers only after `:` (the definition form), never after `=`. So
+`my.status = (quietly) "overlimit"` fell through to the QUIETLY *prefix* parser,
+which built a `BinaryExpression` with a space operator. That evaluated to
+`Unknown("unsupported binary operator:  ")` and **nothing was written** — the
+path did not exist afterwards. The documented guard against watcher loops was
+silently discarding data.
+
+Fixed by recognising a leading QUIETLY token after `=`. `AssignmentStatement`
+gained `ModifierAfterAssign` so `String()` round-trips to the syntax actually
+written (`my.x = (quietly) 5`) rather than the definition form.
+
+Note `TestSection4_2_4_QuietAssignment` had been *passing* — it asserted the
+rendered AST, and the broken binary expression happened to render the same text.
+A test can pass by reproducing the bug.
+
+**2. Suppression.** `PendingWrite` gained a `quiet` flag, set from the modifier;
+`GetWrittenPaths` omits quiet writes. That function has exactly one caller — the
+watcher engine, deciding what fires next tick — so a quiet write commits normally
+but does not announce itself.
+
+---
+
+### Step 29 — Watcher cascade collection is dead (needs a decision)
+
+**Status:** TODO — behavioural change, needs sign-off before work starts.
+
+**Discovered:** 2026-07-29 while verifying Step 28.
+
+`ExecuteWatcher` (`internal/watcher/engine.go:389`) runs the watcher body via
+`interp.Interpret(program)` and *then* calls `interp.GetWrittenPaths()` to
+populate `pendingCascadePaths`. But `Interpret` calls `flushBuffer`, which clears
+`commitBuffer.writes` (both the coordinator branch and `flushBufferDirect`). The
+buffer is therefore always empty by the time it is read, `pendingCascadePaths`
+never fills, and `CommitCascadeChanges` records nothing.
+
+**Consequence:** a watcher writing to a path it observes does **not** currently
+re-trigger. Verified directly: a watcher whose body is `my.data = 99`, watching
+`my.data`, fires exactly once — identically to one that writes nothing.
+
+So the infinite-loop hazard `(quietly)` guards against cannot occur today,
+because cascade does not work at all. Step 28's suppression is correct but not
+yet reachable in practice.
+
+**Why this needs a decision rather than a fix:** repairing collection *enables*
+cascade for every existing watcher. Any watcher that writes to a path it watches
+would begin looping — which is exactly the behaviour `(quietly)` exists to
+control, and that is now available, but existing MBL would need auditing first.
+
+**Options:**
+1. Capture written paths before the flush (snapshot inside `Interpret`, or have
+   `flushBuffer` hand them back). Restores the specified cascade semantics.
+   Audit existing watchers for self-writes first.
+2. Leave cascade disabled and remove the dead code, treating single-shot
+   triggering as the intended model. Contradicts the spec's cascade section.
+
+**Scope when approved:** `internal/watcher/engine.go`,
+`internal/mbl/interpreter/interpreter.go`. Needs an end-to-end test that a loud
+self-write re-triggers and a `(quietly)` self-write does not — the pair that
+proves both halves.

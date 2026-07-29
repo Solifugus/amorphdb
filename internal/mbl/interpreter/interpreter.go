@@ -38,6 +38,12 @@ type PendingWrite struct {
 	path   []string
 	value  storage.Value
 	author uint64
+	// quiet marks a write made with the (quietly) modifier. The write still
+	// commits normally; it is simply withheld from GetWrittenPaths, which the
+	// watcher engine uses to decide what triggers watchers on the next tick.
+	// This is what stops a watcher that writes to a path it observes from
+	// re-triggering itself forever.
+	quiet bool
 }
 
 // DefaultCommitBufferLimit is the default limit for writes per execution
@@ -232,10 +238,19 @@ func (i *Interpreter) Errors() []string {
 	return i.errors
 }
 
-// GetWrittenPaths returns the list of paths that have been written in the current commit buffer
+// GetWrittenPaths returns the paths written in the current commit buffer that
+// should trigger watchers. Writes made with the (quietly) modifier are excluded:
+// they commit like any other write, but do not announce themselves.
+//
+// The watcher engine is the only caller, and it uses the result solely to decide
+// what fires next tick — so omitting a path suppresses triggering without
+// affecting what is actually stored.
 func (i *Interpreter) GetWrittenPaths() [][]string {
 	var paths [][]string
 	for _, write := range i.commitBuffer.writes {
+		if write.quiet {
+			continue
+		}
 		paths = append(paths, write.path)
 	}
 	return paths
@@ -285,6 +300,12 @@ func (i *Interpreter) ExecuteStatement(input string) (interface{}, error) {
 
 // stageWrite adds a write operation to the commit buffer
 func (i *Interpreter) stageWrite(path []string, value storage.Value, author uint64) interface{} {
+	return i.stageWriteQuietly(path, value, author, false)
+}
+
+// stageWriteQuietly stages a write, optionally marking it as made with the
+// (quietly) modifier so it does not trigger watchers. See PendingWrite.quiet.
+func (i *Interpreter) stageWriteQuietly(path []string, value storage.Value, author uint64, quiet bool) interface{} {
 	// Check buffer limit
 	if len(i.commitBuffer.writes) >= i.commitBuffer.limit {
 		return types.Unknown{Reason: "commit buffer exceeded"}
@@ -295,6 +316,7 @@ func (i *Interpreter) stageWrite(path []string, value storage.Value, author uint
 		path:   path,
 		value:  value,
 		author: author,
+		quiet:  quiet,
 	}
 
 	i.commitBuffer.writes = append(i.commitBuffer.writes, pendingWrite)
@@ -1436,8 +1458,12 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 			return types.Unknown{Reason: fmt.Sprintf("failed to convert value for storage: %v", err)}
 		}
 
-		// Stage write for batched commit instead of immediate write
-		result := i.stageWrite(path, storageValue, i.scope.agent)
+		// Stage write for batched commit instead of immediate write. A
+		// (quietly) assignment commits normally but is withheld from the
+		// watcher engine's trigger list — the documented guard against a
+		// watcher that writes to a path it observes re-triggering itself.
+		quiet := node.Modifier != nil && *node.Modifier == "quietly"
+		result := i.stageWriteQuietly(path, storageValue, i.scope.agent, quiet)
 		if result != nil {
 			if unknown, ok := result.(types.Unknown); ok {
 				return unknown

@@ -734,6 +734,18 @@ func (p *Parser) parseAssignmentStatement() Statement {
 	p.nextToken() // consume the ASSIGN token
 	p.nextToken() // move to the value expression
 
+	// A modifier may precede the value in an assignment: my.x = (quietly) 5.
+	// Only the definition form (my.x: (quietly) 5) was handled above, so without
+	// this the QUIETLY prefix parser builds a bogus binary expression whose
+	// operator is a space, the assignment evaluates to Unknown, and the write is
+	// silently lost.
+	if p.currentToken.Type == lexer.QUIETLY {
+		quietly := "quietly"
+		stmt.Modifier = &quietly
+		stmt.ModifierAfterAssign = true
+		p.nextToken() // move past the modifier to the value itself
+	}
+
 	stmt.Value = p.parseExpression(LOWEST)
 
 	// Consume optional semicolon or newline

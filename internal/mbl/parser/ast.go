@@ -427,11 +427,19 @@ type AssignmentStatement struct {
 	Name     *PathExpression
 	Value    Expression
 	Modifier *string // Optional modifier like "copy", "link", etc.
+	// ModifierAfterAssign records that the modifier was written in the
+	// assignment form (my.x = (quietly) 5) rather than the definition form
+	// (my.x: (copy) 5). Semantics are identical; only rendering differs, and
+	// String must round-trip to the syntax the author actually wrote.
+	ModifierAfterAssign bool
 }
 
 func (as *AssignmentStatement) statementNode() {}
 
 func (as *AssignmentStatement) String() string {
+	if as.Modifier != nil && as.ModifierAfterAssign {
+		return fmt.Sprintf("%s = (%s) %s", as.Name.String(), *as.Modifier, as.Value.String())
+	}
 	modifier := ""
 	if as.Modifier != nil {
 		modifier = fmt.Sprintf(":(%s) ", *as.Modifier)
