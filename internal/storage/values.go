@@ -571,7 +571,11 @@ func (vs *ValueStore) getFixedTypeSize(typeTag byte) int {
 	case TypeNumber:
 		return 8 // float64
 	case TypeTime:
-		return 8 // int64 timestamp
+		// 8 bytes UNIX microseconds + 1 byte precision, matching
+		// types.Time.Serialize and FreeList.getFixedTypeSize. This read 8 and
+		// truncated the precision byte, so every stored time failed to
+		// deserialize ("time data must be 9 bytes").
+		return 9
 	case TypeNothing, TypeAnything:
 		return 0 // No data
 	default:

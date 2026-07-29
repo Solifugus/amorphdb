@@ -806,7 +806,7 @@ grep -l "asset()" docs/pending_code_changes.md
 | 17 | Extended text literal syntax `_"…"_` | MBL Language | DONE (2026-07-29) |
 | 18 | Interpolating text literal `~"…{path}…"~` | MBL Language | DONE (2026-07-29) |
 | 19 | Make time literals produce a real `types.Time` | Date/Time | DONE (2026-07-29) |
-| 19a | Storage cannot persist a time — BLOCKER, needs decision | Date/Time | TODO |
+| 19a | Storage cannot persist a time | Date/Time | DONE (2026-07-29) |
 | 20 | Time part access via `.@year` meta-attributes | Date/Time | TODO |
 | 21 | `format_time` / `parse_time` and timezones | Date/Time | TODO |
 | 22 | Duration type and interval syntax | Date/Time | TODO |
@@ -1027,8 +1027,15 @@ go test ./...   # must stay at the 25-package baseline
 
 ### Step 19a — Storage cannot persist a time (BLOCKER, needs a decision)
 
-**Status:** TODO — **blocks Step 20.** Needs an explicit decision before work
-starts, because the fix changes an on-disk format that Steps 19–24 all fenced off.
+**Status:** DONE (completed: 2026-07-29) — Option 1 taken: `values.go`
+`getFixedTypeSize` returns 9 for `TypeTime`. This turned out **not** to be an
+on-disk format change: `freelist.go:284`, `DeserializeTime` and
+`connection.go:768` already used 9, so `values.go` was the lone outlier and the
+two storage files disagreed with each other. Also fixed the fixture in
+`testplan_section1_test.go`, which built an 8-byte UnixNano time payload that a
+real `types.Time` never produces — that wrong fixture is what let the defect
+survive. Storage round-trip tests restored in `time_literal_test.go`. **Step 20
+is unblocked.**
 
 **Discovered:** 2026-07-29 while verifying Step 19.
 

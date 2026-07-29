@@ -198,13 +198,77 @@ func TestNowIsUTCWithValidPrecision(t *testing.T) {
 	}
 }
 
-// NOTE: there is deliberately no storage round-trip test here. Persisting a
-// time is broken by a pre-existing storage defect — internal/storage/values.go
-// getFixedTypeSize reports TypeTime as 8 bytes while types.Time.Serialize writes
-// 9 (timestamp plus the precision byte), so the precision is truncated and the
-// read fails with "time data must be 9 bytes". This predates Step 19 (verified
-// against stashed code: `my.t = now()` fails identically), and Step 19's scope
-// explicitly excludes storage serialization. See DEVPLAN Step 19a.
+// TestTimeRoundTripsThroughStorage confirms a stored time reads back as a Time
+// with its precision intact, not as text and not as an error.
+//
+// This is the regression test for DEVPLAN Step 19a: the value store allocated 8
+// bytes for TypeTime while types.Time.Serialize writes 9 (timestamp plus the
+// precision byte), so the precision was truncated and every read failed with
+// "time data must be 9 bytes".
+func TestTimeRoundTripsThroughStorage(t *testing.T) {
+	tests := []struct {
+		src  string
+		want byte
+	}{
+		{`@2026-01-15`, types.PrecisionDay},
+		{`@2026`, types.PrecisionYear},
+		{`@2026-01-15 14:30`, types.PrecisionMinute},
+		{`@2026-01-15 14:30:22`, types.PrecisionSecond},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.src, func(t *testing.T) {
+			_, interp := freshTreeInterp(t, "time-storage")
+
+			runMBL(t, interp, `my.order.date = `+tt.src)
+			res := runMBL(t, interp, `my.order.date`)
+
+			got, ok := res.(types.Time)
+			if !ok {
+				t.Fatalf("read back %T (%v), want types.Time", res, res)
+			}
+			if got.Precision != tt.want {
+				t.Errorf("precision = %d, want %d — the precision byte did not survive storage",
+					got.Precision, tt.want)
+			}
+		})
+	}
+}
+
+// TestStoredTimeCoercesCorrectly confirms the precision surviving storage
+// actually changes rendering — a stored day-precision time must not acquire a
+// 00:00:00 on the way back.
+func TestStoredTimeCoercesCorrectly(t *testing.T) {
+	_, interp := freshTreeInterp(t, "stored-coerce")
+
+	runMBL(t, interp, `my.order.date = @2026-01-15`)
+	res := runMBL(t, interp, `"shipped " & my.order.date`)
+
+	got, ok := res.(types.Text)
+	if !ok {
+		t.Fatalf("evaluated to %T (%v), want types.Text", res, res)
+	}
+	if want := `shipped 2026-01-15`; got.Value != want {
+		t.Errorf("\n  got  %q\n  want %q", got.Value, want)
+	}
+}
+
+// TestStoredNowRoundTrips covers the case that first exposed the defect:
+// now() already produced a types.Time before Step 19, and storing it failed.
+func TestStoredNowRoundTrips(t *testing.T) {
+	_, interp := freshTreeInterp(t, "stored-now")
+
+	runMBL(t, interp, `my.t = now()`)
+	res := runMBL(t, interp, `my.t`)
+
+	got, ok := res.(types.Time)
+	if !ok {
+		t.Fatalf("read back %T (%v), want types.Time", res, res)
+	}
+	if got.Precision != types.PrecisionSubsecond {
+		t.Errorf("precision = %d, want PrecisionSubsecond", got.Precision)
+	}
+}
 
 // TestMalformedTimeLiteralIsAnError is the primary failure case.
 //

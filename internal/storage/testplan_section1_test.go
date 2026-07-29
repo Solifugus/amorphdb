@@ -72,9 +72,15 @@ func TestValueStorage_AllDataTypes(t *testing.T) {
 			name: "Time",
 			value: Value{
 				TypeTag: TypeTime,
-				Data:    func() []byte {
-					buf := make([]byte, 8)
-					binary.LittleEndian.PutUint64(buf, uint64(time.Now().UnixNano()))
+				Data: func() []byte {
+					// Must match types.Time.Serialize: 8 bytes of UNIX
+					// microseconds plus 1 byte of precision. The old fixture
+					// wrote 8 bytes of UnixNano, a payload a real Time never
+					// produces, which masked the value store allocating 8 bytes
+					// for TypeTime instead of 9.
+					buf := make([]byte, 9)
+					binary.LittleEndian.PutUint64(buf[0:8], uint64(time.Now().UnixMicro()))
+					buf[8] = 6 // types.PrecisionSecond
 					return buf
 				}(),
 			},
