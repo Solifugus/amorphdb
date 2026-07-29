@@ -812,7 +812,7 @@ grep -l "asset()" docs/pending_code_changes.md
 | 22 | Duration type and interval syntax | Date/Time | TODO |
 | 23 | Calendar adjusters | Date/Time | TODO |
 | 24 | Recurrence rules (RFC 5545 RRULE) | Date/Time | TODO |
-| 25 | As-of temporal queries `path[@time]` | Temporal | TODO |
+| 25 | As-of temporal queries `path[@time]` | Temporal | DONE (2026-07-29) |
 | 26 | Comparison and range temporal queries | Temporal | TODO |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | TODO |
 
@@ -1501,7 +1501,19 @@ before a bracket can carry one). Steps 20–24 are not required.
 
 ### Step 25 — As-of temporal queries `path[@time]`
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-07-29) — `path[@time]` returns the value in
+effect at that instant. Detection happens in `evalBracketFilter` before the base
+is evaluated (evaluating it would read the current value) and routes to the
+existing `StorageTree.ReadAt`. Precision defines the instant via the new exported
+`types.TimeRange`, so `[@2026-01-15]` queries the END of that day. A time before
+the first instance returns `unknown` rather than the oldest value.
+
+Deviation from the plan, deliberate: the plan said to recognise a bracket whose
+filter "evaluates to a `types.Time`". Evaluating an arbitrary filter
+speculatively is unsafe — `=` is assignment in MBL, so evaluating `[name = "A"]`
+before knowing the bracket is temporal could perform a write. Only side-effect-
+free forms are accepted: a time literal, or a path that reads as a time. A test
+asserts a filter bracket performs no write.
 
 **Spec reference:** `docs/mbl_reference.md` §Temporal filters, §Reading history
 

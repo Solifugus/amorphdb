@@ -327,6 +327,15 @@ func timeEquals(left, right Time) bool {
 }
 
 // getTimeRange returns the start and end times for a time value at its precision level
+// TimeRange returns the window a Time covers given its precision: @2026-01-15
+// spans the whole of 15 January, @2026 spans the whole year. Exported for
+// temporal queries, where "as of @2026-01-15" means the most recent instance at
+// or before the *end* of that day — treating it as midnight would silently
+// return the previous day's value.
+func TimeRange(t Time) (start, end time.Time) {
+	return getTimeRange(t)
+}
+
 func getTimeRange(t Time) (start, end time.Time) {
 	switch t.Precision {
 	case PrecisionYear:

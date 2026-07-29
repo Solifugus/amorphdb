@@ -3059,7 +3059,87 @@ func keySelectorExpr(filters []parser.Expression) (parser.Expression, bool) {
 	return nil, false
 }
 
+// temporalSelector reports whether a bracket holds a single time, making it a
+// temporal read rather than a filter, an index or a key-selector. The comparison
+// and range forms ([<@t], [@ >= @a, @ < @b]) are Step 26 and are not recognised
+// here — they fall through to the existing filter path.
+func (i *Interpreter) temporalSelector(filters []parser.Expression) (types.Time, bool) {
+	if len(filters) != 1 {
+		return types.Time{}, false
+	}
+
+	// Only forms that are free of side effects are evaluated here, because this
+	// runs before we know the bracket is temporal. A filter such as
+	// [name = "A"] must NOT be evaluated speculatively — '=' is assignment in
+	// MBL, so evaluating it standalone could perform a write. That leaves a time
+	// literal, or a path that reads as a time.
+	switch f := filters[0].(type) {
+	case *parser.LiteralExpression:
+		if at, ok := f.Value.(types.Time); ok {
+			return at, true
+		}
+	case *parser.PathExpression:
+		if at, ok := i.evalPath(f).(types.Time); ok {
+			return at, true
+		}
+	}
+	return types.Time{}, false
+}
+
+// evalTemporalAsOf reads the value in effect at an instant, per
+// docs/mbl_reference.md: "As of this date (most recent at or before)".
+//
+// The literal's precision defines which instant that is. @2026-01-15 covers the
+// whole of 15 January, so the query runs against the END of that window —
+// midnight would return the value in effect the previous day, a wrong answer
+// that looks entirely plausible.
+func (i *Interpreter) evalTemporalAsOf(node *parser.PathExpression, at types.Time) interface{} {
+	path := i.resolvePath(node.Parts)
+	if len(path) == 0 {
+		return types.Unknown{Reason: "empty path in temporal query"}
+	}
+
+	_, end := types.TimeRange(at)
+	if end.IsZero() {
+		return types.Unknown{Reason: fmt.Sprintf("invalid time precision %d in temporal query", at.Precision)}
+	}
+
+	storageValue, err := i.scope.tree.ReadAt(path, end.UnixMicro())
+	if err != nil {
+		// No instance at or before the instant. Saying so is the honest answer —
+		// returning the oldest value would invent history that did not exist.
+		return types.Unknown{Reason: fmt.Sprintf(
+			"no value for %s as of %s", strings.Join(node.Parts, "."), formatTimeForMessage(at))}
+	}
+
+	mblValue, err := storageToMBL(storageValue)
+	if err != nil {
+		return types.Unknown{Reason: fmt.Sprintf("failed to convert temporal value: %v", err)}
+	}
+	return mblValue
+}
+
+// formatTimeForMessage renders a time for an error message using the same
+// precision-aware form as text coercion, so a day-precision query reports
+// "2026-01-15" rather than a spurious midnight.
+func formatTimeForMessage(t types.Time) string {
+	if text, ok := types.CoerceToText(t).Value.(types.Text); ok {
+		return text.Value
+	}
+	return t.Timestamp.Format("2006-01-02 15:04:05")
+}
+
 func (i *Interpreter) evalBracketFilter(node *parser.BracketFilterExpression) interface{} {
+	// Temporal read: my.balance[@2026-01-01] answers with the value that was in
+	// effect at that instant. This is checked before the base is evaluated,
+	// because evaluating it would read the *current* value — the one thing a
+	// temporal query is not asking for.
+	if pathExpr, ok := node.Left.(*parser.PathExpression); ok {
+		if at, ok := i.temporalSelector(node.Filters); ok {
+			return i.evalTemporalAsOf(pathExpr, at)
+		}
+	}
+
 	// Evaluate the base expression (should be a List or Record)
 	base := i.evalExpression(node.Left)
 
