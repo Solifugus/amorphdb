@@ -676,8 +676,12 @@ func (l *Lexer) readTimeLiteral() string {
 		l.readChar()
 	}
 
-	// Check for time part (space followed by HH:MM:SS)
-	if l.ch == ' ' {
+	// Check for time part (space followed by HH:MM:SS). Only claim the space
+	// when a digit actually follows it — otherwise `@2026-01-15 > @2026-01-01`
+	// swallows the separator and the literal becomes "@2026-01-15 " (trailing
+	// space), which then fails to parse. Anything that is not a digit begins a
+	// separate token.
+	if l.ch == ' ' && isDigit(l.peekChar()) {
 		l.readChar() // consume space
 		for isDigit(l.ch) || l.ch == ':' || l.ch == '.' {
 			l.readChar()

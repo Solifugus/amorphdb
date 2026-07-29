@@ -396,7 +396,7 @@ func TestTimeToTextCoercion(t *testing.T) {
 				Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 				Precision: PrecisionYear,
 			},
-			expected: "@2026",
+			expected: "2026",
 		},
 		{
 			name: "month precision",
@@ -404,7 +404,7 @@ func TestTimeToTextCoercion(t *testing.T) {
 				Timestamp: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
 				Precision: PrecisionMonth,
 			},
-			expected: "@2026-02",
+			expected: "2026-02",
 		},
 		{
 			name: "day precision",
@@ -412,7 +412,7 @@ func TestTimeToTextCoercion(t *testing.T) {
 				Timestamp: time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC),
 				Precision: PrecisionDay,
 			},
-			expected: "@2026-02-15",
+			expected: "2026-02-15",
 		},
 		{
 			name: "hour precision",
@@ -420,7 +420,7 @@ func TestTimeToTextCoercion(t *testing.T) {
 				Timestamp: time.Date(2026, 2, 15, 14, 0, 0, 0, time.UTC),
 				Precision: PrecisionHour,
 			},
-			expected: "@2026-02-15 14:00:00",
+			expected: "2026-02-15 14:00",
 		},
 		{
 			name: "minute precision",
@@ -428,7 +428,7 @@ func TestTimeToTextCoercion(t *testing.T) {
 				Timestamp: time.Date(2026, 2, 15, 14, 30, 0, 0, time.UTC),
 				Precision: PrecisionMinute,
 			},
-			expected: "@2026-02-15 14:30:00",
+			expected: "2026-02-15 14:30",
 		},
 		{
 			name: "second precision",
@@ -436,7 +436,7 @@ func TestTimeToTextCoercion(t *testing.T) {
 				Timestamp: time.Date(2026, 2, 15, 14, 30, 45, 0, time.UTC),
 				Precision: PrecisionSecond,
 			},
-			expected: "@2026-02-15 14:30:45",
+			expected: "2026-02-15 14:30:45",
 		},
 	}
 

@@ -805,7 +805,8 @@ grep -l "asset()" docs/pending_code_changes.md
 | 16 | Archive old specs, verify current specs | Cleanup | TODO |
 | 17 | Extended text literal syntax `_"…"_` | MBL Language | DONE (2026-07-29) |
 | 18 | Interpolating text literal `~"…{path}…"~` | MBL Language | DONE (2026-07-29) |
-| 19 | Make time literals produce a real `types.Time` | Date/Time | TODO |
+| 19 | Make time literals produce a real `types.Time` | Date/Time | DONE (2026-07-29) |
+| 19a | Storage cannot persist a time — BLOCKER, needs decision | Date/Time | TODO |
 | 20 | Time part access via `.@year` meta-attributes | Date/Time | TODO |
 | 21 | `format_time` / `parse_time` and timezones | Date/Time | TODO |
 | 22 | Duration type and interval syntax | Date/Time | TODO |
@@ -917,7 +918,16 @@ timezone. Nothing in these steps may change how a timestamp is serialized.
 
 ### Step 19 — Make time literals produce a real `types.Time`
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-07-29) — All four defects fixed. Time literals
+now produce `types.Time` with the precision supplied; all documented precisions
+parse; time comparison works; `now()` is UTC at subsecond precision. Text
+coercion drops the `@` and shows only specified components. The layout table
+moved to `types.ParseTimeLiteral` (`coerce.go`) as a single source of truth,
+shared by the parser and the interpreter's `parseTimeString`, which now delegates
+to it. Tests in `internal/mbl/interpreter/time_literal_test.go`.
+
+⚠️ **Discovered while verifying: persisting a time to storage is broken, and has
+always been.** See Step 19a — it blocks Step 20.
 
 **Spec reference:** `docs/amorphdb_design.md` §Text/Number/... (Time type),
 §Lexical Structure — time literals
@@ -1012,6 +1022,64 @@ format of a timestamp must not change.
 go test ./internal/mbl/... ./internal/types/...
 go test ./...   # must stay at the 25-package baseline
 ```
+
+---
+
+### Step 19a — Storage cannot persist a time (BLOCKER, needs a decision)
+
+**Status:** TODO — **blocks Step 20.** Needs an explicit decision before work
+starts, because the fix changes an on-disk format that Steps 19–24 all fenced off.
+
+**Discovered:** 2026-07-29 while verifying Step 19.
+
+**The defect:** `types.Time.Serialize()` (`internal/types/types.go:158`) writes
+**9 bytes** — 8 for the microsecond timestamp plus 1 for the precision byte. But
+`ValueStore.getFixedTypeSize` (`internal/storage/values.go:573`) declares
+`TypeTime` as **8 bytes**. The precision byte is truncated on write, and the read
+then fails in `DeserializeTime`, which requires exactly 9:
+
+```
+my.order.date = @2026-01-15
+my.order.date    →  Unknown(failed to convert storage value: time data must be 9 bytes)
+```
+
+**This predates Step 19.** Verified against stashed pre-Step-19 code: `my.t =
+now()` fails identically, because `now()` already returned a `types.Time`. Every
+attempt to persist a time has always failed this way. It went unnoticed because
+time *literals* silently became `types.Text` (the Step 19 defect), so almost
+nothing ever reached storage as a Time.
+
+**Why it blocks Step 20:** part access is tested as `my.d = @2026-01-15` followed
+by `my.d.@year`. Every such test reads a stored time, so the whole step fails on
+this defect rather than on its own logic. Steps 21–24 inherit the same problem.
+
+**The decision needed:** the minimal fix is one line — `getFixedTypeSize` returns
+9 for `TypeTime` — but that **changes the on-disk record size for time values**,
+which Phase 6's standing constraint and every step's "Do not touch" list
+explicitly forbid. It needs sign-off, not a judgement call from inside a step.
+
+Migration impact is believed to be nil: no existing database can hold a valid
+stored Time, since writing one has never round-tripped. **Verify that claim
+before relying on it** — check whether any `TypeTime` values exist in real data
+files, and whether the freelist path (`internal/storage/freelist.go:284`, which
+also special-cases `TypeTime`) assumes the 8-byte size.
+
+**Options:**
+1. **Widen `TypeTime` to 9 bytes.** Minimal, keeps precision. Changes the on-disk
+   format. Recommended if the "no valid stored Times exist" claim holds.
+2. **Make `TypeTime` variable-length** (as Money already is, per
+   `isVariableLength`). More flexible and consistent with Money, which also
+   carries a discriminator; slightly larger records.
+3. **Drop the precision byte from storage.** Keeps 8 bytes and the current
+   format, but destroys the precision model that all of Phase 6 depends on.
+   **Not recommended** — it would make a stored `@2026-01-15` indistinguishable
+   from midnight on that day, reintroducing exactly the `00:00:00` fiction this
+   phase exists to remove.
+
+**Scope when approved:** `internal/storage/values.go`, possibly
+`internal/storage/freelist.go`. Add a storage round-trip test asserting precision
+survives, and restore the round-trip test omitted from
+`internal/mbl/interpreter/time_literal_test.go`.
 
 ---
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
+	"time"
 )
 
 // CoercionResult represents the result of a type coercion operation
@@ -327,30 +329,89 @@ func Concatenate(left, right interface{}) interface{} {
 
 // Helper functions
 
-// formatTimeByPrecision formats a Time value according to its precision level
+// timeLayouts pairs each accepted time literal layout with the precision it
+// implies. Order matters: the first layout that parses wins, so they run from
+// least to most specific. This is the single source of truth for time literal
+// syntax — both the MBL parser and the interpreter parse through
+// ParseTimeLiteral so the two can never disagree about what a literal means.
+var timeLayouts = []struct {
+	layout    string
+	precision byte
+}{
+	{"2006", PrecisionYear},
+	{"2006-01", PrecisionMonth},
+	{"2006-01-02", PrecisionDay},
+	{"2006-01-02 15", PrecisionHour},
+	{"2006-01-02 15:04", PrecisionMinute},
+	{"2006-01-02 15:04:05", PrecisionSecond},
+	{"2006-01-02 15:04:05.000000", PrecisionSubsecond},
+	{"2006-01-02T15:04:05", PrecisionSecond},
+	{"2006-01-02T15:04:05Z07:00", PrecisionSecond},
+}
+
+// ParseTimeLiteral parses an MBL time literal into a Time, inferring the
+// precision from the form supplied. A leading '@' is optional. Parsing is done
+// in UTC — times are stored as UTC and only rendering converts to a zone.
+//
+// Precision records what the author actually specified: @2026-01-15 is
+// day-precision and genuinely does not know what hour it is. Callers must not
+// treat the unspecified components as zero.
+func ParseTimeLiteral(s string) (Time, error) {
+	s = strings.TrimPrefix(s, "@")
+
+	for _, l := range timeLayouts {
+		parsed, err := time.ParseInLocation(l.layout, s, time.UTC)
+		if err != nil {
+			continue
+		}
+
+		precision := l.precision
+		// Go's Parse accepts a fractional second after the seconds field even
+		// when the layout omits it, so "…:22.5" matches the plain seconds
+		// layout. A fractional part means the author specified subseconds.
+		if precision == PrecisionSecond && strings.Contains(s, ".") {
+			precision = PrecisionSubsecond
+		}
+
+		return Time{Timestamp: parsed, Precision: precision}, nil
+	}
+
+	return Time{}, fmt.Errorf("cannot parse time: %s", s)
+}
+
+// formatTimeByPrecision formats a Time value according to its precision level.
+//
+// The result carries no '@' sigil: that is source syntax, and this function
+// feeds text coercion, whose output lands in sentences and user interfaces.
+// Time.String() keeps the '@' form for REPL display and round-tripping.
+//
+// Only the components the value actually specifies are shown — a day-precision
+// time renders "2026-01-15", never "2026-01-15 00:00:00". Hour precision is the
+// one concession: it renders ":00" minutes because a bare trailing hour reads as
+// truncated rather than deliberate.
 func formatTimeByPrecision(t Time) string {
 	switch t.Precision {
 	case PrecisionYear:
-		return fmt.Sprintf("@%04d", t.Timestamp.Year())
+		return fmt.Sprintf("%04d", t.Timestamp.Year())
 	case PrecisionMonth:
-		return fmt.Sprintf("@%04d-%02d", t.Timestamp.Year(), t.Timestamp.Month())
+		return fmt.Sprintf("%04d-%02d", t.Timestamp.Year(), t.Timestamp.Month())
 	case PrecisionDay:
-		return fmt.Sprintf("@%04d-%02d-%02d", t.Timestamp.Year(), t.Timestamp.Month(), t.Timestamp.Day())
+		return fmt.Sprintf("%04d-%02d-%02d", t.Timestamp.Year(), t.Timestamp.Month(), t.Timestamp.Day())
 	case PrecisionHour:
-		return fmt.Sprintf("@%04d-%02d-%02d %02d:00:00",
+		return fmt.Sprintf("%04d-%02d-%02d %02d:00",
 			t.Timestamp.Year(), t.Timestamp.Month(), t.Timestamp.Day(), t.Timestamp.Hour())
 	case PrecisionMinute:
-		return fmt.Sprintf("@%04d-%02d-%02d %02d:%02d:00",
+		return fmt.Sprintf("%04d-%02d-%02d %02d:%02d",
 			t.Timestamp.Year(), t.Timestamp.Month(), t.Timestamp.Day(),
 			t.Timestamp.Hour(), t.Timestamp.Minute())
 	case PrecisionSecond:
-		return fmt.Sprintf("@%04d-%02d-%02d %02d:%02d:%02d",
+		return fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d",
 			t.Timestamp.Year(), t.Timestamp.Month(), t.Timestamp.Day(),
 			t.Timestamp.Hour(), t.Timestamp.Minute(), t.Timestamp.Second())
 	case PrecisionSubsecond:
-		return fmt.Sprintf("@%s", t.Timestamp.Format("2006-01-02 15:04:05.000000"))
+		return t.Timestamp.Format("2006-01-02 15:04:05.000000")
 	default:
-		return fmt.Sprintf("@%s", t.Timestamp.Format("2006-01-02 15:04:05.000000"))
+		return t.Timestamp.Format("2006-01-02 15:04:05.000000")
 	}
 }
 

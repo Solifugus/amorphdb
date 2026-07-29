@@ -2739,7 +2739,10 @@ func (i *Interpreter) evalNowFunction(args []interface{}) interface{} {
 		return types.Unknown{Reason: "now() takes no arguments"}
 	}
 
-	return types.Time{Timestamp: time.Now()}
+	// UTC because times are stored as UTC; subsecond precision because a clock
+	// reading genuinely knows the fraction. Leaving Precision unset would be 0,
+	// which is outside the valid range types.go enforces.
+	return types.Time{Timestamp: time.Now().UTC(), Precision: types.PrecisionSubsecond}
 }
 
 func (i *Interpreter) evalUuidFunction(args []interface{}) interface{} {
@@ -3731,30 +3734,9 @@ func parseTimeString(timeStr string) (types.Time, error) {
 		timeStr = timeStr[1:]
 	}
 
-	// Try different time formats based on length and content
-	layouts := []struct {
-		layout    string
-		precision byte
-	}{
-		{"2006", types.PrecisionYear},
-		{"2006-01", types.PrecisionMonth},
-		{"2006-01-02", types.PrecisionDay},
-		{"2006-01-02 15", types.PrecisionHour},
-		{"2006-01-02 15:04", types.PrecisionMinute},
-		{"2006-01-02 15:04:05", types.PrecisionSecond},
-		{"2006-01-02 15:04:05.000000", types.PrecisionSubsecond},
-	}
-
-	for _, layout := range layouts {
-		if t, err := time.ParseInLocation(layout.layout, timeStr, time.UTC); err == nil {
-			return types.Time{
-				Timestamp: t,
-				Precision: layout.precision,
-			}, nil
-		}
-	}
-
-	return types.Time{}, fmt.Errorf("cannot parse time: %s", timeStr)
+	// Delegate to the shared parser so the interpreter and the MBL parser can
+	// never disagree about what a time literal means.
+	return types.ParseTimeLiteral(timeStr)
 }
 
 // parseMoneyString parses a money string from MBL format
@@ -3977,6 +3959,12 @@ func convertToMBLType(value interface{}) interface{} {
 		return types.Text{Value: s}
 	case bool:
 		return types.Boolean{Value: v}
+	case time.Time:
+		// Safety net: a bare Go time reaching here would otherwise fall to the
+		// default case and silently become Text. Precision is unknowable at this
+		// point, so assume the most specific rather than inventing a coarser one.
+		return types.Time{Timestamp: v.UTC(), Precision: types.PrecisionSubsecond}
+
 	case types.Text, types.Number, types.Boolean, types.Time, types.Money, types.Reference, types.Nothing, types.Unknown, types.Anything, types.List, types.Record:
 		// Already proper MBL type
 		return v

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/solifugus/amorphdb/internal/mbl/lexer"
 	"github.com/solifugus/amorphdb/internal/types"
@@ -1758,30 +1757,20 @@ func (p *Parser) parseTimeLiteral() Expression {
 
 	lit := &LiteralExpression{Token: p.currentToken}
 
-	// Parse time literal (removing @ prefix)
-	timeStr := strings.TrimPrefix(p.currentToken.Literal, "@")
-
-	// Try different time formats
-	formats := []string{
-		"2006-01-02",
-		"2006-01-02 15:04:05",
-		"2006-01-02T15:04:05",
-		"2006-01-02T15:04:05Z07:00",
+	// Produce a types.Time carrying the precision the author actually supplied.
+	// types.ParseTimeLiteral is the single source of truth for literal syntax,
+	// shared with the interpreter so the two cannot disagree. Storing a bare Go
+	// time.Time here would fall through convertToMBLType's default case and
+	// silently become Text.
+	parsed, err := types.ParseTimeLiteral(p.currentToken.Literal)
+	if err != nil {
+		msg := fmt.Sprintf("could not parse %q as time", p.currentToken.Literal)
+		p.errors = append(p.errors, msg)
+		return nil
 	}
 
-	var parsedTime time.Time
-	var err error
-
-	for _, format := range formats {
-		if parsedTime, err = time.Parse(format, timeStr); err == nil {
-			lit.Value = parsedTime
-			return lit
-		}
-	}
-
-	msg := fmt.Sprintf("could not parse %q as time", p.currentToken.Literal)
-	p.errors = append(p.errors, msg)
-	return nil
+	lit.Value = parsed
+	return lit
 }
 
 // parseMoneyLiteral parses money literals
