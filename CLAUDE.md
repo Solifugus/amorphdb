@@ -95,6 +95,9 @@ amorphdb/
 ├── web/                # PWA boilerplate
 │   └── boilerplate/
 │       ├── amorphdb-pwa.js    # core boilerplate (embedded in amorphd binary)
+│       ├── auth/              # reference auth watchers
+│       │   ├── login.mbl      # reference login watcher (Argon2id)
+│       │   └── signup.mbl     # reference signup watcher
 │       └── test/              # test pages and integration tests
 │           ├── index.html     # interactive test page
 │           ├── integration.html # automated integration test (12/12)
@@ -133,6 +136,12 @@ Use this as a quick reference. The spec documents have full detail.
 - Core storage engine (attributes, instances, values, temporal chains)
 - MBL parser and evaluator — core language features (17/17 spec compliance tests)
 - Type system (Text, Number, Boolean, Time, Money, Picture, Reference, Procedure, Watcher, Unknown)
+- Definite-equality operator `?=` — the single operator; the old
+  `?!=`/`?<`/`?>`/`?<=`/`?>=` family is gone. Ordering operators propagate
+  Unknown; for definite non-equality use `not (x ?= y)`. `x ?= unknown("reason")`
+  matches a specific reason.
+- Type-first definitions (`procedure name(x):`, `watch name(paths):`) and the
+  path-first equivalent (`my.name: procedure(x):`) — both forms work
 - Watchers (value-change and append forms, multi-path, predicate filter)
 - Quiet assignment `(quietly)`
 - Heartbeat atomicity and staged write model
@@ -145,8 +154,11 @@ Use this as a quick reference. The spec documents have full detail.
   (`world.apps.app.tokens[token].identity = username`, `data[i] = ...`). A
   string key with dots becomes one path component (Option-A convention); the
   literal `my.computer.*` subtree is node-local so PWA-enable lands where the
-  asset cache reads. NOTE: bracket selectors in *reads* (`creds = ...users[name]`)
-  and in watch names/paths are still 🚧 (see below).
+  asset cache reads.
+- Bracket key-selectors in *terminal read* position — `my.users[my.name]` and
+  `my.users["alice"]` both resolve to the named child (verified 2026-07-30).
+  Chaining past a bracket (`my.users[k].email`) and brackets in watch
+  names/paths do NOT work — see 🚧.
 - Heritability and instantiation (`new()` with copy/link/reset/exclude)
 - Catch/else unknown error handling
 - `(cascade)` scope modifier (parser + basic resolution)
@@ -166,7 +178,11 @@ Use this as a quick reference. The spec documents have full detail.
   `2026-01-15 00:00:00`. Time *formatting*, part access, arithmetic, durations
   and recurrence are Phase 6 Steps 20–24 and are NOT yet built.
 - `pass` statement, `break` statement, block comments
-- Alternate watcher syntax (`watch name(paths):`)
+- As-of temporal queries — `my.balance[@2026-01-01]` returns the value in effect
+  at that instant, with the literal's precision defining the instant (a
+  day-precision query means "most recent at or before the end of that day").
+  Works over the wire protocol as well as in-process (READ_AT). Range and
+  comparison forms (`[<@t]`, `[@ >= @a, @ < @b]`) are NOT built — Phase 7 Step 26.
 - `my.computer.run()` shell execution
 - `my.computer.output()` / `my.computer.input()`
 - `my.computer.files` sub-library (read, write, exists, delete, list, info)
@@ -181,12 +197,12 @@ Use this as a quick reference. The spec documents have full detail.
 - `my.computer.crypto` — hash_password (Argon2id), verify_password, generate_token (CSPRNG)
 - `amorphctl init-pwa` — scaffolds new PWA projects with auth watchers
 - PWA Go bridge — device/token/identity routing, write boundary enforcement,
-  SSE routing by identity, login response handling (17/17 integration tests)
+  SSE routing by identity, login response handling (integration suite in web/boilerplate/test/integration.html, which reports its own count)
 - PWA client boilerplate served from the binary at `/amorphdb/pwa.js` (embedded
   via go:embed) — section parser, data tree generator, proxy change tracking,
   surgical DOM updates, list rendering, batch sender, SSE receiver, local watchers,
   deep linking, list windowing, show/hide, local dev mode, device ID, token
-  storage, login/signup UI, logout, 401 handling (17/17 integration tests)
+  storage, login/signup UI, logout, 401 handling (integration suite in web/boilerplate/test/integration.html, which reports its own count)
 - PWA asset serving — enumerates stored assets by name, including nested paths
   (assets are stored as a single component named by the full relative URL, e.g.
   `css/app.css`, slashes preserved — the convention `deploy_pwa()` writes), SPA
@@ -200,16 +216,18 @@ Use this as a quick reference. The spec documents have full detail.
 - `my.computer.files.import/export` — JSON, CSV, TSV, TOML formats (stubbed)
 - REPL display hints (`:tree`, `:table`, `:list`) and slice pagination
 - Auto-inferred table rendering for homogeneous lists in REPL
-- Bracket key-selectors in *read* expressions (`creds = ...users[username]`) and
-  in watch names/paths (`watch my.h[user](...users[user].intent)`). Assignment
-  *targets* now support brackets (see ✅), but read-side selectors still parse as
-  BracketFilterExpression (filter semantics), and the reference auth watchers
-  (login.mbl/signup.mbl/setup.mbl) rely on read-side and watch-name brackets, so
-  they do not yet execute end-to-end through the interpreter.
+- Chaining past a bracket key-selector (`my.users[k].email` → "function must be
+  a path expression") and brackets in watch names/paths
+  (`watch my.h[user](...users[user].intent)` → parse error). Terminal read-side
+  selectors DO work (see ✅). The reference auth watchers
+  (login.mbl/signup.mbl/setup.mbl) use the watch-name form, so they still do not
+  execute end-to-end.
+- `my.computer.network.email` — send, fetch, IMAP IDLE subscription
 
 ### 🔄 Planned (Not Yet Specified in Detail)
 - Fixed-width export via ARI
 - Excel import/export
+- Email OAuth 2.0 for Gmail/Microsoft 365
 - Component system for PWA (reusable section templates)
 - Widget library (date pickers, data tables, charts)
 - MCARS standard interface convention
