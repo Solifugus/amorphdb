@@ -2,7 +2,7 @@
 
 Known remaining work on AmorphDB, organized by priority.
 
-**Last verified: 2026-07-28** against a full `go test ./...` run and direct
+**Last verified: 2026-07-29** against a full `go test ./...` run and direct
 inspection of the code. Items marked *verified* were checked in that pass;
 items marked *inherited* come from earlier status notes and have not been
 re-confirmed.
@@ -29,9 +29,10 @@ serves a PWA over HTTP.
   recovery, leaf-path enumeration
 - **Type system** — all core types plus the meta types (Unknown, Queued,
   Redacted), coercion, Unknown/Queued propagation
-- **MBL lexer** — all token types, Unicode identifiers, multi-quote strings,
-  money and time literals, `@` disambiguation, indentation tracking, block
-  comments
+- **MBL lexer** — all token types, Unicode identifiers, the three text literal
+  forms (`"…"`, extended `_"…"_`, interpolating `~"…{path}…"~`), money and
+  time literals at every documented precision, `@` disambiguation, indentation
+  tracking, block comments
 - **MBL parser** — full expression parsing, operator precedence,
   context-sensitive `=`, definite equality `?=`, bracket filters with
   temporal queries, projections, record literals, collection operations,
@@ -46,6 +47,13 @@ serves a PWA over HTTP.
   position, with static and dynamic keys
 - **Watchers** — value-change and append forms, multi-path with OR semantics
   and deduplication, predicate filters, enable/disable, watcher attributes
+- **Time values** — literals produce a real `Time` carrying the precision
+  supplied, so `@2026-01-15` renders `2026-01-15` and never invents a
+  `00:00:00`; comparison works; `now()` is UTC; times persist with precision
+  intact
+- **As-of temporal queries** — `my.balance[@2026-01-01]` returns the value in
+  effect at that instant. The literal's precision defines the instant, so a
+  day-precision query means "most recent at or before the end of that day"
 - **Heartbeat atomicity** — real staging buffer, write limit, flush on
   success, discard on unhandled Unknown, watcher cascade deferred to the
   next tick
@@ -97,20 +105,26 @@ rather than from MBL watchers.
 
 **Where:** `internal/mbl/parser/parser.go`, `internal/mbl/interpreter/`
 
-#### 1.2 `(quietly)` does not suppress watcher firing *(verified)*
-The modifier lexes and parses (`parser.go:1864`, `parseQuietlyExpression`)
-but is never plumbed through to the watcher engine —
-`watcher.WatcherEngine.RecordChange(path string)` takes only a path and has
-no suppression parameter, and the interpreter's assignment path consults
-`node.Modifier` only for `cascade` and the heritability modifiers.
+#### 1.2 Watcher cascade collection is dead *(verified)*
+`ExecuteWatcher` (`internal/watcher/engine.go:389`) runs the watcher body and
+*then* reads `interp.GetWrittenPaths()` to decide what should trigger on the
+next tick. But `Interpret` has already called `flushBuffer`, which clears the
+commit buffer, so the list is always empty and `pendingCascadePaths` never
+fills.
 
-This matters: `(quietly)` is the documented mechanism for preventing
-infinite watcher loops, so a watcher that writes to a path it observes will
-re-trigger itself.
+Consequence: a watcher that writes to a path it observes does **not**
+re-trigger. Verified directly — such a watcher fires exactly once, identically
+to one that writes nothing. Cascading watcher chains described in the spec do
+not currently occur.
 
-**Where:** `internal/mbl/interpreter/interpreter.go` (assignment eval),
-`internal/watcher/engine.go`
-**Spec:** Watchers § Quiet Assignment
+`(quietly)` (fixed in v0.2.0 — it previously discarded the write entirely) is
+correctly plumbed to suppress triggering, but has nothing to suppress until
+this is repaired. Repairing it enables cascade for every existing watcher, so
+it wants an audit of existing MBL first.
+
+**Where:** `internal/watcher/engine.go`,
+`internal/mbl/interpreter/interpreter.go`
+**Spec:** Watchers § Cascade
 
 #### 1.3 Collection higher-order functions *(verified absent)*
 `sort`, `filter`, `map`, and `reduce` are not dispatched by the
@@ -132,10 +146,15 @@ interpreter. Working with collections beyond `..count`, `..append`,
 but embedded attributes are not made visible during record reads. The
 structural resolution layer is unbuilt.
 
-#### 2.3 Time and conversion built-ins *(verified absent)*
-`format_time(time, format)`, `parse_time(text, format)`,
-`add_time(time, days, hours, minutes)`, and `convert(value, type)` are not
-dispatched.
+#### 2.3 Time formatting, arithmetic and conversion built-ins *(verified absent)*
+`format_time(time, format)`, `parse_time(text, format)`, time arithmetic, and
+`convert(value, type)` are not dispatched. Time *values* work (see above); what
+is missing is formatting them to a chosen pattern, timezone-aware rendering,
+durations, calendar adjusters ("last Wednesday of the month") and recurrence.
+All are planned in detail — see Phase 6 in `DEVPLAN.md`.
+
+Range and comparison temporal queries (`[<@t]`, `[@ >= @a, @ < @b]`) are also
+not built; only the as-of form is. See Phase 7.
 
 #### 2.4 Import/export formats
 JSON, CSV, TSV, and TOML are stubbed in `my.computer.files.import/export`.
@@ -206,8 +225,9 @@ for fan-out. Announcement, promotion, and voluntary delegation are built.
 
 ## Known Rough Edges
 
-- **`internal/temporal/`** is empty or in progress; temporal query support
-  lives in the storage and interpreter layers.
+- **`internal/temporal/`** is an empty directory. Temporal support lives in the
+  storage layer (`StorageTree.ReadAt`, the instance chain) and the interpreter,
+  not there.
 - **`cmd` package port binding** — two test-plan tests bind a fixed port
   5000 and a shared socket path, so they can flake under full-suite
   parallel load. They pass in isolation.
@@ -215,6 +235,6 @@ for fan-out. Announcement, promotion, and voluntary delegation are built.
   `internal/service/service.go`.
 - **Several files are not gofmt-clean** (`coordinator.go` and a handful of
   test files). Left alone to avoid noise in unrelated diffs.
-- **Root `DEVPLAN.md` is historical** — all 16 of its steps completed in
-  April 2026. Work since then is tracked in commit history rather than in a
-  plan document.
+- **`DEVPLAN.md` is active again.** Its original 16 steps completed in April
+  2026; Phase 6 (date and time) and Phase 7 (temporal queries) are current
+  plans with several steps outstanding.

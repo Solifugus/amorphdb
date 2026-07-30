@@ -72,7 +72,7 @@ amorphctl bridge partner-db.example.com:5830
 # Records and temporal history
 my.account.balance = 100
 my.account.balance = 250
-my.account.balance[@2026-01-01]          # query historical value
+my.account.balance[@2026-01-01]          # the value in effect on that date
 
 # Record literals
 my.person = { name: "Matthew", age: 55, job: "Engineer" }
@@ -80,7 +80,7 @@ my.person{ name, age }                   # projection: select fields
 
 # Bracket queries
 my.employees[active = true]{ name, salary }
-my.orders[@ > @2026-03-01, @ < @2026-04-01]   # temporal range
+my.orders[@ > @2026-03-01, @ < @2026-04-01]   # temporal range (not yet implemented)
 
 # Procedures with persistent state
 my.counters.visits: procedure():

@@ -338,7 +338,7 @@ REPL**. These are recorded and will light up as the interpreter catches up:
 
 | Feature | Status in the REPL today |
 |---|---|
-| Historical temporal queries (`path[@2026-01-01]`) | Not yet — reads currently return the current value only; history is still recorded |
+| Range temporal queries (`path[@ >= @a, @ < @b]`, `path[<@t]`) | Not yet — the as-of form `path[@2026-01-01]` **does** work and returns the value in effect at that instant |
 | Instance meta-attributes (`path.@time`, `path.@agent`) | Not yet readable over the REPL |
 | Reading a bare container/record node (`my.person`) | Reads of a node's *leaves* work (`my.person.name`); reading the container itself does not |
 | Field projection over stored paths (`my.person{ name }`) | Not yet |
