@@ -40,9 +40,7 @@ without explicit instruction.
 | `AmorphDB_PWA_Boilerplate_Spec.md` | `docs/AmorphDB_PWA_Boilerplate_Spec.md` | PWA boilerplate: section-based HTML, proxy, data binding, device/token model |
 | `mbl_reference.md` | `docs/mbl_reference.md` | MBL quick reference for application developers and AI coding agents |
 | `pwa_identity_auth_draft.md` | `docs/pwa_identity_auth_draft.md` | Detailed PWA auth flows: login, signup, logout, OAuth examples |
-| `DEVPLAN.md` | `docs/DEVPLAN.md` | Active development plan with step status |
-| `pwa_auth_development_plan.md` | `docs/pwa_auth_development_plan.md` | Development plan for PWA identity/auth implementation |
-| `pending_code_changes.md` | `docs/pending_code_changes.md` | Tracked terminology/design changes not yet in code |
+| `DEVPLAN.md` | `DEVPLAN.md` (repo root) | Active development plan with step status |
 
 Read the relevant spec sections before implementing any feature. Do not
 implement from memory or assumption.
@@ -86,11 +84,12 @@ amorphdb/
 │   ├── AmorphDB_PWA_Boilerplate_Spec.md
 │   ├── mbl_reference.md
 │   ├── pwa_identity_auth_draft.md
-│   ├── pwa_auth_development_plan.md
-│   ├── pending_code_changes.md
-│   ├── AmorphDB_Tutorial.md
+│   ├── AmorphDB_Remaining_Work.md   # ships in release archives
+│   ├── AmorphDB_Test_Plan.md
+│   ├── getting_started.md
 │   ├── bridge_architecture.md
 │   ├── mesh_management_guide.md
+│   ├── archive/        # superseded docs — see docs/archive/README.md
 │   └── business/       # business planning docs
 ├── web/                # PWA boilerplate
 │   └── boilerplate/
@@ -302,7 +301,7 @@ Tests go in the same package as the code under test (`_test.go` files) or in
 `tests/` for integration tests.
 
 ### 9. Test plan bug fixes must match the spec
-When fixing bugs found by tests, always fix the implementation to match amorphdb_design.md. Never weaken a test, change test data formats, or alter expected behavior to make a failing test pass. If the spec and the implementation conflict, the spec wins. If unsure whether a test or the implementation is wrong, re-read the spec section and note the question in STATUS.md.
+When fixing bugs found by tests, always fix the implementation to match amorphdb_design.md. Never weaken a test, change test data formats, or alter expected behavior to make a failing test pass. If the spec and the implementation conflict, the spec wins. If unsure whether a test or the implementation is wrong, re-read the spec section and record the question in `DEVPLAN.md` under the current step.
 
 ### 10. Every test must pass. 
 Do not declare a section complete at 97% or describe failures as "minor." If a test was worth writing, it's worth passing. Fix all failures before reporting completion.

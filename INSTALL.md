@@ -1,5 +1,11 @@
 # AmorphDB Installation Guide
 
+> **Most people want the release archive, not this guide.** Prebuilt, signed
+> Linux binaries are at <https://amorphdb.tedderland.com/> — download, verify the
+> checksum, extract, run. This document covers building from source and
+> system-level deployment, and assumes you have repository access.
+
+
 This guide covers different ways to install and deploy AmorphDB, from development setups to production environments.
 
 ## Quick Start

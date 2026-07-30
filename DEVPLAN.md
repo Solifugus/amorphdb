@@ -11,7 +11,7 @@ This file is read by Claude Code at the start of every session alongside CLAUDE.
 
 **Session startup procedure:**
 1. Read `CLAUDE.md` (repo root) fully
-2. Read `docs/DEVPLAN.md` (this file) fully
+2. Read `DEVPLAN.md` (this file, at the repository root) fully
 3. Find the first step marked `IN PROGRESS` — resume it
 4. If no `IN PROGRESS` steps, find the first `TODO` step — begin it
 5. Mark the step `IN PROGRESS` with today's date before touching any code
@@ -769,8 +769,8 @@ go test ./cmd/...
    (check that it contains the implementation status table, ARI section,
    XML section, `asset()` constructor)
 3. Verify `docs/pending_code_changes.md` exists and lists the asset() rename
-4. The old spec versions (`amorphdb_design_until20260314.md`,
-   `amorphdb_design_until20260402.md`) can be left in place as historical record
+4. The old dated spec versions can be left in place as historical record
+   (they now live under `docs/archive/` — see its README)
 5. No code changes in this step
 
 **Verification:**
@@ -847,8 +847,8 @@ values, not just token text: `internal/mbl/lexer/string_literal_test.go` and
 `internal/mbl/interpreter/string_literal_test.go` (including storage round-trip).
 
 Spec updated: `docs/amorphdb_design.md` (Text type, Text literals) and
-`docs/mbl_reference.md` (Types table). Dated `amorphdb_design_*` archive copies
-were deliberately left untouched.
+`docs/mbl_reference.md` (Types table). The dated spec snapshots (now under
+`docs/archive/`) were deliberately left untouched.
 
 ---
 
