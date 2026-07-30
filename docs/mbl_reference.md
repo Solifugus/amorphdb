@@ -304,17 +304,35 @@ watch append(my.orders[status ?= "urgent"]) as urgent:
         my.alerts.send("Urgent: " & o.id)
 ```
 
-### `(quietly)` — the critical modifier
+### `(quietly)` — suppressing a trigger
 
-When a watcher writes to data it watches, you **must** use `(quietly)` to prevent infinite loops:
+Watcher chains are designed to converge on their own, so `(quietly)` is needed
+less often than you might expect. Two rules do most of the work:
+
+- **An unchanged write does not trigger anything.** A watcher that recomputes a
+  value and writes back the same answer settles on its second pass.
+- **A watcher runs at most once per drain**, seeing the latest state — several
+  writes to paths it watches produce one run, not one per write.
+
+Use `(quietly)` when a watcher writes a path it genuinely observes *and* the value
+differs every time, so convergence cannot happen by itself — a counter, a
+timestamp, a progress marker:
 
 ```mbl
-# Watcher on my.account.balance that writes to my.account.status
-if my.account.balance < 0:
-    my.account.status = (quietly) "overdrawn"   # No re-fire
+# Watcher on my.job.progress that also stamps when it last ran
+my.job.last_checked = (quietly) now()   # differs each tick, so suppress it
 ```
 
-**This is the most common watcher bug.** If a watcher fires repeatedly or hangs, check for a missing `(quietly)` first.
+A block form covers several writes at once:
+
+```mbl
+quietly:
+    my.job.last_checked = now()
+    my.job.check_count = my.job.check_count + 1
+```
+
+The write still happens and is still recorded — it simply does not announce
+itself.
 
 ### Watcher attributes
 
@@ -918,7 +936,7 @@ watch my.snapshots.article(my.articles.current):
 
 ## Common Pitfalls
 
-**1. Missing `(quietly)` in a self-writing watcher.** The watcher writes to data it watches, triggers itself, and either loops or re-fires every tick. Use `(quietly)` for any write the watcher makes that touches its watched paths.
+**1. A self-writing watcher that never settles.** Writing an *unchanged* value does not trigger anything, so most self-writing watchers converge on their own. A watcher that keeps re-firing is usually writing a value that differs every time — a timestamp, a counter — to a path it watches. Wrap that write in `(quietly)`. A runaway chain does not hang the node: the drain is capped and produces an Unknown naming the change that started it.
 
 **2. Confusing `.content` with `.content[@t]`.** `.content` is the current value. `.content[@t]` is the value at time `t`. If your code accidentally queries "current" when you wanted "historical" (or vice versa), you'll get results that look plausible but are wrong. Be explicit.
 

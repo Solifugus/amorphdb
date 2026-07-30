@@ -119,12 +119,24 @@ not currently occur.
 
 `(quietly)` (fixed in v0.2.0 — it previously discarded the write entirely) is
 correctly plumbed to suppress triggering, but has nothing to suppress until
-this is repaired. Repairing it enables cascade for every existing watcher, so
-it wants an audit of existing MBL first.
+this is repaired.
 
-**Where:** `internal/watcher/engine.go`,
+A second, related gap: `StorageTree.Write` (`tree.go:158-169`) already declines
+to create an instance when the value is unchanged, but returns success either
+way — so the caller cannot tell, the path stays in the commit buffer, and an
+unchanged write would still trigger watchers.
+
+The planned fix is not simply to restore the old collection. Under the revised
+design (DEVPLAN Step 29) unchanged writes do not trigger, a watcher runs at most
+once per drain, cascade resolves within the tick rather than deferring to the
+next one, and a runaway drain is capped with an Unknown attributed to the change
+that started it. Watcher chains then converge by construction, which is why the
+"audit every existing watcher first" concern that accompanied the original
+framing largely goes away.
+
+**Where:** `internal/watcher/engine.go`, `internal/storage/tree.go`,
 `internal/mbl/interpreter/interpreter.go`
-**Spec:** Watchers § Cascade
+**Spec:** Watchers § Watcher Triggering and Cascade
 
 #### 1.3 Collection higher-order functions *(verified absent)*
 `sort`, `filter`, `map`, and `reduce` are not dispatched by the

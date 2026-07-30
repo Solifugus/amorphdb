@@ -814,7 +814,7 @@ grep -l "asset()" docs/pending_code_changes.md
 | 24 | Recurrence rules (RFC 5545 RRULE) | Date/Time | TODO |
 | 25 | As-of temporal queries `path[@time]` | Temporal | DONE (2026-07-29) |
 | 28 | `(quietly)` assignment: fix lost write + suppression | Defect | DONE (2026-07-29) |
-| 29 | Watcher cascade collection is dead — needs decision | Defect | TODO |
+| 29 | Watcher cascade: convergence by design | Watchers | TODO |
 | 30 | READ_AT over the wire: temporal queries for real clients | Defect | DONE (2026-07-30) |
 | 26 | Comparison and range temporal queries | Temporal | TODO |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | TODO |
@@ -1686,44 +1686,128 @@ but does not announce itself.
 
 ---
 
-### Step 29 — Watcher cascade collection is dead (needs a decision)
+### Step 29 — Watcher cascade: convergence by design
 
-**Status:** TODO — behavioural change, needs sign-off before work starts.
+**Status:** TODO — design revised 2026-07-30 after studying the watcher systems in
+`~/development/gbasic` and `~/development/HiLow`. Supersedes the earlier
+"repair the collection and audit every watcher" framing.
 
-**Discovered:** 2026-07-29 while verifying Step 28.
+**Backward compatibility:** this changes when and how often watchers fire. That is
+a deliberate semantic break, taken before 1.0 while it is cheap.
 
-`ExecuteWatcher` (`internal/watcher/engine.go:389`) runs the watcher body via
-`interp.Interpret(program)` and *then* calls `interp.GetWrittenPaths()` to
-populate `pendingCascadePaths`. But `Interpret` calls `flushBuffer`, which clears
-`commitBuffer.writes` (both the coordinator branch and `flushBufferDirect`). The
-buffer is therefore always empty by the time it is read, `pendingCascadePaths`
-never fills, and `CommitCascadeChanges` records nothing.
+---
 
-**Consequence:** a watcher writing to a path it observes does **not** currently
-re-trigger. Verified directly: a watcher whose body is `my.data = 99`, watching
-`my.data`, fires exactly once — identically to one that writes nothing.
+#### The two defects
 
-So the infinite-loop hazard `(quietly)` guards against cannot occur today,
-because cascade does not work at all. Step 28's suppression is correct but not
-yet reachable in practice.
+**1. Cascade collection is dead.** `ExecuteWatcher`
+(`internal/watcher/engine.go:389`) runs the watcher body via `interp.Interpret`,
+then reads `interp.GetWrittenPaths()` to populate `pendingCascadePaths`. But
+`Interpret` has already called `flushBuffer`, which clears the commit buffer, so
+the list is always empty. Verified: a watcher whose body writes the path it
+watches fires exactly once, identically to one that writes nothing.
 
-**Why this needs a decision rather than a fix:** repairing collection *enables*
-cascade for every existing watcher. Any watcher that writes to a path it watches
-would begin looping — which is exactly the behaviour `(quietly)` exists to
-control, and that is now available, but existing MBL would need auditing first.
+**2. Equal-value writes still announce themselves.** `StorageTree.Write`
+(`internal/storage/tree.go:158-169`) already compares the value ID and creates no
+new instance when the value is unchanged — but it returns `nil` either way, so the
+caller cannot tell. The path stays in the commit buffer and would trigger watchers
+regardless. **We have the mechanism and discard the one bit that makes it useful.**
 
-**Options:**
-1. Capture written paths before the flush (snapshot inside `Interpret`, or have
-   `flushBuffer` hand them back). Restores the specified cascade semantics.
-   Audit existing watchers for self-writes first.
-2. Leave cascade disabled and remove the dead code, treating single-shot
-   triggering as the intended model. Contradicts the spec's cascade section.
+---
 
-**Scope when approved:** `internal/watcher/engine.go`,
-`internal/mbl/interpreter/interpreter.go`. Needs an end-to-end test that a loud
-self-write re-triggers and a `(quietly)` self-write does not — the pair that
-proves both halves.
+#### What the sibling languages do
 
+gBASIC (`~/development/gbasic/src/eval.c`) — five mechanisms:
+
+- **Unchanged assignments do not trigger.** `assign_lvalue` returns
+  `LVALUE_ASSIGN_UNCHANGED` and the assignment path breaks before calling
+  `watcher_trigger_change` (`eval.c:22228`).
+- **Pending-dedup queue.** `watcher_enqueue` (`:4013`) no-ops when the watcher is
+  already pending, so a burst of writes queues one run, not one per path.
+- **One flat drain.** `watcher_drain` (`:4032`) walks a cursor over a queue that
+  grows while it iterates; a write inside a watcher body enqueues onto the same
+  queue and returns rather than starting a nested drain. Cascade emerges from a
+  flat loop — no recursion, no deferral to a later tick.
+- **A cap with a structured error** (10,000 per drain, `error.code = 1005`),
+  raised against the *originating* statement: the drain saves
+  `watcher_drain_origin_line` and restores it before raising, so the blame lands
+  on the statement that started the cascade, not on whichever watcher was running
+  when the counter tripped.
+- **Region suppression** (`without watchers`) rather than a per-assignment modifier.
+
+HiLow (`~/development/HiLow/docs/cell-redesign-brief.md`) — the transferable idea
+is the **"deep-watched" bit** set down the parent chain at subscription time, so
+propagation is skipped entirely when nobody deep-watches. Its identity-based
+subscription solves shadowing, which AmorphDB does not have (paths *are* the
+identity), so that part does not apply.
+
+**Deliberately not adopted: synchronous immediate firing.** gBASIC fires before
+execution continues past the mutating statement. That contradicts heartbeat
+atomicity — which CLAUDE.md marks non-optional — and cannot survive distributed
+write authority. Writes stay staged; the drain happens at the tick.
+
+---
+
+#### What to build
+
+1. **Make `Write` report whether it changed anything.** Change the signature to
+   return a "changed" indication (or add `WriteChanged`). `tree.go:158-169`
+   already knows; it just discards the answer. Keep `Write`'s existing contract
+   for other callers, or update them all — decide when reading the call sites.
+2. **Do not trigger on unchanged writes.** Mark the `PendingWrite` accordingly, so
+   an unchanged write neither creates an instance nor announces itself. This alone
+   makes the common self-loop converge: a watcher that recomputes and writes back
+   the same value stops on the second pass instead of spinning.
+3. **Replace `pendingCascadePaths` with a drain queue in the engine.** Per tick:
+   - a set of changed paths, populated as writes commit (not read back after the
+     buffer is flushed — that is defect 1);
+   - a queue of watchers to run, with a `pending` flag so a watcher is queued at
+     most once at a time;
+   - a cursor-based loop that keeps going as the queue grows, so a watcher's own
+     writes feed the same drain.
+4. **Cap the drain** and produce an `unknown` naming the limit, attributed to the
+   change that started the drain. Mirror the existing guards (`MaxCallDepth`, the
+   commit-buffer limit) in spirit and message style.
+5. **Add a `quietly:` block form.** Per-assignment `(quietly)` is noisy when a
+   watcher body writes several paths. Reuse the existing keyword with MBL's normal
+   block convention rather than importing gBASIC's `without watchers`:
+   ```
+   quietly:
+       my.a = 1
+       my.b = 2
+   ```
+   `(quietly)` on a single assignment stays valid.
+
+After this, `(quietly)` is an escape hatch rather than the primary loop guard —
+which also shrinks the audit this step used to require, since equal-value
+convergence handles the ordinary case on its own.
+
+**Scope:** `internal/storage/tree.go`, `internal/watcher/engine.go`,
+`internal/mbl/interpreter/interpreter.go`, and the lexer/parser for `quietly:`.
+
+**New tests to write:**
+```go
+// The pair that proves both halves
+// - a loud self-write re-triggers (cascade works at all)
+// - a (quietly) self-write does not
+
+// Convergence without (quietly): a watcher that writes back the SAME value
+// must fire once and stop, not spin.
+
+// Dedup: writes to three watched paths in one tick queue one run, not three.
+
+// Cascade: watcher A writes a path watched by B; both run in the same tick.
+
+// Runaway: two watchers writing each other's watched paths hit the cap and
+// produce an unknown that names the originating change, not the watcher.
+
+// quietly: block suppresses every write in the block.
+```
+
+**Verification:**
+```bash
+go test ./internal/watcher/... ./internal/storage/... ./internal/mbl/...
+go test ./...
+```
 
 ---
 

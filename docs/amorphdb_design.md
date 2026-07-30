@@ -991,15 +991,56 @@ my.automation.order_processor: watch append(my.orders[status ?= "pending"]) as n
             my.notifications.send(order.customer_email, "Order backordered: " & order.id)
 ```
 
+#### Watcher Triggering and Cascade
+
+Triggering is governed by four rules, which together make watcher chains converge
+by default rather than by discipline.
+
+**Unchanged writes do not trigger.** Assignment records a change; writing a value
+identical to the current one records nothing and announces nothing. A watcher that
+recomputes a value and writes back the same answer therefore settles on its second
+pass instead of spinning. This is the primary defence against runaway watchers —
+not the `(quietly)` modifier.
+
+**A watcher runs at most once per drain, and sees the latest state.** Several
+writes to several paths a watcher observes queue one execution, not one per path.
+The watcher body reads current values when it runs, so it never sees a stale
+intermediate.
+
+**Cascade resolves within the tick.** A write made by a watcher body joins the
+same drain rather than deferring to a later heartbeat, so a chain — watcher A
+writes a path watched by B, which writes a path watched by C — settles inside one
+tick. Writes remain staged and are flushed at the heartbeat boundary as described
+under Heartbeat Atomicity; it is the *triggering* that resolves within the tick,
+not the committing.
+
+**Runaway cascades are capped.** A drain that exceeds its execution limit produces
+an Unknown naming the limit, attributed to the change that started the drain
+rather than to whichever watcher was running when the limit was reached. Two
+watchers that write each other's watched paths therefore fail with a diagnosable
+error rather than hanging the node.
+
 #### Quiet Assignment
 
-The `(quietly)` modifier prevents assignments from triggering watchers:
+The `(quietly)` modifier prevents an assignment from triggering watchers. The
+write still happens and is still recorded; it simply does not announce itself:
 
 ```
 my.account.status = (quietly) "maintenance"     # No watchers triggered
 ```
 
-This is essential for watchers that modify the data they're watching, preventing infinite loops.
+A block form suppresses triggering for several writes at once:
+
+```
+quietly:
+    my.account.status = "maintenance"
+    my.account.checked_at = now()
+```
+
+Because unchanged writes do not trigger and a watcher runs at most once per drain,
+`(quietly)` is rarely required. Reach for it when a watcher must write a path it
+genuinely observes *and* the new value differs each time — a progress counter, a
+timestamp — where convergence cannot happen on its own.
 
 ### Execution Model
 
