@@ -3134,8 +3134,12 @@ func (i *Interpreter) evalTemporalAsOf(node *parser.PathExpression, at types.Tim
 	if err != nil {
 		// No instance at or before the instant. Saying so is the honest answer —
 		// returning the oldest value would invent history that did not exist.
+		// The underlying cause is included: "path not found" and "no instance at
+		// timestamp" are very different failures, and hiding which one occurred
+		// makes this impossible to diagnose from a REPL.
 		return types.Unknown{Reason: fmt.Sprintf(
-			"no value for %s as of %s", strings.Join(node.Parts, "."), formatTimeForMessage(at))}
+			"no value for %s as of %s: %v",
+			strings.Join(node.Parts, "."), formatTimeForMessage(at), err)}
 	}
 
 	mblValue, err := storageToMBL(storageValue)

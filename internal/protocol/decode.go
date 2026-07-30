@@ -84,6 +84,53 @@ func DecodeReadResponseMessage(payload []byte) (*ReadResponseMessage, error) {
 	return &ReadResponseMessage{Value: value}, nil
 }
 
+// DecodeReadAtMessage decodes a temporal read request.
+func DecodeReadAtMessage(payload []byte) (*ReadAtMessage, error) {
+	msg := &ReadAtMessage{}
+	reader := bytes.NewReader(payload)
+
+	for reader.Len() > 0 {
+		tag, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tag: %w", err)
+		}
+
+		switch tag {
+		case 0x01: // Path
+			path, err := readStringSlice(reader)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode path: %w", err)
+			}
+			msg.Path = path
+
+		case 0x02: // Timestamp
+			var ts int64
+			if err := binary.Read(reader, binary.BigEndian, &ts); err != nil {
+				return nil, fmt.Errorf("failed to decode timestamp: %w", err)
+			}
+			msg.Timestamp = ts
+
+		default:
+			// Skip unknown fields gracefully
+			if err := skipField(reader, tag); err != nil {
+				return nil, fmt.Errorf("failed to skip unknown field 0x%02x: %w", tag, err)
+			}
+		}
+	}
+
+	return msg, nil
+}
+
+// DecodeReadAtResponseMessage decodes the historical value for a temporal read.
+func DecodeReadAtResponseMessage(payload []byte) (*ReadAtResponseMessage, error) {
+	value, err := decodeValue(payload, 0x01)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode value: %w", err)
+	}
+
+	return &ReadAtResponseMessage{Value: value}, nil
+}
+
 // DecodeWriteMessage deserializes a WriteMessage
 func DecodeWriteMessage(payload []byte) (*WriteMessage, error) {
 	msg := &WriteMessage{}

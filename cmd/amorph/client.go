@@ -125,10 +125,37 @@ func (c *ProtocolClient) Write(path []string, value storage.Value, author uint64
 	return nil
 }
 
-// ReadAt implements storage.Tree.ReadAt via protocol
+// ReadAt implements storage.Tree.ReadAt via protocol. This is what makes
+// temporal queries (my.balance[@2026-01-01]) work from the client, which runs
+// the MBL interpreter locally against this Tree.
 func (c *ProtocolClient) ReadAt(path []string, timestamp int64) (storage.Value, error) {
-	// For now, not implemented - would use READ_AT message type
-	return storage.Value{}, fmt.Errorf("ReadAt not implemented in protocol client")
+	readAtMsg := &protocol.ReadAtMessage{Path: path, Timestamp: timestamp}
+
+	payload, err := protocol.EncodeReadAtMessage(readAtMsg)
+	if err != nil {
+		return storage.Value{}, fmt.Errorf("encode request: %w", err)
+	}
+
+	response, err := c.sendRequest(protocol.READ_AT, payload)
+	if err != nil {
+		return storage.Value{}, err
+	}
+
+	if response.Type == protocol.ERROR {
+		errorMsg, _ := protocol.DecodeErrorMessage(response.Payload)
+		return storage.Value{}, fmt.Errorf("server error %d: %s", errorMsg.Code, errorMsg.Message)
+	}
+
+	if response.Type != protocol.READ_AT_RESPONSE {
+		return storage.Value{}, fmt.Errorf("unexpected response type: 0x%02x", response.Type)
+	}
+
+	responseMsg, err := protocol.DecodeReadAtResponseMessage(response.Payload)
+	if err != nil {
+		return storage.Value{}, fmt.Errorf("decode response: %w", err)
+	}
+
+	return responseMsg.Value, nil
 }
 
 // Children implements storage.Tree.Children via protocol

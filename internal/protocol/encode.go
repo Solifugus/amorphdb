@@ -66,6 +66,34 @@ func EncodeReadResponseMessage(msg *ReadResponseMessage) ([]byte, error) {
 	return encodeValue(0x01, msg.Value)
 }
 
+// EncodeReadAtMessage encodes a temporal read request: a path plus the instant to
+// read as of. The timestamp is UNIX microseconds, matching types.Time.Serialize
+// and storage.StorageTree.ReadAt.
+func EncodeReadAtMessage(msg *ReadAtMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Tag 0x01: Path (string slice)
+	pathData, err := encodeStringSlice(0x01, msg.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode path: %w", err)
+	}
+	buf.Write(pathData)
+
+	// Tag 0x02: Timestamp (int64, UNIX microseconds)
+	tsData, err := encodeInt64(0x02, msg.Timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode timestamp: %w", err)
+	}
+	buf.Write(tsData)
+
+	return buf.Bytes(), nil
+}
+
+// EncodeReadAtResponseMessage encodes the historical value for a temporal read.
+func EncodeReadAtResponseMessage(msg *ReadAtResponseMessage) ([]byte, error) {
+	return encodeValue(0x01, msg.Value)
+}
+
 // EncodeStatusMessage serializes a StatusMessage (empty request)
 func EncodeStatusMessage(msg *StatusMessage) ([]byte, error) {
 	// StatusMessage has no fields, return empty payload

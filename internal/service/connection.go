@@ -459,10 +459,36 @@ func (c *Connection) handlePurge(msg *protocol.Message) *protocol.Message {
 	return protocol.CreateMessage(protocol.PURGE_ACK, msg.Sequence, payload)
 }
 
-// handleReadAt processes READ_AT messages
+// handleReadAt processes READ_AT messages — a temporal read, returning the value
+// that was in effect at an instant. The permission check is the same as an
+// ordinary read: reading history is reading.
 func (c *Connection) handleReadAt(msg *protocol.Message) *protocol.Message {
-	// For now, return not implemented
-	return c.createErrorResponse(msg.Sequence, 501, "READ_AT not implemented yet")
+	readAtMsg, err := protocol.DecodeReadAtMessage(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid READ_AT message: %v", err))
+	}
+
+	// Create agent object for permission checking
+	agent := c.createAgent()
+
+	// Check permissions
+	if !c.service.permEvaluator.CanRead(agent, readAtMsg.Path) {
+		return c.createErrorResponse(msg.Sequence, 403, "Permission denied")
+	}
+
+	// Read the value in effect at the requested instant
+	value, err := c.service.tree.ReadAt(readAtMsg.Path, readAtMsg.Timestamp)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 404, fmt.Sprintf("Temporal read failed: %v", err))
+	}
+
+	responseMsg := &protocol.ReadAtResponseMessage{Value: value}
+	payload, err := protocol.EncodeReadAtResponseMessage(responseMsg)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.READ_AT_RESPONSE, msg.Sequence, payload)
 }
 
 // handleChildren processes CHILDREN messages

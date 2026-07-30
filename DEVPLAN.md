@@ -815,6 +815,7 @@ grep -l "asset()" docs/pending_code_changes.md
 | 25 | As-of temporal queries `path[@time]` | Temporal | DONE (2026-07-29) |
 | 28 | `(quietly)` assignment: fix lost write + suppression | Defect | DONE (2026-07-29) |
 | 29 | Watcher cascade collection is dead — needs decision | Defect | TODO |
+| 30 | READ_AT over the wire: temporal queries for real clients | Defect | DONE (2026-07-30) |
 | 26 | Comparison and range temporal queries | Temporal | TODO |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | TODO |
 
@@ -1722,3 +1723,60 @@ control, and that is now available, but existing MBL would need auditing first.
 `internal/mbl/interpreter/interpreter.go`. Needs an end-to-end test that a loud
 self-write re-triggers and a `(quietly)` self-write does not — the pair that
 proves both halves.
+
+
+---
+
+### Step 30 — READ_AT over the wire
+
+**Status:** DONE (completed: 2026-07-30)
+
+**Discovered** by smoke-testing the v0.2.0 release binaries against a real daemon
+— every as-of query returned Unknown, while the same queries passed in-process.
+
+**The gap:** `cmd/amorph` runs the MBL interpreter **client-side**
+(`repl.go:70`, `interpreter.New(client, agentID)`) with `ProtocolClient` standing
+in as the `storage.Tree`. Ordinary reads go over the wire, but `ReadAt` was a stub
+returning "ReadAt not implemented in protocol client". So Step 25 worked in tests
+and embedded use, and failed for every actual user of the REPL — a feature that
+was released and advertised.
+
+`READ_AT = 0x16` and `READ_AT_RESPONSE = 0x17` had existed since the protocol was
+written, along with the message structs, and `connection.go` already routed the
+message — but there were **no codecs** and the handler returned
+`501 "READ_AT not implemented yet"`. Three stubs pointing at each other.
+
+**Implemented:** `EncodeReadAtMessage` / `DecodeReadAtMessage` /
+`EncodeReadAtResponseMessage` / `DecodeReadAtResponseMessage`
+(`internal/protocol`), `Connection.handleReadAt` (permission check identical to an
+ordinary read — reading history is reading), and `ProtocolClient.ReadAt`.
+
+Also improved the Unknown returned by a failed temporal read to include the
+underlying cause. It previously said only "no value for X as of Y", which hid the
+difference between "path not found", "no instances" and "no instance at that
+timestamp" — and that omission is why this took a wire-level probe to diagnose.
+
+**Verified** against a live daemon with the locally built binaries: a value in
+effect at an earlier instant reads back correctly over the socket, a future
+instant returns the current value, and a pre-history instant returns a chained
+404. Plus `internal/service/readat_integration_test.go` (4 subtests over a real
+socket) and `internal/protocol/readat_test.go` (codec round-trips).
+
+**Note for the next release:** v0.2.0 ships with temporal queries broken over the
+wire. The fix is unreleased, so the download and the website both currently
+overstate what works.
+
+**Pre-existing limitation found, not fixed:** `skipField` (`decode.go`) treats
+only tags `0x01`-`0x10` as length-prefixed and skips a single byte otherwise,
+desynchronising the reader. Adding a field to any existing message is therefore
+not safely backward compatible. Its own comment calls it "a simplified
+implementation".
+
+**Also observed while smoke-testing** (not fixed, each its own small defect):
+- `amorph -run script.mbl` prints only the **last** statement's result, so a
+  script's intermediate outputs are invisible.
+- `amorphd` honours `local_socket_path` from `~/.amorph/config.yaml` but `amorph`
+  uses its own default, so a non-default configured socket makes the client fail
+  to connect with "no such file or directory".
+- `ProtocolClient.Children` and `.Purge` are still stubs, so any MBL needing
+  child enumeration or purge fails client-side the same way `ReadAt` did.
