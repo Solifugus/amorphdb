@@ -131,6 +131,53 @@ func DecodeReadAtResponseMessage(payload []byte) (*ReadAtResponseMessage, error)
 	return &ReadAtResponseMessage{Value: value}, nil
 }
 
+// DecodeChildrenMessage decodes a request for the child attributes of a path.
+func DecodeChildrenMessage(payload []byte) (*ChildrenMessage, error) {
+	path, err := decodeStringSlice(payload, 0x01)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode path: %w", err)
+	}
+
+	return &ChildrenMessage{Path: path}, nil
+}
+
+// DecodeChildrenResponseMessage decodes a list of child attributes.
+func DecodeChildrenResponseMessage(payload []byte) (*ChildrenResponseMessage, error) {
+	reader := bytes.NewReader(payload)
+
+	tag, err := reader.ReadByte()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tag: %w", err)
+	}
+	if tag != 0x01 {
+		return nil, fmt.Errorf("unexpected tag 0x%02x for children response", tag)
+	}
+
+	var count uint32
+	if err := binary.Read(reader, binary.BigEndian, &count); err != nil {
+		return nil, fmt.Errorf("failed to decode children count: %w", err)
+	}
+
+	// Each attribute is four uint64 fields; refuse a count the payload cannot
+	// possibly satisfy rather than allocating on a corrupt length.
+	if int(count)*32 > reader.Len() {
+		return nil, fmt.Errorf("children count %d exceeds payload size", count)
+	}
+
+	msg := &ChildrenResponseMessage{Children: make([]storage.Attribute, 0, count)}
+	for i := uint32(0); i < count; i++ {
+		var child storage.Attribute
+		for _, field := range []*uint64{&child.ID, &child.LabelValueID, &child.FirstInstanceID, &child.NextAttributeID} {
+			if err := binary.Read(reader, binary.BigEndian, field); err != nil {
+				return nil, fmt.Errorf("failed to decode attribute field: %w", err)
+			}
+		}
+		msg.Children = append(msg.Children, child)
+	}
+
+	return msg, nil
+}
+
 // DecodeWriteMessage deserializes a WriteMessage
 func DecodeWriteMessage(payload []byte) (*WriteMessage, error) {
 	msg := &WriteMessage{}

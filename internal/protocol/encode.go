@@ -94,6 +94,32 @@ func EncodeReadAtResponseMessage(msg *ReadAtResponseMessage) ([]byte, error) {
 	return encodeValue(0x01, msg.Value)
 }
 
+// EncodeChildrenMessage encodes a request for the child attributes of a path.
+func EncodeChildrenMessage(msg *ChildrenMessage) ([]byte, error) {
+	return encodeStringSlice(0x01, msg.Path)
+}
+
+// EncodeChildrenResponseMessage encodes a list of child attributes. Each
+// attribute is four fixed-width uint64 fields, so the payload is a count
+// followed by count * 32 bytes.
+func EncodeChildrenResponseMessage(msg *ChildrenResponseMessage) ([]byte, error) {
+	var buf bytes.Buffer
+
+	buf.WriteByte(0x01)
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(msg.Children))); err != nil {
+		return nil, fmt.Errorf("failed to encode children count: %w", err)
+	}
+	for _, child := range msg.Children {
+		for _, field := range []uint64{child.ID, child.LabelValueID, child.FirstInstanceID, child.NextAttributeID} {
+			if err := binary.Write(&buf, binary.BigEndian, field); err != nil {
+				return nil, fmt.Errorf("failed to encode attribute field: %w", err)
+			}
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
 // EncodeStatusMessage serializes a StatusMessage (empty request)
 func EncodeStatusMessage(msg *StatusMessage) ([]byte, error) {
 	// StatusMessage has no fields, return empty payload

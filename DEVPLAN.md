@@ -46,16 +46,15 @@ produced. This file is deliberately kept to the work that remains.
 | 26 | Comparison and range temporal queries | Temporal | a decision: what a range query returns |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | — |
 | 29 | Watcher cascade: convergence by design | Watchers | — |
+| 32 | Reading a stored container returns silently wrong answers | Interpreter | — |
 
 **Two decisions are waiting**, both recorded in the steps that need them: what a
 range temporal query returns (Step 26), and whether time arithmetic gets a real
 Duration type (Step 22). Neither blocks the other steps.
 
-**Known defects not yet given a step:** `ProtocolClient.Children` and `.Purge`
-are stubs, so MBL needing child enumeration or purge fails client-side exactly as
-`ReadAt` did before Step 30; the wire protocol cannot safely skip unknown
-non-length-prefixed fields, so adding a field to an existing message is not
-backward compatible; `sort`, `filter`, `map`, `reduce` and `convert` are not
+**Known defects not yet given a step:** the wire protocol cannot safely skip
+unknown non-length-prefixed fields, so adding a field to an existing message is
+not backward compatible; `sort`, `filter`, `map`, `reduce` and `convert` are not
 implemented.
 
 ---
@@ -711,3 +710,77 @@ go test ./...
 ```
 
 ---
+
+---
+
+### Step 32 — Reading a stored container returns silently wrong answers
+
+**Status:** TODO
+
+**Discovered:** 2026-07-30, while checking whether the `Children` protocol stub
+mattered. It did not — nothing reached it. This is what is actually broken.
+
+The interpreter never enumerates the children of a stored path. Rather than
+failing, each affected operation returns a plausible-looking wrong answer:
+
+| MBL | Returns | Should be |
+|---|---|---|
+| `my.p` (a stored container) | `{}` | the record with its fields |
+| `my.p{ name, age }` | `Unknown: not_found` per field | the field values |
+| `my.p..count` | `0` | the number of children |
+
+Verified against a live daemon after seeding `my.p.name` and `my.p.age`; the
+leaf reads work, so the data is present and only the enumeration is missing.
+In-memory records behave correctly — `my.l = [1,2,3]` then `my.l..count` gives 3
+— so this is specific to paths whose children live in storage.
+
+**Silent wrong answers are the problem here, not the missing feature.** A `0`
+count and an empty record are indistinguishable from a genuinely empty node, so
+application code cannot detect the difference. `docs/getting_started.md` already
+documents "reading a bare container node" as unsupported, but a projection
+answering `not_found` for a field that exists is worse than an unsupported
+operation.
+
+`storage.StorageTree.Children` works, and as of Step 31 so does the CHILDREN wire
+path, so the primitives are in place for both the embedded and client-side
+interpreter.
+
+**Design decisions needed before starting:**
+1. Should reading a container return a record of its children, or stay an
+   explicit operation? Returning the record is what the spec implies and what
+   projection needs.
+2. How deep? A single level, or the whole subtree? Whole-subtree reads of a large
+   node need a bound, in the spirit of the commit-buffer limit.
+3. `Children` returns attribute IDs, not names — the label lives in the value
+   store. The client-side interpreter therefore needs either a name-resolving
+   round trip or a richer CHILDREN response. Decide which before building, since
+   it changes the wire format.
+
+**Scope:** `internal/mbl/interpreter/`, possibly `internal/protocol` and
+`internal/service` if the response shape changes.
+
+---
+
+### Step 31 — CHILDREN over the wire
+
+**Status:** DONE (completed: 2026-07-30) — Implemented the CHILDREN codecs, a
+real server handler (permission check identical to an ordinary read — enumerating
+children reveals their names), and `ProtocolClient.Children`. Same three-stub
+shape as Step 30: message types and routing existed, codecs did not, and both
+ends returned errors.
+
+Two corrections to what prompted this step. `Purge` was **already fully
+implemented** on both client and server — the claim that it was a stub was wrong.
+And implementing `Children` fixes nothing observable on its own, because the
+interpreter never calls it; see Step 32 for what is actually broken.
+
+Kept anyway because it completes the `storage.Tree` interface over the wire and
+is a prerequisite for Step 32 on the client side — without it, teaching the
+interpreter to enumerate children would fail remotely exactly as `ReadAt` did.
+
+Note the response carries attribute IDs, not names: the label lives in the value
+store, which a remote client cannot read. Step 32 has to resolve that.
+
+Tests: `internal/protocol/readat_test.go` (round-trips including an empty list,
+large IDs, and a corrupt count that must not cause a large allocation) and
+`internal/service/readat_integration_test.go` (over a real socket).

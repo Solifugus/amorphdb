@@ -158,10 +158,41 @@ func (c *ProtocolClient) ReadAt(path []string, timestamp int64) (storage.Value, 
 	return responseMsg.Value, nil
 }
 
-// Children implements storage.Tree.Children via protocol
+// Children implements storage.Tree.Children via protocol.
+//
+// Note the returned attributes carry storage IDs, not names — the label lives in
+// the value store, which a remote client cannot read directly. Callers that need
+// names must resolve them separately. Nothing in the MBL interpreter enumerates
+// stored children yet (see DEVPLAN), so this exists to complete the Tree
+// interface rather than to serve a current caller.
 func (c *ProtocolClient) Children(path []string) ([]storage.Attribute, error) {
-	// For now, not implemented - would use CHILDREN message type
-	return nil, fmt.Errorf("Children not implemented in protocol client")
+	childrenMsg := &protocol.ChildrenMessage{Path: path}
+
+	payload, err := protocol.EncodeChildrenMessage(childrenMsg)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+
+	response, err := c.sendRequest(protocol.CHILDREN, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if response.Type == protocol.ERROR {
+		errorMsg, _ := protocol.DecodeErrorMessage(response.Payload)
+		return nil, fmt.Errorf("server error %d: %s", errorMsg.Code, errorMsg.Message)
+	}
+
+	if response.Type != protocol.CHILDREN_RESPONSE {
+		return nil, fmt.Errorf("unexpected response type: 0x%02x", response.Type)
+	}
+
+	responseMsg, err := protocol.DecodeChildrenResponseMessage(response.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return responseMsg.Children, nil
 }
 
 // Purge implements storage.Tree.Purge via protocol

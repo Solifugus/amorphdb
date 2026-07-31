@@ -111,3 +111,71 @@ func TestReadAtResponseCarriesTimeValues(t *testing.T) {
 // comment calls this "a simplified implementation". That is a pre-existing
 // protocol limitation, not specific to READ_AT, and it means adding new fields to
 // any message is not safely backward compatible.
+
+// --- CHILDREN ---
+
+func TestChildrenMessageRoundTrip(t *testing.T) {
+	original := &ChildrenMessage{Path: []string{"world", "agent", "1"}}
+
+	encoded, err := EncodeChildrenMessage(original)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	decoded, err := DecodeChildrenMessage(encoded)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !reflect.DeepEqual(decoded.Path, original.Path) {
+		t.Errorf("Path mismatch: expected %v, got %v", original.Path, decoded.Path)
+	}
+}
+
+func TestChildrenResponseRoundTrip(t *testing.T) {
+	cases := []struct {
+		name     string
+		children []storage.Attribute
+	}{
+		{"empty", []storage.Attribute{}},
+		{"one", []storage.Attribute{{ID: 1, LabelValueID: 2, FirstInstanceID: 3, NextAttributeID: 4}}},
+		{"several", []storage.Attribute{
+			{ID: 10, LabelValueID: 11, FirstInstanceID: 12, NextAttributeID: 20},
+			{ID: 20, LabelValueID: 21, FirstInstanceID: 22, NextAttributeID: 0},
+		}},
+		{"large ids", []storage.Attribute{
+			{ID: ^uint64(0), LabelValueID: ^uint64(0) - 1, FirstInstanceID: 1 << 62, NextAttributeID: 0},
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			original := &ChildrenResponseMessage{Children: tc.children}
+
+			encoded, err := EncodeChildrenResponseMessage(original)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			decoded, err := DecodeChildrenResponseMessage(encoded)
+			if err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if len(decoded.Children) != len(tc.children) {
+				t.Fatalf("count = %d, want %d", len(decoded.Children), len(tc.children))
+			}
+			for i := range tc.children {
+				if decoded.Children[i] != tc.children[i] {
+					t.Errorf("child %d = %+v, want %+v", i, decoded.Children[i], tc.children[i])
+				}
+			}
+		})
+	}
+}
+
+// TestDecodeChildrenRejectsImpossibleCount guards against a corrupt or hostile
+// length prefix causing a large allocation.
+func TestDecodeChildrenRejectsImpossibleCount(t *testing.T) {
+	// Tag 0x01, then a count of 1,000,000 with no attribute data following.
+	payload := []byte{0x01, 0x00, 0x0F, 0x42, 0x40}
+	if _, err := DecodeChildrenResponseMessage(payload); err == nil {
+		t.Error("expected an error for a count larger than the payload")
+	}
+}

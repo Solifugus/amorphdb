@@ -491,10 +491,35 @@ func (c *Connection) handleReadAt(msg *protocol.Message) *protocol.Message {
 	return protocol.CreateMessage(protocol.READ_AT_RESPONSE, msg.Sequence, payload)
 }
 
-// handleChildren processes CHILDREN messages
+// handleChildren processes CHILDREN messages, returning the child attributes of
+// a path. The permission check is the same as an ordinary read — enumerating
+// children reveals their names, which is a read.
 func (c *Connection) handleChildren(msg *protocol.Message) *protocol.Message {
-	// For now, return not implemented
-	return c.createErrorResponse(msg.Sequence, 501, "CHILDREN not implemented yet")
+	childrenMsg, err := protocol.DecodeChildrenMessage(msg.Payload)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 400, fmt.Sprintf("Invalid CHILDREN message: %v", err))
+	}
+
+	// Create agent object for permission checking
+	agent := c.createAgent()
+
+	// Check permissions
+	if !c.service.permEvaluator.CanRead(agent, childrenMsg.Path) {
+		return c.createErrorResponse(msg.Sequence, 403, "Permission denied")
+	}
+
+	children, err := c.service.tree.Children(childrenMsg.Path)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 404, fmt.Sprintf("Children failed: %v", err))
+	}
+
+	responseMsg := &protocol.ChildrenResponseMessage{Children: children}
+	payload, err := protocol.EncodeChildrenResponseMessage(responseMsg)
+	if err != nil {
+		return c.createErrorResponse(msg.Sequence, 500, fmt.Sprintf("Response encoding failed: %v", err))
+	}
+
+	return protocol.CreateMessage(protocol.CHILDREN_RESPONSE, msg.Sequence, payload)
 }
 
 // handleStatus processes STATUS messages

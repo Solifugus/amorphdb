@@ -162,3 +162,95 @@ func TestReadAtProtocolIntegration(t *testing.T) {
 		}
 	})
 }
+
+// TestChildrenProtocolIntegration covers the CHILDREN wire path, which was a
+// 501 stub on the server and an error stub on the client until the same review
+// that fixed READ_AT.
+func TestChildrenProtocolIntegration(t *testing.T) {
+	config := DefaultConfig()
+	config.LocalSocketPath = filepath.Join(t.TempDir(), "socket")
+	config.StorageDir = filepath.Join(t.TempDir(), "data")
+	config.NetworkPort = 0
+	config.HTTPPort = 0
+	config.HTTPSPort = 0
+
+	service, err := New(config)
+	if err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+	if _, err := service.InitOwner("children-integration-test"); err != nil {
+		t.Fatalf("init owner: %v", err)
+	}
+	if err := service.Start(); err != nil {
+		t.Fatalf("start service: %v", err)
+	}
+	defer service.Stop()
+	time.Sleep(100 * time.Millisecond)
+
+	conn, err := net.Dial("unix", service.GetLocalSocketPath())
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer conn.Close()
+
+	parent := []string{"world", "agent", "1", "person"}
+	for _, field := range []string{"name", "age", "city"} {
+		child := append(append([]string{}, parent...), field)
+		v := storage.Value{TypeTag: storage.TypeText, Data: []byte("x")}
+		if err := service.tree.Write(child, v, 1); err != nil {
+			t.Fatalf("seed %s: %v", field, err)
+		}
+	}
+
+	seq := uint32(1)
+	next := func() uint32 { seq++; return seq }
+
+	ask := func(path []string) *protocol.Message {
+		t.Helper()
+		payload, err := protocol.EncodeChildrenMessage(&protocol.ChildrenMessage{Path: path})
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		return roundTrip(t, conn, protocol.CHILDREN, payload, next())
+	}
+
+	t.Run("returns the children", func(t *testing.T) {
+		resp := ask(parent)
+		if resp.Type != protocol.CHILDREN_RESPONSE {
+			if resp.Type == protocol.ERROR {
+				e, _ := protocol.DecodeErrorMessage(resp.Payload)
+				t.Fatalf("error %d: %s", e.Code, e.Message)
+			}
+			t.Fatalf("response type 0x%02x, want CHILDREN_RESPONSE", resp.Type)
+		}
+		decoded, err := protocol.DecodeChildrenResponseMessage(resp.Payload)
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(decoded.Children) != 3 {
+			t.Errorf("got %d children, want 3", len(decoded.Children))
+		}
+		for i, child := range decoded.Children {
+			if child.ID == 0 {
+				t.Errorf("child %d has a zero ID — attribute did not survive the wire", i)
+			}
+		}
+	})
+
+	t.Run("a leaf has no children", func(t *testing.T) {
+		resp := ask(append(append([]string{}, parent...), "name"))
+		if resp.Type == protocol.CHILDREN_RESPONSE {
+			decoded, err := protocol.DecodeChildrenResponseMessage(resp.Payload)
+			if err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if len(decoded.Children) != 0 {
+				t.Errorf("leaf reported %d children, want 0", len(decoded.Children))
+			}
+			return
+		}
+		if resp.Type != protocol.ERROR {
+			t.Errorf("response type 0x%02x, want CHILDREN_RESPONSE or ERROR", resp.Type)
+		}
+	})
+}
