@@ -829,13 +829,17 @@ unchanged self-write converges, a `(quietly)` self-write does not cascade, the
 cap fires and names paths, and the counter resets on quiet rounds.
 
 **What is left of this step:**
-- The **within-tick drain** (gBASIC's flat cursor-based queue). Cascade currently
-  resolves one round per tick, which the spec section written for this step
-  describes as resolving within the tick. Convergence does not depend on it —
-  equal-value suppression settles chains either way — but a long chain takes one
-  tick per link. Changing it means reworking `executeTick`.
 - The **`quietly:` block form**. Per-assignment `(quietly)` works; the block is
   lexer/parser work and independent of everything above.
+
+**Closed, not outstanding: the within-tick drain.** An earlier draft of this step
+proposed adopting gBASIC's flat cursor-based drain so a chain settles inside one
+tick, and the spec section written alongside it claimed that behaviour. That was
+wrong — it was introduced without checking it against the intended design.
+One-link-per-tick is deliberate: each link's effect becomes its own instance in
+the temporal record, so the chain of causation stays queryable, and each tick's
+work stays bounded. The spec has been corrected to describe the intended model,
+including that intermediate states between links are observable by design.
 
 **Also worth knowing:** cascade records intermediate ancestor paths too — writing
 `my.a.b` records `world`, `world.agent`, `world.agent.<id>` and the leaf, because

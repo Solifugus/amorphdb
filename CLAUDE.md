@@ -342,13 +342,19 @@ path has exactly one write authority node. Reads come from local subscribed
 copies. Writes route to the authority. See `amorphdb_design.md` §Data
 Distribution Model.
 
-**Watcher convergence:** Watcher chains are designed to settle on their own, not
-by discipline. An unchanged write triggers nothing (the storage layer already
-declines to create an instance — `tree.go:158`), a watcher runs at most once per
-drain, cascade resolves within the tick, and a runaway drain is capped with an
-Unknown blamed on the change that started it. See `amorphdb_design.md` §Watcher
-Triggering and Cascade, and DEVPLAN Step 29 — the mechanism is specified but NOT
-yet built; cascade currently does not fire at all.
+**Watcher cascade is one link per tick, by design.** A watcher's effects are read
+by the next watcher on the *next* heartbeat, not the same one. That is deliberate:
+each link's effect becomes its own instance in the temporal record, so the chain of
+causation stays queryable, and each tick's work stays bounded. Intermediate states
+between links are therefore real and observable — where a chain must appear atomic,
+model it as a transaction record rather than expecting cascade to hide the steps.
+
+**Watcher convergence:** chains settle on their own, not by discipline. An
+unchanged write triggers nothing — storage already declines to create an instance
+(`tree.go:158`) and `WriteReportingChange` exposes that — a watcher runs at most
+once per tick, and a runaway chain is capped after a number of consecutive
+cascading ticks and reported with the paths still changing. See
+`amorphdb_design.md` §Watcher Triggering and Cascade.
 
 **`(quietly)` modifier:** Prevents an assignment from triggering watchers. The
 write still happens and is still recorded. It is a modifier on the assignment

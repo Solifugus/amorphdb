@@ -1002,23 +1002,36 @@ recomputes a value and writes back the same answer therefore settles on its seco
 pass instead of spinning. This is the primary defence against runaway watchers —
 not the `(quietly)` modifier.
 
-**A watcher runs at most once per drain, and sees the latest state.** Several
-writes to several paths a watcher observes queue one execution, not one per path.
-The watcher body reads current values when it runs, so it never sees a stale
-intermediate.
+**A watcher runs at most once per tick, and sees the latest state.** Several
+writes to several paths a watcher observes produce one execution, not one per
+path. The watcher body reads current values when it runs, so it never sees a
+stale intermediate.
 
-**Cascade resolves within the tick.** A write made by a watcher body joins the
-same drain rather than deferring to a later heartbeat, so a chain — watcher A
-writes a path watched by B, which writes a path watched by C — settles inside one
-tick. Writes remain staged and are flushed at the heartbeat boundary as described
-under Heartbeat Atomicity; it is the *triggering* that resolves within the tick,
-not the committing.
+**A watcher's effects are read on the next tick, not the same one.** A chain —
+watcher A writes a path watched by B, which writes a path watched by C — advances
+one link per heartbeat. A's writes commit at the end of its tick; B sees them at
+the start of the next; C the tick after that.
 
-**Runaway cascades are capped.** A drain that exceeds its execution limit produces
-an Unknown naming the limit, attributed to the change that started the drain
-rather than to whichever watcher was running when the limit was reached. Two
-watchers that write each other's watched paths therefore fail with a diagnosable
-error rather than hanging the node.
+This is deliberate, and it follows from what AmorphDB is. Each link's effect
+becomes its own instance in the temporal record, so the chain of causation is
+itself queryable: you can ask what the total was after A ran but before B checked
+it. Resolving a whole chain inside one tick would collapse those into a single
+batch at a single timestamp and lose that history. It also keeps each tick's work
+bounded — the heartbeat stays a clock rather than becoming a variable-length
+transaction — so a node remains responsive while a long chain settles.
+
+The consequence to design around: **intermediate states are real and observable.**
+Between ticks the data genuinely holds A's effect without B's, and a reader sees
+that. Where a chain must appear atomic, model it as a transaction record that
+watchers advance through explicit states, rather than expecting the cascade to
+hide the intermediate steps.
+
+**Runaway cascades are capped.** A chain that keeps cascading for more than a
+configured number of consecutive ticks is stopped and reported, naming the paths
+still changing. Two watchers that write each other's watched paths therefore fail
+with a diagnosable error rather than cascading forever. Convergence normally
+happens without this: unchanged writes announce nothing, so only a chain whose
+values genuinely differ every round can reach the cap.
 
 #### Quiet Assignment
 
@@ -1037,7 +1050,7 @@ quietly:
     my.account.checked_at = now()
 ```
 
-Because unchanged writes do not trigger and a watcher runs at most once per drain,
+Because unchanged writes do not trigger and a watcher runs at most once per tick,
 `(quietly)` is rarely required. Reach for it when a watcher must write a path it
 genuinely observes *and* the new value differs each time — a progress counter, a
 timestamp — where convergence cannot happen on its own.

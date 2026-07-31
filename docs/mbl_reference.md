@@ -311,7 +311,7 @@ less often than you might expect. Two rules do most of the work:
 
 - **An unchanged write does not trigger anything.** A watcher that recomputes a
   value and writes back the same answer settles on its second pass.
-- **A watcher runs at most once per drain**, seeing the latest state — several
+- **A watcher runs at most once per tick**, seeing the latest state — several
   writes to paths it watches produce one run, not one per write.
 
 Use `(quietly)` when a watcher writes a path it genuinely observes *and* the value
@@ -936,7 +936,7 @@ watch my.snapshots.article(my.articles.current):
 
 ## Common Pitfalls
 
-**1. A self-writing watcher that never settles.** Writing an *unchanged* value does not trigger anything, so most self-writing watchers converge on their own. A watcher that keeps re-firing is usually writing a value that differs every time — a timestamp, a counter — to a path it watches. Wrap that write in `(quietly)`. A runaway chain does not hang the node: the drain is capped and produces an Unknown naming the change that started it.
+**1. A self-writing watcher that never settles.** Writing an *unchanged* value does not trigger anything, so most self-writing watchers converge on their own. A watcher that keeps re-firing is usually writing a value that differs every time — a timestamp, a counter — to a path it watches. Wrap that write in `(quietly)`. A runaway chain does not hang the node: it is stopped after a number of consecutive cascading ticks and reported with the paths still changing.
 
 **2. Confusing `.content` with `.content[@t]`.** `.content` is the current value. `.content[@t]` is the value at time `t`. If your code accidentally queries "current" when you wanted "historical" (or vice versa), you'll get results that look plausible but are wrong. Be explicit.
 

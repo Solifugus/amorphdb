@@ -105,37 +105,39 @@ rather than from MBL watchers.
 
 **Where:** `internal/mbl/parser/parser.go`, `internal/mbl/interpreter/`
 
-#### 1.2 Watcher cascade collection is dead *(verified)*
-`ExecuteWatcher` (`internal/watcher/engine.go:389`) runs the watcher body and
-*then* reads `interp.GetWrittenPaths()` to decide what should trigger on the
-next tick. But `Interpret` has already called `flushBuffer`, which clears the
-commit buffer, so the list is always empty and `pendingCascadePaths` never
-fills.
+#### 1.2 Watcher cascade — FIXED 2026-07-30
 
-Consequence: a watcher that writes to a path it observes does **not**
-re-trigger. Verified directly — such a watcher fires exactly once, identically
-to one that writes nothing. Cascading watcher chains described in the spec do
-not currently occur.
+Left here as a record because the failure was instructive, not because anything
+is outstanding.
 
-`(quietly)` (fixed in v0.2.0 — it previously discarded the write entirely) is
-correctly plumbed to suppress triggering, but has nothing to suppress until
-this is repaired.
+Cascade had never worked. Three defects were stacked, each hiding the next:
+`ExecuteWatcher` read the written-path list *after* `Interpret` had flushed and
+cleared the commit buffer, so it was always empty; cascade recorded resolved
+paths (`world.agent.<id>.x`) while watchers register the form their author wrote
+(`my.x`), so the two could never match; and the tick committed the cascade
+*before* advancing the watermark and clearing the change log, destroying every
+cascade entry twice over. Fixing any one alone would have changed nothing
+observable, which is presumably why it went unnoticed.
 
-A second, related gap: `StorageTree.Write` (`tree.go:158-169`) already declines
-to create an instance when the value is unchanged, but returns success either
-way — so the caller cannot tell, the path stays in the commit buffer, and an
-unchanged write would still trigger watchers.
+Convergence landed with it. `StorageTree.WriteReportingChange` exposes what
+storage already knew — an identical value creates no instance — and the
+interpreter omits unchanged and `(quietly)` writes from the changed-path list, so
+a watcher that recomputes the same value settles instead of spinning. That is why
+turning cascade on did not require auditing existing watchers first. A chain that
+genuinely cannot converge is capped after a number of consecutive cascading ticks
+and reported with the paths still changing.
 
-The planned fix is not simply to restore the old collection. Under the revised
-design (DEVPLAN Step 29) unchanged writes do not trigger, a watcher runs at most
-once per drain, cascade resolves within the tick rather than deferring to the
-next one, and a runaway drain is capped with an Unknown attributed to the change
-that started it. Watcher chains then converge by construction, which is why the
-"audit every existing watcher first" concern that accompanied the original
-framing largely goes away.
+Cascade advances **one link per tick**, by design: each link's effect becomes its
+own instance in the temporal record, so the chain of causation stays queryable,
+and each tick's work stays bounded. Intermediate states between links are
+therefore real and observable — a chain that must appear atomic should be modeled
+as a transaction record rather than relying on cascade to hide the steps.
 
-**Where:** `internal/watcher/engine.go`, `internal/storage/tree.go`,
-`internal/mbl/interpreter/interpreter.go`
+Still outstanding from that work: the `quietly:` block form (per-assignment
+`(quietly)` works).
+
+**Where:** `internal/watcher/engine.go`, `internal/watcher/heartbeat.go`,
+`internal/storage/tree.go`, `internal/mbl/interpreter/interpreter.go`
 **Spec:** Watchers § Watcher Triggering and Cascade
 
 #### 1.3 Collection higher-order functions *(verified absent)*
