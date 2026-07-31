@@ -844,8 +844,10 @@ the temporal record, so the chain of causation stays queryable, and each tick's
 work stays bounded. The spec has been corrected to describe the intended model,
 including that intermediate states between links are observable by design.
 
-**Also worth knowing:** cascade records intermediate ancestor paths too — writing
-`my.a.b` records `world`, `world.agent`, `world.agent.<id>` and the leaf, because
-the interpreter auto-creates intermediate nodes and each counts as a write. A
-watcher on an ancestor path will therefore fire on descendant writes. That may be
-desirable, but it is currently incidental rather than designed.
+**Resolved 2026-07-31: watcher matching is descendant-aware.** A watcher on
+`my.orders` now matches a change at `my.orders` or anything beneath it. Matching
+was exact string equality, which made watching a container nearly pointless and
+was incoherent besides — because a write records the intermediate nodes it
+creates, a watcher on a parent fired when a child was *created* but not when an
+existing one changed. The comparison requires a dot boundary, so `my.order` does
+not match `my.orders.17`.

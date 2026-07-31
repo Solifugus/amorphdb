@@ -373,12 +373,9 @@ func (we *WatcherEngine) GetTriggeredWatchers() []*Watcher {
 		for _, watchedPath := range watcher.Watching {
 			switch watcher.TriggerType {
 			case TriggerTypeValueChange:
-				// Check for value changes
-				if changeTime, changed := we.changeLog[watchedPath]; changed {
-					if changeTime.After(we.lastTickTime) {
-						shouldTrigger = true
-						break
-					}
+				if we.changedAtOrBelow(watchedPath) {
+					shouldTrigger = true
+					break
 				}
 
 			case TriggerTypeAppend:
@@ -397,6 +394,33 @@ func (we *WatcherEngine) GetTriggeredWatchers() []*Watcher {
 	}
 
 	return triggered
+}
+
+// changedAtOrBelow reports whether the watched path, or anything beneath it,
+// changed since the last tick.
+//
+// Matching used to be exact string equality against the change log, which made
+// `watch(my.orders)` blind to a change at `my.orders.17.status` — surely the
+// main reason to watch a container. Worse, it was incoherent: because a write
+// records the intermediate nodes it creates, a watcher on a parent fired when a
+// new child was *created* but not when an existing one changed.
+//
+// A watched path matches a change at that exact path, or at any descendant —
+// the change path being the watched path followed by a dot. Prefix comparison
+// alone would be wrong: `my.order` must not match `my.orders.17`.
+func (we *WatcherEngine) changedAtOrBelow(watchedPath string) bool {
+	if changeTime, ok := we.changeLog[watchedPath]; ok && changeTime.After(we.lastTickTime) {
+		return true
+	}
+
+	descendantPrefix := watchedPath + "."
+	for changedPath, changeTime := range we.changeLog {
+		if strings.HasPrefix(changedPath, descendantPrefix) && changeTime.After(we.lastTickTime) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ExecuteWatcher runs a watcher's code in a sandboxed environment

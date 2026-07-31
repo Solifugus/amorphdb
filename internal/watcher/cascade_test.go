@@ -18,6 +18,8 @@ package watcher
 import (
 	"testing"
 	"time"
+
+	"github.com/solifugus/amorphdb/internal/storage"
 )
 
 // runRounds drives tick-like rounds by hand: trigger, execute, commit cascade,
@@ -181,5 +183,86 @@ func TestCascadeRoundsResetWhenQuiet(t *testing.T) {
 		if runaway, _ := engine.CommitCascadeChanges(); runaway {
 			t.Fatal("quiet round reported a runaway")
 		}
+	}
+}
+
+// TestWatcherMatchesDescendantChanges covers the matching rule: a watcher on a
+// container sees changes beneath it. Matching used to be exact string equality,
+// so `watch(my.orders)` was blind to `my.orders.17.status` — surely the main
+// reason to watch a container in the first place.
+func TestWatcherMatchesDescendantChanges(t *testing.T) {
+	tests := []struct {
+		name    string
+		watched string
+		changed string
+		want    bool
+	}{
+		{"exact path", "my.orders", "my.orders", true},
+		{"direct child", "my.orders", "my.orders.17", true},
+		{"deep descendant", "my.orders", "my.orders.17.status", true},
+		{"unrelated sibling", "my.orders", "my.invoices.3", false},
+		{"ancestor does not match downward", "my.orders.17", "my.orders", false},
+		// The trap a bare prefix comparison falls into.
+		{"prefix but not a path boundary", "my.order", "my.orders.17", false},
+		{"similar leading name", "my.o", "my.orders", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := createTestStorage(t)
+			defer st.Close()
+
+			engine := NewWatcherEngine(st, 1000)
+			if err := engine.RegisterWatcher("w", []string{tt.watched}, `pass`); err != nil {
+				t.Fatal(err)
+			}
+
+			engine.RecordChange(tt.changed)
+			time.Sleep(2 * time.Millisecond)
+
+			got := len(engine.GetTriggeredWatchers()) > 0
+			if got != tt.want {
+				t.Errorf("watching %q, changed %q: triggered=%v, want %v",
+					tt.watched, tt.changed, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestConvergenceThroughTheDaemonsTree runs the convergence assertion against
+// the tree the daemon actually uses.
+//
+// This exists because of a bug the other tests could not see. The daemon wraps
+// StorageTree in a TreeAdapter (service.go: NewTreeAdapter, then
+// NewWatcherEngine(extendedTree, ...)), and the adapter did not forward
+// WriteReportingChange. The capability is discovered by type assertion, so it
+// silently degraded: unchanged writes were reported as changes and a
+// self-writing watcher would have spun in production while every test here
+// passed, because they all build a bare StorageTree.
+//
+// Any capability found by type assertion needs a test in the wrapped
+// configuration, or the wrapper can quietly drop it.
+func TestConvergenceThroughTheDaemonsTree(t *testing.T) {
+	st := createTestStorage(t)
+	defer st.Close()
+
+	// Exactly what the service constructs.
+	adapter := storage.NewTreeAdapter(st)
+	engine := NewWatcherEngine(adapter, 1000)
+
+	if err := engine.RegisterWatcher("settler", []string{"my.data"}, `my.data = 99`); err != nil {
+		t.Fatal(err)
+	}
+
+	engine.RecordChange("my.data")
+	time.Sleep(2 * time.Millisecond)
+
+	rounds := runRounds(t, engine, 12)
+	if rounds == 0 {
+		t.Fatal("watcher never fired through the adapter")
+	}
+	if rounds > 3 {
+		t.Errorf("self-writing watcher fired in %d rounds through the daemon's tree — "+
+			"the adapter is not forwarding the unchanged-write signal", rounds)
 	}
 }
