@@ -161,9 +161,13 @@ type ChildrenMessage struct {
 	Path []string // Path to get children for
 }
 
-// ChildrenResponseMessage represents a response with child attributes
+// ChildrenResponseMessage represents a response with child attributes.
+//
+// Children carry their names: an Attribute holds only storage IDs, and the label
+// lives in the value store, which a remote client cannot read. Returning bare
+// attributes would force a name-resolving round trip per child.
 type ChildrenResponseMessage struct {
-	Children []storage.Attribute // Child attributes
+	Children []storage.NamedAttribute
 }
 
 // StatusMessage represents a request for service status

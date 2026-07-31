@@ -255,6 +255,42 @@ func (st *StorageTree) ReadAt(path []string, timestamp int64) (Value, error) {
 }
 
 // Children returns all child attributes at the given path
+// NamedAttribute pairs a child attribute with its name. Attribute alone carries
+// only storage IDs; the label lives in the value store, which a remote client
+// cannot read — so anything crossing the wire needs the name attached.
+type NamedAttribute struct {
+	Attribute
+	Name string
+}
+
+// ChildrenWithNames returns the immediate children of a path together with their
+// names.
+//
+// findChildrenByPrefix already computes each child's name and then discards it,
+// exactly as Write used to discard whether it changed anything. This exposes it.
+// Kept separate from the Tree interface for the same reason as
+// WriteReportingChange: the other implementations would all have to change.
+func (st *StorageTree) ChildrenWithNames(path []string) ([]NamedAttribute, error) {
+	if len(path) == 0 {
+		roots, err := st.getRootAttributes()
+		if err != nil {
+			return nil, err
+		}
+		named := make([]NamedAttribute, 0, len(roots))
+		for _, attr := range roots {
+			name := ""
+			if labelValue, err := st.valueStore.ReadValue(attr.LabelValueID); err == nil {
+				name = string(labelValue.Data)
+			}
+			named = append(named, NamedAttribute{Attribute: attr, Name: name})
+		}
+		return named, nil
+	}
+
+	parentPath := strings.Join(path, ".")
+	return st.findChildrenByPrefixNamed(parentPath)
+}
+
 func (st *StorageTree) Children(path []string) ([]Attribute, error) {
 	// If path is empty, return root attributes
 	if len(path) == 0 {
@@ -273,6 +309,20 @@ func (st *StorageTree) Children(path []string) ([]Attribute, error) {
 	// Search for child attributes by finding all paths that start with parentPath + "."
 	// We don't require the parent path to exist as an attribute itself
 	return st.findChildrenByPrefix(parentPath)
+}
+
+// findChildrenByPrefix returns children without their names, for callers using
+// the Tree interface.
+func (st *StorageTree) findChildrenByPrefix(parentPath string) ([]Attribute, error) {
+	named, err := st.findChildrenByPrefixNamed(parentPath)
+	if err != nil {
+		return nil, err
+	}
+	plain := make([]Attribute, 0, len(named))
+	for _, child := range named {
+		plain = append(plain, child.Attribute)
+	}
+	return plain, nil
 }
 
 // Purge tombstones instances in a time range and creates audit records
@@ -322,9 +372,10 @@ func (st *StorageTree) Purge(path []string, from int64, to int64, author uint64)
 	return nil
 }
 
-// findChildrenByPrefix finds child attributes by searching for paths with the given prefix
-func (st *StorageTree) findChildrenByPrefix(parentPath string) ([]Attribute, error) {
-	var children []Attribute
+// findChildrenByPrefixNamed finds child attributes by searching for paths with
+// the given prefix, keeping each child's name.
+func (st *StorageTree) findChildrenByPrefixNamed(parentPath string) ([]NamedAttribute, error) {
+	var children []NamedAttribute
 	childPrefix := parentPath + "."
 
 	// We need to search through attributes to find ones with paths starting with our prefix
@@ -386,7 +437,7 @@ func (st *StorageTree) findChildrenByPrefix(parentPath string) ([]Attribute, err
 				NextAttributeID: 0,
 			}
 
-			children = append(children, childAttribute)
+			children = append(children, NamedAttribute{Attribute: childAttribute, Name: childName})
 		}
 	}
 

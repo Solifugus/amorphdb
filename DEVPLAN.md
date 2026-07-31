@@ -753,10 +753,13 @@ interpreter.
    projection needs.
 2. How deep? A single level, or the whole subtree? Whole-subtree reads of a large
    node need a bound, in the spirit of the commit-buffer limit.
-3. `Children` returns attribute IDs, not names — the label lives in the value
-   store. The client-side interpreter therefore needs either a name-resolving
-   round trip or a richer CHILDREN response. Decide which before building, since
-   it changes the wire format.
+3. ~~`Children` returns attribute IDs, not names.~~ **Decided and done
+   (2026-07-31):** the CHILDREN response now carries each child's name, so a
+   remote client can build a record without a name-resolving round trip per
+   child. Changed while nothing depended on the format — the protocol cannot add
+   fields compatibly, so that window was going to close permanently.
+   `StorageTree.ChildrenWithNames` and `ProtocolClient.ChildrenWithNames` are the
+   entry points; `Tree.Children` is unchanged.
 
 **Scope:** `internal/mbl/interpreter/`, possibly `internal/protocol` and
 `internal/service` if the response shape changes.

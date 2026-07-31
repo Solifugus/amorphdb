@@ -101,6 +101,42 @@ func (ta *TreeAdapter) Children(path []string) ([]Attribute, error) {
 	return ta.tree.Children(path)
 }
 
+// ChildrenWithNames forwards to the wrapped tree when it can supply names.
+// TreeAdapter sits between the service and StorageTree, so without this
+// forward the type assertion for the capability fails and every child crosses
+// the wire nameless.
+func (ta *TreeAdapter) ChildrenWithNames(path []string) ([]NamedAttribute, error) {
+	type namedChildren interface {
+		ChildrenWithNames(path []string) ([]NamedAttribute, error)
+	}
+	if namer, ok := ta.tree.(namedChildren); ok {
+		return namer.ChildrenWithNames(path)
+	}
+
+	plain, err := ta.tree.Children(path)
+	if err != nil {
+		return nil, err
+	}
+	named := make([]NamedAttribute, 0, len(plain))
+	for _, attr := range plain {
+		named = append(named, NamedAttribute{Attribute: attr})
+	}
+	return named, nil
+}
+
+// WriteReportingChange forwards the changed/unchanged signal the watcher engine
+// needs for convergence; without it an unchanged write would still trigger.
+func (ta *TreeAdapter) WriteReportingChange(path []string, value Value, author uint64) (bool, error) {
+	type changeReporter interface {
+		WriteReportingChange(path []string, value Value, author uint64) (bool, error)
+	}
+	if reporter, ok := ta.tree.(changeReporter); ok {
+		return reporter.WriteReportingChange(path, value, author)
+	}
+	err := ta.tree.Write(path, value, author)
+	return err == nil, err
+}
+
 func (ta *TreeAdapter) Purge(path []string, from int64, to int64, author uint64) error {
 	return ta.tree.Purge(path, from, to, author)
 }

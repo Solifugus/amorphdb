@@ -228,11 +228,24 @@ func TestChildrenProtocolIntegration(t *testing.T) {
 			t.Fatalf("decode: %v", err)
 		}
 		if len(decoded.Children) != 3 {
-			t.Errorf("got %d children, want 3", len(decoded.Children))
+			t.Fatalf("got %d children, want 3", len(decoded.Children))
 		}
+
+		// Names are the point: without them a client holds only storage IDs and
+		// cannot resolve the label, because the value store is server-side.
+		got := map[string]bool{}
 		for i, child := range decoded.Children {
 			if child.ID == 0 {
 				t.Errorf("child %d has a zero ID — attribute did not survive the wire", i)
+			}
+			if child.Name == "" {
+				t.Errorf("child %d arrived without a name", i)
+			}
+			got[child.Name] = true
+		}
+		for _, want := range []string{"name", "age", "city"} {
+			if !got[want] {
+				t.Errorf("child %q missing from the response (got %v)", want, got)
 			}
 		}
 	})

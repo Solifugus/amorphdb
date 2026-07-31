@@ -158,20 +158,35 @@ func DecodeChildrenResponseMessage(payload []byte) (*ChildrenResponseMessage, er
 		return nil, fmt.Errorf("failed to decode children count: %w", err)
 	}
 
-	// Each attribute is four uint64 fields; refuse a count the payload cannot
-	// possibly satisfy rather than allocating on a corrupt length.
-	if int(count)*32 > reader.Len() {
+	// Each child is at least four uint64 fields plus a name length; refuse a
+	// count the payload cannot possibly satisfy rather than allocating on a
+	// corrupt length.
+	if int(count)*36 > reader.Len() {
 		return nil, fmt.Errorf("children count %d exceeds payload size", count)
 	}
 
-	msg := &ChildrenResponseMessage{Children: make([]storage.Attribute, 0, count)}
+	msg := &ChildrenResponseMessage{Children: make([]storage.NamedAttribute, 0, count)}
 	for i := uint32(0); i < count; i++ {
-		var child storage.Attribute
+		var child storage.NamedAttribute
 		for _, field := range []*uint64{&child.ID, &child.LabelValueID, &child.FirstInstanceID, &child.NextAttributeID} {
 			if err := binary.Read(reader, binary.BigEndian, field); err != nil {
 				return nil, fmt.Errorf("failed to decode attribute field: %w", err)
 			}
 		}
+
+		var nameLen uint32
+		if err := binary.Read(reader, binary.BigEndian, &nameLen); err != nil {
+			return nil, fmt.Errorf("failed to decode child name length: %w", err)
+		}
+		if int(nameLen) > reader.Len() {
+			return nil, fmt.Errorf("child name length %d exceeds remaining payload", nameLen)
+		}
+		name := make([]byte, nameLen)
+		if _, err := io.ReadFull(reader, name); err != nil {
+			return nil, fmt.Errorf("failed to decode child name: %w", err)
+		}
+		child.Name = string(name)
+
 		msg.Children = append(msg.Children, child)
 	}
 

@@ -99,9 +99,9 @@ func EncodeChildrenMessage(msg *ChildrenMessage) ([]byte, error) {
 	return encodeStringSlice(0x01, msg.Path)
 }
 
-// EncodeChildrenResponseMessage encodes a list of child attributes. Each
-// attribute is four fixed-width uint64 fields, so the payload is a count
-// followed by count * 32 bytes.
+// EncodeChildrenResponseMessage encodes a list of named child attributes. The
+// payload is a count, then per child: four fixed-width uint64 fields followed by
+// a length-prefixed name.
 func EncodeChildrenResponseMessage(msg *ChildrenResponseMessage) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -115,6 +115,11 @@ func EncodeChildrenResponseMessage(msg *ChildrenResponseMessage) ([]byte, error)
 				return nil, fmt.Errorf("failed to encode attribute field: %w", err)
 			}
 		}
+		name := []byte(child.Name)
+		if err := binary.Write(&buf, binary.BigEndian, uint32(len(name))); err != nil {
+			return nil, fmt.Errorf("failed to encode child name length: %w", err)
+		}
+		buf.Write(name)
 	}
 
 	return buf.Bytes(), nil

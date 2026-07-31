@@ -131,18 +131,24 @@ func TestChildrenMessageRoundTrip(t *testing.T) {
 }
 
 func TestChildrenResponseRoundTrip(t *testing.T) {
+	attr := func(id uint64, name string) storage.NamedAttribute {
+		return storage.NamedAttribute{
+			Attribute: storage.Attribute{ID: id, LabelValueID: id + 1, FirstInstanceID: id + 2},
+			Name:      name,
+		}
+	}
 	cases := []struct {
 		name     string
-		children []storage.Attribute
+		children []storage.NamedAttribute
 	}{
-		{"empty", []storage.Attribute{}},
-		{"one", []storage.Attribute{{ID: 1, LabelValueID: 2, FirstInstanceID: 3, NextAttributeID: 4}}},
-		{"several", []storage.Attribute{
-			{ID: 10, LabelValueID: 11, FirstInstanceID: 12, NextAttributeID: 20},
-			{ID: 20, LabelValueID: 21, FirstInstanceID: 22, NextAttributeID: 0},
-		}},
-		{"large ids", []storage.Attribute{
-			{ID: ^uint64(0), LabelValueID: ^uint64(0) - 1, FirstInstanceID: 1 << 62, NextAttributeID: 0},
+		{"empty", []storage.NamedAttribute{}},
+		{"one", []storage.NamedAttribute{attr(1, "name")}},
+		{"several", []storage.NamedAttribute{attr(10, "name"), attr(20, "age"), attr(30, "city")}},
+		{"empty name", []storage.NamedAttribute{attr(1, "")}},
+		{"unicode name", []storage.NamedAttribute{attr(1, "café ünïcödé")}},
+		{"dotted name", []storage.NamedAttribute{attr(1, "css/app.css")}},
+		{"large ids", []storage.NamedAttribute{
+			{Attribute: storage.Attribute{ID: ^uint64(0), LabelValueID: ^uint64(0) - 1, FirstInstanceID: 1 << 62}, Name: "x"},
 		}},
 	}
 
@@ -165,6 +171,11 @@ func TestChildrenResponseRoundTrip(t *testing.T) {
 				if decoded.Children[i] != tc.children[i] {
 					t.Errorf("child %d = %+v, want %+v", i, decoded.Children[i], tc.children[i])
 				}
+				// The name is the reason this message exists; a silently empty
+				// one would leave the client unable to build a record.
+				if decoded.Children[i].Name != tc.children[i].Name {
+					t.Errorf("child %d name = %q, want %q", i, decoded.Children[i].Name, tc.children[i].Name)
+				}
 			}
 		})
 	}
@@ -177,5 +188,18 @@ func TestDecodeChildrenRejectsImpossibleCount(t *testing.T) {
 	payload := []byte{0x01, 0x00, 0x0F, 0x42, 0x40}
 	if _, err := DecodeChildrenResponseMessage(payload); err == nil {
 		t.Error("expected an error for a count larger than the payload")
+	}
+}
+
+// TestDecodeChildrenRejectsOversizedName guards the per-child name length the
+// same way as the count: a corrupt length must not drive a large allocation.
+func TestDecodeChildrenRejectsOversizedName(t *testing.T) {
+	var buf []byte
+	buf = append(buf, 0x01)                   // tag
+	buf = append(buf, 0x00, 0x00, 0x00, 0x01) // count = 1
+	buf = append(buf, make([]byte, 32)...)    // four uint64 fields
+	buf = append(buf, 0xFF, 0xFF, 0xFF, 0xFF) // name length = 4294967295
+	if _, err := DecodeChildrenResponseMessage(buf); err == nil {
+		t.Error("expected an error for a name length larger than the payload")
 	}
 }

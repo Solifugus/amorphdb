@@ -508,7 +508,22 @@ func (c *Connection) handleChildren(msg *protocol.Message) *protocol.Message {
 		return c.createErrorResponse(msg.Sequence, 403, "Permission denied")
 	}
 
-	children, err := c.service.tree.Children(childrenMsg.Path)
+	// Names must travel: the client cannot resolve a LabelValueID without the
+	// value store. StorageTree exposes them; other Tree implementations do not,
+	// so fall back to nameless children rather than failing.
+	var children []storage.NamedAttribute
+	type namedChildren interface {
+		ChildrenWithNames(path []string) ([]storage.NamedAttribute, error)
+	}
+	if namer, ok := c.service.tree.(namedChildren); ok {
+		children, err = namer.ChildrenWithNames(childrenMsg.Path)
+	} else {
+		var plain []storage.Attribute
+		plain, err = c.service.tree.Children(childrenMsg.Path)
+		for _, attr := range plain {
+			children = append(children, storage.NamedAttribute{Attribute: attr})
+		}
+	}
 	if err != nil {
 		return c.createErrorResponse(msg.Sequence, 404, fmt.Sprintf("Children failed: %v", err))
 	}

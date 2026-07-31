@@ -158,14 +158,26 @@ func (c *ProtocolClient) ReadAt(path []string, timestamp int64) (storage.Value, 
 	return responseMsg.Value, nil
 }
 
-// Children implements storage.Tree.Children via protocol.
-//
-// Note the returned attributes carry storage IDs, not names — the label lives in
-// the value store, which a remote client cannot read directly. Callers that need
-// names must resolve them separately. Nothing in the MBL interpreter enumerates
-// stored children yet (see DEVPLAN), so this exists to complete the Tree
-// interface rather than to serve a current caller.
+// Children implements storage.Tree.Children via protocol, discarding the names
+// the wire response carries. Callers that need names should use
+// ChildrenWithNames — an Attribute alone is nearly useless remotely, since the
+// label lives in the value store.
 func (c *ProtocolClient) Children(path []string) ([]storage.Attribute, error) {
+	named, err := c.ChildrenWithNames(path)
+	if err != nil {
+		return nil, err
+	}
+	plain := make([]storage.Attribute, 0, len(named))
+	for _, child := range named {
+		plain = append(plain, child.Attribute)
+	}
+	return plain, nil
+}
+
+// ChildrenWithNames returns the immediate children of a path with their names,
+// mirroring StorageTree.ChildrenWithNames so the interpreter can enumerate a
+// stored record identically whether it runs embedded or against a daemon.
+func (c *ProtocolClient) ChildrenWithNames(path []string) ([]storage.NamedAttribute, error) {
 	childrenMsg := &protocol.ChildrenMessage{Path: path}
 
 	payload, err := protocol.EncodeChildrenMessage(childrenMsg)
