@@ -40,15 +40,27 @@ produced. This file is deliberately kept to the work that remains.
 |---|---|---|---|
 | 20 | Time part access via `.@year` meta-attributes | Date/Time | — |
 | 21 | `format_time` / `parse_time` and timezones | Date/Time | — |
-| 22 | Duration type and interval syntax | Date/Time | a decision: bare units or a real Duration type |
+| 22 | Duration type and interval syntax | Date/Time | — (decided 2026-07-31: build the type) |
 | 23 | Calendar adjusters | Date/Time | Step 22 |
 | 24 | Recurrence rules (RFC 5545 RRULE) | Date/Time | Step 23 |
-| 26 | Comparison and range temporal queries | Temporal | a decision: what a range query returns |
+| 26 | Comparison and range temporal queries | Temporal | — (decided 2026-07-31: records carrying value, @time, @agent) |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | — |
 
-**Two decisions are waiting**, both recorded in the steps that need them: what a
-range temporal query returns (Step 26), and whether time arithmetic gets a real
-Duration type (Step 22). Neither blocks the other steps.
+**Both decisions are settled (2026-07-31).** Step 22 builds a real Duration type
+— the unit is part of the value, exactly as currency is for Money, and storing a
+term as a bare Number puts the unit in the attribute name where a business user
+cannot change it. Step 26 returns records carrying `value`, `@time` and `@agent`,
+because knowing *when* is usually why a range was asked for; the as-of form still
+returns a bare value.
+
+**Nothing is blocked.** Steps 20, 21, 22, 26 and 27 can each start immediately;
+23 and 24 follow 22.
+
+**Step 20 and Step 27 collide** on `.@name` syntax — one adds time *parts*
+(`.@year`), the other instance *metadata* (`.@time`). Resolution, to be applied
+by whichever lands second: instance metadata is a property of the stored instance
+and takes precedence; time parts apply only when the receiver is a `types.Time`
+value. So `my.d.@time` on a stored time means "when was this recorded".
 
 **Known defects not yet given a step:** the wire protocol cannot safely skip
 unknown non-length-prefixed fields, so adding a field to an existing message is
