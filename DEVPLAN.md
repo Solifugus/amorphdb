@@ -588,7 +588,9 @@ go test ./internal/mbl/... && go test ./...
 
 ### Step 29 — Watcher cascade: convergence by design
 
-**Status:** TODO — design revised 2026-07-30 after studying the watcher systems in
+**Status:** PARTIALLY DONE (2026-07-30) — cascade now works and converges.
+Remaining: the within-tick drain and the `quietly:` block form (see "What is
+left" at the end of this step). Design revised 2026-07-30 after studying the watcher systems in
 `~/development/gbasic` and `~/development/HiLow`. Supersedes the earlier
 "repair the collection and audit every watcher" framing.
 
@@ -784,3 +786,59 @@ store, which a remote client cannot read. Step 32 has to resolve that.
 Tests: `internal/protocol/readat_test.go` (round-trips including an empty list,
 large IDs, and a corrupt count that must not cause a large allocation) and
 `internal/service/readat_integration_test.go` (over a real socket).
+
+---
+
+### Step 29 — progress note (2026-07-30)
+
+**Landed.** Cascade works for the first time, and converges.
+
+Three defects had to be fixed, not the one the step described. Each was hidden
+behind the next, which is why none had been noticed:
+
+1. **Collection was dead.** `ExecuteWatcher` read `interp.GetWrittenPaths()`
+   *after* `Interpret` had flushed and cleared the commit buffer. Fixed by
+   recording changed paths at flush time — `Interpreter.ChangedPaths()`.
+2. **Paths did not match.** Cascade recorded *resolved* paths
+   (`world.agent.1000.middle`) while watchers register the form their author
+   wrote (`my.middle`). They could never match. The engine now records the
+   agent-relative form alongside the resolved one.
+3. **Tick ordering destroyed the cascade.** `executeTick` called
+   `CommitCascadeChanges()`, then `Tick()`, then `ClearChangeLog()` — so every
+   cascade entry was stamped *before* the new watermark `GetTriggeredWatchers`
+   compares against, and then wiped by the clear. Even with (1) and (2) fixed,
+   nothing fired. The order is now Tick, clear, then commit the cascade.
+
+**Convergence is in place.** `StorageTree.WriteReportingChange` exposes what
+storage already knew — an identical value creates no instance — and the
+interpreter omits both unchanged and `(quietly)` writes from `ChangedPaths`. A
+watcher that recomputes and writes back the same value now settles instead of
+spinning.
+
+Deliberately a concrete method rather than a change to the `Tree` interface: the
+other three implementations would all have to change, and `ProtocolClient` would
+need a new field on `WRITE_ACK`, which the wire protocol cannot add compatibly.
+Callers type-assert for the capability and fall back to `Write`.
+
+**Runaway cap.** `MaxCascadeRounds` (1000) counts *consecutive* cascading ticks
+and reports the still-changing paths, so a chain that genuinely cannot converge
+is stopped and named rather than cascading forever.
+
+Tests: `internal/watcher/cascade_test.go` — a dependent watcher is reached, an
+unchanged self-write converges, a `(quietly)` self-write does not cascade, the
+cap fires and names paths, and the counter resets on quiet rounds.
+
+**What is left of this step:**
+- The **within-tick drain** (gBASIC's flat cursor-based queue). Cascade currently
+  resolves one round per tick, which the spec section written for this step
+  describes as resolving within the tick. Convergence does not depend on it —
+  equal-value suppression settles chains either way — but a long chain takes one
+  tick per link. Changing it means reworking `executeTick`.
+- The **`quietly:` block form**. Per-assignment `(quietly)` works; the block is
+  lexer/parser work and independent of everything above.
+
+**Also worth knowing:** cascade records intermediate ancestor paths too — writing
+`my.a.b` records `world`, `world.agent`, `world.agent.<id>` and the leaf, because
+the interpreter auto-creates intermediate nodes and each counts as a write. A
+watcher on an ancestor path will therefore fire on descendant writes. That may be
+desirable, but it is currently incidental rather than designed.

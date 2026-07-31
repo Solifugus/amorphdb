@@ -125,6 +125,7 @@ type Interpreter struct {
 	currentScopePathRaw []string
 	errors              []string           // Accumulated errors during execution
 	commitBuffer        *CommitBuffer      // Staged writes for batched commit
+	changedPaths        [][]string         // Paths that actually changed at flush, for watcher triggering
 	coordinator         *CommitCoordinator // Optional coordinator for cross-execution batching
 	// procedures holds *Procedure values bound at a path. Keyed by the
 	// pre-resolution joined path string (e.g. "my.functions.triple"),
@@ -336,6 +337,16 @@ func (i *Interpreter) flushBuffer() error {
 			i.discardBuffer()
 			return fmt.Errorf("failed to stage writes with coordinator: %w", err)
 		}
+		// The coordinator applies these later, so we cannot tell here which
+		// writes will actually change anything. Record every non-quiet path:
+		// over-triggering is a wasted watcher run, under-triggering is a missed
+		// reaction, and only one of those is a correctness problem.
+		for _, write := range i.commitBuffer.writes {
+			if !write.quiet {
+				i.changedPaths = append(i.changedPaths, append([]string{}, write.path...))
+			}
+		}
+
 		// Clear local buffer after staging with coordinator
 		i.commitBuffer.writes = i.commitBuffer.writes[:0]
 		return nil
@@ -349,17 +360,53 @@ func (i *Interpreter) flushBuffer() error {
 func (i *Interpreter) flushBufferDirect() error {
 	// Apply all writes directly to local storage
 	for _, write := range i.commitBuffer.writes {
-		err := i.scope.tree.Write(write.path, write.value, write.author)
+		changed, err := i.writeReportingChange(write)
 		if err != nil {
 			// On write failure, discard remaining writes and return error
 			i.discardBuffer()
 			return fmt.Errorf("write failed for path %v: %w", write.path, err)
+		}
+		// Record what the watcher engine should react to. A quiet write says
+		// nothing, and an unchanged write has nothing to say — that is what lets
+		// a watcher which recomputes the same value settle instead of spinning.
+		if changed && !write.quiet {
+			i.changedPaths = append(i.changedPaths, append([]string{}, write.path...))
 		}
 	}
 
 	// Clear buffer after successful flush
 	i.commitBuffer.writes = i.commitBuffer.writes[:0]
 	return nil
+}
+
+// writeReportingChange applies one staged write, reporting whether it altered
+// anything. Storage knows — it declines to create an instance for an identical
+// value — but only StorageTree exposes the answer, so other Tree implementations
+// fall back to assuming a change.
+func (i *Interpreter) writeReportingChange(write PendingWrite) (bool, error) {
+	type changeReporter interface {
+		WriteReportingChange(path []string, value storage.Value, author uint64) (bool, error)
+	}
+
+	if reporter, ok := i.scope.tree.(changeReporter); ok {
+		return reporter.WriteReportingChange(write.path, write.value, write.author)
+	}
+
+	err := i.scope.tree.Write(write.path, write.value, write.author)
+	return err == nil, err
+}
+
+// ChangedPaths returns the paths written since the last call that should trigger
+// watchers, and clears the list. Quiet and unchanged writes never appear.
+//
+// This exists because GetWrittenPaths reads the commit buffer, which Interpret
+// has already flushed and cleared by the time the watcher engine looks — so the
+// engine always saw an empty list and no watcher ever cascaded. Recording at
+// flush time is what fixes that.
+func (i *Interpreter) ChangedPaths() [][]string {
+	paths := i.changedPaths
+	i.changedPaths = nil
+	return paths
 }
 
 // discardBuffer clears all staged writes without committing them

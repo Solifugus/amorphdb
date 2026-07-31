@@ -131,56 +131,76 @@ func (st *StorageTree) Read(path []string) (Value, error) {
 	return value, nil
 }
 
-// Write writes a value at the given path, creating a new instance
+// Write writes a value at the given path, creating a new instance.
 func (st *StorageTree) Write(path []string, value Value, author uint64) error {
+	_, err := st.WriteReportingChange(path, value, author)
+	return err
+}
+
+// WriteReportingChange writes a value and reports whether it actually changed
+// anything. Writing a value identical to the current one creates no instance and
+// returns false.
+//
+// The caller needs that answer to decide whether to trigger watchers: an
+// unchanged write should announce nothing, which is what makes a watcher that
+// recomputes and writes back the same value converge instead of spinning. Write
+// discarded this and returned only an error, so the information existed but
+// never reached the watcher engine.
+//
+// This is deliberately a concrete method rather than an addition to the Tree
+// interface: the other implementations (ProtocolClient, MemoryTree, TreeAdapter)
+// would all have to change, and the client one would need a new field on
+// WRITE_ACK, which the wire protocol cannot add compatibly. Callers that want the
+// signal type-assert for it and fall back to Write.
+func (st *StorageTree) WriteReportingChange(path []string, value Value, author uint64) (bool, error) {
 	if len(path) == 0 {
-		return fmt.Errorf("empty path")
+		return false, fmt.Errorf("empty path")
 	}
 
 	// Store the value first to get its ID
 	valueID, err := st.valueStore.WriteValue(value)
 	if err != nil {
-		return fmt.Errorf("failed to write value: %w", err)
+		return false, fmt.Errorf("failed to write value: %w", err)
 	}
 
 	// Find or create the attribute chain for this path
 	attributeID, err := st.findOrCreateAttributeForPath(path)
 	if err != nil {
-		return fmt.Errorf("failed to find or create attribute for path: %w", err)
+		return false, fmt.Errorf("failed to find or create attribute for path: %w", err)
 	}
 
 	// Get the current attribute to find the previous instance
 	attribute, err := st.attributeStore.ReadAttribute(attributeID)
 	if err != nil {
-		return fmt.Errorf("failed to read attribute: %w", err)
+		return false, fmt.Errorf("failed to read attribute: %w", err)
 	}
 
 	// Check if the value is the same as the current one (no new instance needed)
 	if attribute.FirstInstanceID != 0 {
 		currentInstance, err := st.instanceStore.ReadInstance(attribute.FirstInstanceID)
 		if err != nil {
-			return fmt.Errorf("failed to read current instance: %w", err)
+			return false, fmt.Errorf("failed to read current instance: %w", err)
 		}
 
 		if currentInstance.ValueID == valueID {
-			// Same value, no new instance needed
-			return nil
+			// Same value: no new instance, and nothing to announce.
+			return false, nil
 		}
 	}
 
 	// Create a new instance
 	instanceID, err := st.instanceStore.WriteInstance(valueID, attribute.FirstInstanceID, author)
 	if err != nil {
-		return fmt.Errorf("failed to write instance: %w", err)
+		return false, fmt.Errorf("failed to write instance: %w", err)
 	}
 
 	// Update the attribute to point to the new instance
 	err = st.attributeStore.UpdateAttributeFirstInstance(attributeID, instanceID)
 	if err != nil {
-		return fmt.Errorf("failed to update attribute first instance: %w", err)
+		return false, fmt.Errorf("failed to update attribute first instance: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 // ReadAt reads the value at the given path at a specific timestamp

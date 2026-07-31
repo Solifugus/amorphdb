@@ -3,6 +3,8 @@ package watcher
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/solifugus/amorphdb/internal/mbl/interpreter"
@@ -47,6 +49,7 @@ type WatcherEngine struct {
 	changeLog           map[string]time.Time    // Track when values last changed
 	appendLog           map[string]*AppendEvent // Track append events by path
 	pendingCascadePaths map[string]bool         // Paths written during current tick (for cascade)
+	cascadeRounds       int                     // Consecutive cascading ticks, for runaway detection
 	storage             storage.Tree            // Storage access
 	agentID             uint64                  // Default agent identity
 	lastTickTime        time.Time               // When last heartbeat tick occurred
@@ -130,6 +133,17 @@ func (we *WatcherEngine) EnableWatcher(name string, enabled bool) error {
 	}
 	watcher.Enabled = enabled
 	return nil
+}
+
+// agentRelativePath rewrites world.agent.<id>.rest as my.rest for the given
+// agent, so cascade paths match watchers registered in the `my.` form. Returns
+// false when the path does not belong to that agent's home.
+func agentRelativePath(pathStr string, agentID uint64) (string, bool) {
+	prefix := fmt.Sprintf("world.agent.%d.", agentID)
+	if !strings.HasPrefix(pathStr, prefix) {
+		return "", false
+	}
+	return "my." + strings.TrimPrefix(pathStr, prefix), true
 }
 
 // RecordChange records that a value at the given path has changed
@@ -425,14 +439,29 @@ func (we *WatcherEngine) ExecuteWatcher(watcher *Watcher) (interface{}, error) {
 		}, err
 	}
 
-	// Cascade preparation: Collect all written paths for potential next-tick triggering
-	// These will only be recorded for cascade if the tick commits successfully
-	writtenPaths := interp.GetWrittenPaths()
+	// Cascade preparation: collect the paths this watcher actually changed, for
+	// next-tick triggering. These are only recorded if the tick commits.
+	//
+	// This used to call interp.GetWrittenPaths(), which reads the commit buffer —
+	// but Interpret has already flushed and cleared it by now, so the list was
+	// always empty and no watcher ever cascaded. ChangedPaths is recorded at
+	// flush time instead, and excludes both quiet writes and writes whose value
+	// was unchanged.
+	writtenPaths := interp.ChangedPaths()
 	for _, pathSlice := range writtenPaths {
-		if len(pathSlice) > 0 {
-			// Convert path slice to string and add to pending cascade paths
-			pathStr := pathSliceToString(pathSlice)
-			we.pendingCascadePaths[pathStr] = true
+		if len(pathSlice) == 0 {
+			continue
+		}
+		pathStr := pathSliceToString(pathSlice)
+		we.pendingCascadePaths[pathStr] = true
+
+		// Watchers register the paths their author wrote — usually the `my.`
+		// form — while a write resolves to world.agent.<id>.… before it reaches
+		// storage. Recording only the resolved form means a watcher on
+		// `my.middle` never matches a cascade from a write to the same place, so
+		// record the agent-relative form alongside it.
+		if rel, ok := agentRelativePath(pathStr, watcher.AgentID); ok {
+			we.pendingCascadePaths[rel] = true
 		}
 	}
 
@@ -460,12 +489,44 @@ func (we *WatcherEngine) ClearChangeLog() {
 	we.appendLog = make(map[string]*AppendEvent)
 }
 
-// CommitCascadeChanges records all pending cascade paths for next-tick triggering
-func (we *WatcherEngine) CommitCascadeChanges() {
+// MaxCascadeRounds bounds how many consecutive ticks may cascade before the
+// chain is treated as runaway. Two watchers writing each other's watched paths
+// would otherwise cascade forever, one round per tick, with no diagnosis.
+const MaxCascadeRounds = 1000
+
+// CommitCascadeChanges records all pending cascade paths for next-tick
+// triggering, and reports whether the cascade has run away.
+//
+// Convergence normally happens on its own: an unchanged write records nothing
+// (see Interpreter.ChangedPaths), so a watcher that recomputes the same value
+// stops cascading by itself. This cap catches the case that cannot converge —
+// a chain whose values genuinely differ each round.
+//
+// Returns the offending paths when the limit is exceeded, so the caller can name
+// what was cascading rather than reporting a bare count.
+func (we *WatcherEngine) CommitCascadeChanges() (runaway bool, paths []string) {
+	if len(we.pendingCascadePaths) == 0 {
+		we.cascadeRounds = 0
+		we.clearPendingCascadePaths()
+		return false, nil
+	}
+
+	we.cascadeRounds++
+	if we.cascadeRounds > MaxCascadeRounds {
+		for pathStr := range we.pendingCascadePaths {
+			paths = append(paths, pathStr)
+		}
+		sort.Strings(paths)
+		we.cascadeRounds = 0
+		we.clearPendingCascadePaths()
+		return true, paths
+	}
+
 	for pathStr := range we.pendingCascadePaths {
 		we.RecordChange(pathStr)
 	}
 	we.clearPendingCascadePaths()
+	return false, nil
 }
 
 // DiscardCascadeChanges clears pending cascade paths without recording them (used on rollback)

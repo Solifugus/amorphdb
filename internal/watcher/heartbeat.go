@@ -182,11 +182,23 @@ func (he *HeartbeatEngine) executeTick() *TickResult {
 		}
 	}
 
-	// Cascade: Record written paths for next-tick triggering of dependent watchers
-	he.watcherEngine.CommitCascadeChanges()
-
+	// Close out this tick BEFORE recording the cascade. The order matters: Tick
+	// advances the watermark that GetTriggeredWatchers compares against, and
+	// ClearChangeLog empties the log. Recording the cascade first — as this did
+	// — meant every cascade entry was stamped before the new watermark and then
+	// wiped, so a cascading watcher could never fire even once the paths were
+	// collected correctly.
 	he.watcherEngine.Tick()
 	he.watcherEngine.ClearChangeLog()
+
+	// Cascade: record changed paths for next-tick triggering of dependent
+	// watchers. A chain that cannot converge is stopped here and reported,
+	// rather than cascading every tick indefinitely.
+	if runaway, paths := he.watcherEngine.CommitCascadeChanges(); runaway {
+		result.Errors = append(result.Errors, fmt.Sprintf(
+			"watcher cascade exceeded %d consecutive rounds and was stopped; still changing: %v",
+			MaxCascadeRounds, paths))
+	}
 
 	return result
 }
