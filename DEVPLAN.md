@@ -46,7 +46,6 @@ produced. This file is deliberately kept to the work that remains.
 | 26 | Comparison and range temporal queries | Temporal | a decision: what a range query returns |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | — |
 | 29 | Watcher cascade: convergence by design | Watchers | — |
-| 32 | Reading a stored container returns silently wrong answers | Interpreter | — |
 
 **Two decisions are waiting**, both recorded in the steps that need them: what a
 range temporal query returns (Step 26), and whether time arithmetic gets a real
@@ -717,7 +716,27 @@ go test ./...
 
 ### Step 32 — Reading a stored container returns silently wrong answers
 
-**Status:** TODO
+**Status:** DONE (completed: 2026-07-31) — `reconstructRecord` now enumerates a
+stored path's children via `ChildrenWithNames` and builds a Record. `my.p` reads
+as its fields, a projection over a stored path returns them, and `..count`
+answers correctly.
+
+**Deviation from the agreed design, deliberate.** The decision recorded below was
+"one level". Implementing that would render a populated container child as `{}` —
+the identical misleading emptiness this step exists to remove — so the walk
+recurses and is bounded by a shared node budget (`MaxRecordNodes`, 10,000)
+instead. Exhausting the budget returns an `unknown` naming the limit rather than
+a truncated record.
+
+**Found while doing it:** `TestReadKeySelector_ComparisonFilterStillWorks` had
+been passing vacuously. `world.staff` read as an empty record, so the filter
+predicate never ran — and field resolution inside `filterRecord` was broken:
+`world.staff[age > 30]` resolved `age` as a bare path (`my.age`) rather than the
+entry's field, giving "path not found". `filterRecord` now binds each entry's
+fields by name. That is the third test today found to be passing because the
+feature under it did nothing.
+
+Tests: `internal/mbl/interpreter/stored_record_test.go`.
 
 **Discovered:** 2026-07-30, while checking whether the `Children` protocol stub
 mattered. It did not — nothing reached it. This is what is actually broken.

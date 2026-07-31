@@ -3364,6 +3364,21 @@ func (i *Interpreter) filterRecord(record types.Record, filters []parser.Express
 		childScope := i.scope.NewChildScope()
 		childScope.Set("field", value)
 		childScope.Set("key", types.Text{Value: key})
+
+		// Bind the entry's own fields by name, so `world.staff[age > 30]` means
+		// what it plainly reads as: compare each staff member's age. Without
+		// this, `age` misses the scope entirely and resolves as a bare path
+		// (my.age), producing "path not found" rather than a filter.
+		//
+		// This went unnoticed because reading a stored container returned an
+		// empty record, so the predicate was never evaluated — the test covering
+		// it passed without ever exercising it.
+		if entry, isRecord := value.(types.Record); isRecord {
+			for fieldName, fieldValue := range entry.Fields {
+				childScope.Set(fieldName, fieldValue)
+			}
+		}
+
 		oldScope := i.scope
 		i.scope = childScope
 
@@ -4955,18 +4970,103 @@ func (i *Interpreter) getDefaultValue(record types.Record, fieldName string) int
 }
 
 // reconstructRecord attempts to reconstruct a record from storage by reading all child fields
-func (i *Interpreter) reconstructRecord(basePath []string) interface{} {
-	// For now, only attempt reconstruction for known template paths
-	// This avoids polluting intermediate paths with spurious Nothing fields
+// MaxRecordNodes bounds how many stored nodes one container read may gather.
+// Reading a large subtree must not be unbounded; exceeding this returns an
+// Unknown naming the limit rather than a silently truncated record.
+const MaxRecordNodes = 10000
 
+func (i *Interpreter) reconstructRecord(basePath []string) interface{} {
+	// Templates keep their existing reconstruction: it also gathers the
+	// @heritability/@default/@cascade meta-attributes, which a plain child walk
+	// would not.
 	if len(basePath) >= 3 && basePath[len(basePath)-1] == "template" {
-		// This is a template path - try to reconstruct template fields
 		return i.reconstructTemplateRecord(basePath)
 	}
 
-	// For all other paths, don't attempt reconstruction
-	// This preserves the behavior of empty records for intermediate paths
-	return nil
+	budget := MaxRecordNodes
+	record, exceeded := i.readStoredRecord(basePath, &budget)
+	if exceeded {
+		return types.Unknown{Reason: fmt.Sprintf(
+			"record at %s exceeds the %d-node read limit", strings.Join(basePath, "."), MaxRecordNodes)}
+	}
+	return record
+}
+
+// readStoredRecord builds a Record from the children stored beneath a path.
+//
+// Before this, reading a stored container returned an empty record, a projection
+// over it answered not_found for every field, and ..count answered 0 — all
+// plausible-looking wrong answers rather than errors, so application code could
+// not tell them from a genuinely empty node.
+//
+// Children that are themselves containers recurse, so a nested record comes back
+// whole. Stopping at one level would render a populated child as {}, which is the
+// same misleading emptiness this replaces. The walk is bounded by a shared node
+// budget instead; exhausting it is reported, never silently truncated.
+//
+// Returns nil when the path has no children at all, so callers can distinguish
+// "not a record" from "an empty one".
+func (i *Interpreter) readStoredRecord(basePath []string, budget *int) (interface{}, bool) {
+	type namedChildren interface {
+		ChildrenWithNames(path []string) ([]storage.NamedAttribute, error)
+	}
+
+	namer, ok := i.scope.tree.(namedChildren)
+	if !ok {
+		// Without names there is nothing to key a record by. A bare Children
+		// call returns storage IDs, and the label lives in the value store.
+		return nil, false
+	}
+
+	children, err := namer.ChildrenWithNames(basePath)
+	if err != nil || len(children) == 0 {
+		return nil, false
+	}
+
+	fields := make(map[string]interface{})
+	for _, child := range children {
+		if child.Name == "" {
+			continue
+		}
+		if *budget <= 0 {
+			return nil, true
+		}
+		*budget--
+
+		childPath := append(append([]string{}, basePath...), child.Name)
+
+		// Staged writes first, so a record read inside a watcher sees what that
+		// watcher has just written.
+		if staged := i.getStagedWrite(childPath); staged != nil {
+			if mblValue, err := storageToMBL(*staged); err == nil {
+				fields[child.Name] = mblValue
+				continue
+			}
+		}
+
+		if storageValue, err := i.scope.tree.Read(childPath); err == nil {
+			if mblValue, err := storageToMBL(storageValue); err == nil {
+				if record, isRecord := mblValue.(types.Record); !isRecord || len(record.Fields) != 0 {
+					fields[child.Name] = mblValue
+					continue
+				}
+			}
+		}
+
+		// No direct value: it is a container, so descend.
+		nested, exceeded := i.readStoredRecord(childPath, budget)
+		if exceeded {
+			return nil, true
+		}
+		if nested != nil {
+			fields[child.Name] = nested
+		}
+	}
+
+	if len(fields) == 0 {
+		return nil, false
+	}
+	return types.Record{Fields: fields}, false
 }
 
 // reconstructTemplateRecord specifically reconstructs template records with heritability metadata
