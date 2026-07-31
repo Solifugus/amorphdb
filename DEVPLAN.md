@@ -45,7 +45,6 @@ produced. This file is deliberately kept to the work that remains.
 | 24 | Recurrence rules (RFC 5545 RRULE) | Date/Time | Step 23 |
 | 26 | Comparison and range temporal queries | Temporal | a decision: what a range query returns |
 | 27 | Instance meta attributes `.@time` / `.@agent` | Temporal | — |
-| 29 | Watcher cascade: convergence by design | Watchers | — |
 
 **Two decisions are waiting**, both recorded in the steps that need them: what a
 range temporal query returns (Step 26), and whether time arithmetic gets a real
@@ -587,9 +586,10 @@ go test ./internal/mbl/... && go test ./...
 
 ### Step 29 — Watcher cascade: convergence by design
 
-**Status:** PARTIALLY DONE (2026-07-30) — cascade now works and converges.
-Remaining: the within-tick drain and the `quietly:` block form (see "What is
-left" at the end of this step). Design revised 2026-07-30 after studying the watcher systems in
+**Status:** DONE (completed: 2026-07-31) — cascade works and converges, matching
+is descendant-aware, and the `quietly:` block form is in. The within-tick drain
+was closed as not-intended rather than built (see the progress note). Design
+revised 2026-07-30 after studying the watcher systems in
 `~/development/gbasic` and `~/development/HiLow`. Supersedes the earlier
 "repair the collection and audit every watcher" framing.
 
@@ -850,9 +850,21 @@ Tests: `internal/watcher/cascade_test.go` — a dependent watcher is reached, an
 unchanged self-write converges, a `(quietly)` self-write does not cascade, the
 cap fires and names paths, and the counter resets on quiet rounds.
 
-**What is left of this step:**
-- The **`quietly:` block form**. Per-assignment `(quietly)` works; the block is
-  lexer/parser work and independent of everything above.
+**`quietly:` block form — done 2026-07-31.** A block in which every write is
+quiet, reusing the existing keyword with MBL's block convention:
+
+```
+quietly:
+    my.job.last_checked = now()
+    my.job.check_count = my.job.check_count + 1
+```
+
+The suppression is honoured in `stageWrite` rather than at each call site, which
+is what stops it leaking: a quiet write that auto-creates ancestor nodes was
+still announcing those ancestors, and with descendant matching a watcher on the
+parent would have fired. Depth is a counter restored with `defer`, so nesting
+works and an early return cannot leave the interpreter permanently quiet — which
+would silently stop every watcher in the process.
 
 **Closed, not outstanding: the within-tick drain.** An earlier draft of this step
 proposed adopting gBASIC's flat cursor-based drain so a chain settles inside one

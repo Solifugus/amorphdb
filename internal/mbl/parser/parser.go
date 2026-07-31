@@ -347,6 +347,13 @@ func (p *Parser) parseStatement() Statement {
 
 	p.skipComments()
 
+	// `quietly:` opens a block in which every assignment is quiet. Checked
+	// before the switch because a bare (quietly) in expression position must
+	// still reach the prefix parser, so this cannot be an unconditional case.
+	if p.currentToken.Type == lexer.QUIETLY && p.peekToken.Type == lexer.DEFINE {
+		return p.parseQuietlyBlockStatement()
+	}
+
 	switch p.currentToken.Type {
 	case lexer.IF:
 		return p.parseIfStatement()
@@ -958,6 +965,28 @@ func (p *Parser) parseIfStatement() *IfStatement {
 }
 
 // parseWhileStatement parses while loops
+// parseQuietlyBlockStatement parses `quietly:` followed by an indented block.
+func (p *Parser) parseQuietlyBlockStatement() Statement {
+	stmt := &QuietlyBlockStatement{Token: p.currentToken}
+
+	if !p.expectPeek(lexer.DEFINE) {
+		return nil
+	}
+
+	// Skip NEWLINE tokens before INDENT
+	for p.peekToken.Type == lexer.NEWLINE {
+		p.nextToken()
+	}
+
+	if !p.expectPeek(lexer.INDENT) {
+		return nil
+	}
+
+	stmt.Body = p.parseBlockStatement()
+
+	return stmt
+}
+
 func (p *Parser) parseWhileStatement() *WhileStatement {
 	stmt := &WhileStatement{Token: p.currentToken}
 

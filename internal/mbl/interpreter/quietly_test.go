@@ -116,3 +116,83 @@ func TestPlainAssignmentIsNotQuiet(t *testing.T) {
 		t.Errorf("plain write produced %d trigger paths, want 1", got)
 	}
 }
+
+// --- quietly: block form (DEVPLAN Step 29) ---
+
+// TestQuietlyBlockSuppressesEveryWrite covers the block form. Per-assignment
+// (quietly) gets noisy when a watcher body writes several paths.
+func TestQuietlyBlockSuppressesEveryWrite(t *testing.T) {
+	_, interp := freshTreeInterp(t, "quiet-block")
+
+	runMBL(t, interp, "quietly:\n    my.a = 1\n    my.b = 2\n    my.c.nested = 3")
+
+	if paths := interp.ChangedPaths(); len(paths) != 0 {
+		t.Errorf("quiet block announced %v — nothing inside it should trigger watchers", paths)
+	}
+
+	// The writes must still have happened; suppression is about notification.
+	if got := runMBL(t, interp, `my.a`); got != (types.Number{Value: 1}) {
+		t.Errorf("my.a = %#v, want Number{1}", got)
+	}
+	if got := runMBL(t, interp, `my.b`); got != (types.Number{Value: 2}) {
+		t.Errorf("my.b = %#v, want Number{2}", got)
+	}
+	if got := runMBL(t, interp, `my.c.nested`); got != (types.Number{Value: 3}) {
+		t.Errorf("my.c.nested = %#v, want Number{3}", got)
+	}
+}
+
+// TestQuietlyBlockDoesNotLeakIntermediates is the specific leak this had at
+// first: a quiet write that auto-creates parent nodes was still announcing the
+// parents, and with descendant matching a watcher on the parent would fire.
+func TestQuietlyBlockDoesNotLeakIntermediates(t *testing.T) {
+	_, interp := freshTreeInterp(t, "quiet-intermediates")
+
+	// Nothing exists yet, so this creates every ancestor on the way down.
+	runMBL(t, interp, "quietly:\n    my.deep.nested.value = 42")
+
+	if paths := interp.ChangedPaths(); len(paths) != 0 {
+		t.Errorf("quiet block announced %v — auto-created ancestors leaked", paths)
+	}
+}
+
+// TestWritesAfterAQuietlyBlockAreLoudAgain guards the depth counter: a block
+// that leaves the interpreter permanently quiet would silently stop every
+// watcher in the process.
+func TestWritesAfterAQuietlyBlockAreLoudAgain(t *testing.T) {
+	_, interp := freshTreeInterp(t, "quiet-restore")
+
+	runMBL(t, interp, "quietly:\n    my.a = 1")
+	interp.ChangedPaths()
+
+	runMBL(t, interp, `my.loud = 2`)
+	if paths := interp.ChangedPaths(); len(paths) == 0 {
+		t.Error("a write after the block announced nothing — quiet depth was not restored")
+	}
+}
+
+// TestNestedQuietlyBlocksRestoreCorrectly covers the counter rather than a flag.
+func TestNestedQuietlyBlocksRestoreCorrectly(t *testing.T) {
+	_, interp := freshTreeInterp(t, "quiet-nested")
+
+	runMBL(t, interp, "quietly:\n    my.a = 1\n    quietly:\n        my.b = 2\n    my.c = 3")
+	if paths := interp.ChangedPaths(); len(paths) != 0 {
+		t.Errorf("nested quiet blocks announced %v", paths)
+	}
+
+	runMBL(t, interp, `my.after = 9`)
+	if paths := interp.ChangedPaths(); len(paths) == 0 {
+		t.Error("nesting left the interpreter permanently quiet")
+	}
+}
+
+// TestBareQuietlyStillParsesAsAModifier checks the block dispatch did not
+// capture the per-assignment form, which shares the keyword.
+func TestBareQuietlyStillParsesAsAModifier(t *testing.T) {
+	_, interp := freshTreeInterp(t, "quiet-modifier")
+
+	res := runMBL(t, interp, `my.x = (quietly) "still works"`)
+	if got, ok := res.(types.Text); !ok || got.Value != "still works" {
+		t.Errorf("per-assignment (quietly) = %#v, want Text{still works}", res)
+	}
+}

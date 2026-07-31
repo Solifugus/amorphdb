@@ -181,6 +181,27 @@ func (le *LiteralExpression) String() string {
 func (le *LiteralExpression) TokenLiteral() string { return le.Token.Literal }
 func (le *LiteralExpression) Position() (int, int) { return le.Token.Line, le.Token.Column }
 
+// QuietlyBlockStatement represents `quietly:` followed by an indented block.
+// Every assignment inside is treated as if it carried the (quietly) modifier:
+// the writes happen and are recorded, but none of them trigger watchers.
+//
+// The block form exists because per-assignment (quietly) gets noisy when a
+// watcher body writes several paths. It reuses the existing keyword with MBL's
+// normal block convention rather than introducing new syntax.
+type QuietlyBlockStatement struct {
+	Token lexer.Token // The QUIETLY token
+	Body  *BlockStatement
+}
+
+func (qb *QuietlyBlockStatement) statementNode() {}
+
+func (qb *QuietlyBlockStatement) String() string {
+	return fmt.Sprintf("quietly: %s", qb.Body.String())
+}
+
+func (qb *QuietlyBlockStatement) TokenLiteral() string { return qb.Token.Literal }
+func (qb *QuietlyBlockStatement) Position() (int, int) { return qb.Token.Line, qb.Token.Column }
+
 // InterpolationPart is one piece of an interpolating text literal: either a run
 // of literal text or a path to evaluate. Exactly one of the two is set — Path is
 // nil for literal chunks.

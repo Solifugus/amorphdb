@@ -126,6 +126,7 @@ type Interpreter struct {
 	errors              []string           // Accumulated errors during execution
 	commitBuffer        *CommitBuffer      // Staged writes for batched commit
 	changedPaths        [][]string         // Paths that actually changed at flush, for watcher triggering
+	quietDepth          int                // >0 while inside a `quietly:` block; suppresses watcher triggering
 	coordinator         *CommitCoordinator // Optional coordinator for cross-execution batching
 	// procedures holds *Procedure values bound at a path. Keyed by the
 	// pre-resolution joined path string (e.g. "my.functions.triple"),
@@ -312,12 +313,17 @@ func (i *Interpreter) stageWriteQuietly(path []string, value storage.Value, auth
 		return types.Unknown{Reason: "commit buffer exceeded"}
 	}
 
-	// Stage the write
+	// Stage the write. A `quietly:` block makes every write inside it quiet,
+	// including ones staged indirectly — the intermediate nodes an assignment
+	// auto-creates, record fields, asset writes. Honouring the depth here rather
+	// than at each call site is what stops those leaking: without it a quiet
+	// write that created a parent node still announced the parent, and with
+	// descendant matching a watcher on the parent would fire.
 	pendingWrite := PendingWrite{
 		path:   path,
 		value:  value,
 		author: author,
-		quiet:  quiet,
+		quiet:  quiet || i.quietDepth > 0,
 	}
 
 	i.commitBuffer.writes = append(i.commitBuffer.writes, pendingWrite)
@@ -483,6 +489,9 @@ func (i *Interpreter) evalStatement(node parser.Statement) interface{} {
 		return i.evalExpression(node.Expression)
 	case *parser.IfStatement:
 		return i.evalIfStatement(node)
+	case *parser.QuietlyBlockStatement:
+		return i.evalQuietlyBlock(node)
+
 	case *parser.WhileStatement:
 		return i.evalWhileStatement(node)
 	case *parser.ForStatement:
@@ -684,6 +693,20 @@ func (i *Interpreter) evalExpression(node parser.Expression) interface{} {
 }
 
 // evalLiteral evaluates literal values
+// evalQuietlyBlock runs a `quietly:` block with watcher triggering suppressed for
+// every write inside it, including writes made by procedures the block calls.
+//
+// The depth is a counter rather than a flag so nested blocks restore correctly,
+// and it is restored with defer so an early return or an Unknown cannot leave the
+// interpreter permanently quiet — which would silently stop every watcher in the
+// process.
+func (i *Interpreter) evalQuietlyBlock(node *parser.QuietlyBlockStatement) interface{} {
+	i.quietDepth++
+	defer func() { i.quietDepth-- }()
+
+	return i.evalBlockStatement(node.Body)
+}
+
 // evalInterpolatedString evaluates a ~"…{my.path}…"~ literal by concatenating
 // its literal runs and its interpolated paths in order. Concatenation goes
 // through types.Concatenate so a path's value renders exactly as it would with
@@ -1509,7 +1532,7 @@ func (i *Interpreter) evalAssignment(node *parser.AssignmentStatement) interface
 		// (quietly) assignment commits normally but is withheld from the
 		// watcher engine's trigger list — the documented guard against a
 		// watcher that writes to a path it observes re-triggering itself.
-		quiet := node.Modifier != nil && *node.Modifier == "quietly"
+		quiet := i.quietDepth > 0 || (node.Modifier != nil && *node.Modifier == "quietly")
 		result := i.stageWriteQuietly(path, storageValue, i.scope.agent, quiet)
 		if result != nil {
 			if unknown, ok := result.(types.Unknown); ok {
