@@ -21,6 +21,8 @@ test_*.go
 temp.txt
 problematic_inputs.txt
 coverage.out
+tree.txt
+section*_results.txt
 
 # Development and debugging files
 lexer_memory_monitor.go
@@ -36,6 +38,7 @@ safe_lexer_wrapper.go
 *.swp
 *.swo
 *~
+.*.kate-swp
 
 # OS generated files
 .DS_Store
