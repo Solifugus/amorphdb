@@ -72,7 +72,7 @@ amorphdb/
 │   ├── service/        # daemon service layer (connection, mesh integration)
 │   ├── storage/        # storage engine (attributes, instances, values, tree,
 │   │                   #   agent, bridge, defrag, freelist, hash, hashindex)
-│   ├── temporal/       # temporal query support (in progress)
+│   ├── temporal/       # EMPTY — temporal support lives in storage + interpreter
 │   ├── types/          # type system (types, coerce, compare, path, serialize, agent)
 │   ├── watcher/        # watcher engine (engine, heartbeat integration)
 │   └── zone_deprecated/ # old zone/hash-ring — SUPERSEDED by the subscription
@@ -142,7 +142,14 @@ Use this as a quick reference. The spec documents have full detail.
 - Type-first definitions (`procedure name(x):`, `watch name(paths):`) and the
   path-first equivalent (`my.name: procedure(x):`) — both forms work
 - Watchers (value-change and append forms, multi-path, predicate filter)
-- Quiet assignment `(quietly)`
+- Quiet assignment `(quietly)` — the write happens and is recorded; it is
+  withheld from watcher triggering
+- Recursive assignment — `my.deep.nested.value = 42` auto-creates the
+  intermediate nodes (DEVPLAN Step 3; re-verified 2026-07-31)
+- Watcher cascade — a watcher's writes trigger dependent watchers on the *next*
+  tick, and chains converge because unchanged writes announce nothing. Capped and
+  reported if a chain cannot converge. Fixed 2026-07-30 (DEVPLAN Step 29); it had
+  never worked before that.
 - Heartbeat atomicity and staged write model
 - Record literal assignment (`x = { name: "...", age: 55 }`)
 - Projection syntax (`path{ name, age }`) — including projection over a stored path
@@ -209,7 +216,6 @@ Use this as a quick reference. The spec documents have full detail.
 - Reference auth watchers (login.mbl, signup.mbl) with Argon2id password scheme
 
 ### 🚧 Specified but Not Yet Implemented
-- Recursive assignment (auto-create intermediate nodes)
 - Wildcard projections (`{ price_of_* }`, `{ * }`, `{ *, not field }`)
 - Embed keyword in record bodies (`embed my.record`)
 - `my.computer.files.import/export` — JSON, CSV, TSV, TOML formats (stubbed)
