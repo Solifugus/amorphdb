@@ -191,9 +191,12 @@ amorphdb/
 
 ## License
 
-AmorphDB is proprietary software — see [LICENSE](LICENSE). It is licensed, not
-sold, and no open source license is granted.
+AmorphDB is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE)
+(SPDX: `PolyForm-Noncommercial-1.0.0`).
 
-The license permits internal evaluation, testing, and development. Production
-and commercial deployment, on-premise or hosted, requires a separate written
-commercial license. Contact matthewct@gmail.com.
+You may read, run, modify, and redistribute the source freely — for any
+noncommercial purpose. That includes personal use, study, research, hobby
+projects, and use by charities, schools, public research bodies, and government
+institutions.
+
+Commercial use requires a separate written license. Contact matthewct@gmail.com.

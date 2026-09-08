@@ -102,7 +102,8 @@ Startup Partnership Tiers:
 - **Exit provisions**: Acquisition opportunities, IPO considerations
 
 ### Licensing Strategy
-- **Proprietary software**: No open source license
+- **Source-available, noncommercial**: PolyForm Noncommercial License 1.0.0 —
+  source is public, and all noncommercial use is free
 - **Commercial licensing**: On-premise and SaaS deployments
 - **Developer licensing**: Separate terms for ecosystem partners
 
